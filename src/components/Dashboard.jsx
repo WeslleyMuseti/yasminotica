@@ -115,7 +115,7 @@ const Dashboard = ({ data }) => {
                   strokeWidth={4} 
                   fillOpacity={1} 
                   fill="url(#colorFat)" 
-                  animationDuration={2000}
+                  isAnimationActive={false}
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -150,12 +150,12 @@ const Dashboard = ({ data }) => {
                 />
                 <YAxis hide />
                 <Tooltip cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
-                <Bar dataKey="seguidores" radius={[6, 6, 0, 0]} animationDuration={1500}>
+                <Bar dataKey="seguidores" radius={[6, 6, 0, 0]} isAnimationActive={false}>
                   {chartData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#38bdf8' : '#818cf8'} />
                   ))}
                 </Bar>
-                <Bar dataKey="engajamento" fill="#fff" fillOpacity={0.1} radius={[6, 6, 0, 0]} animationDuration={2000} />
+                <Bar dataKey="engajamento" fill="#fff" fillOpacity={0.1} radius={[6, 6, 0, 0]} isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
           </div>
