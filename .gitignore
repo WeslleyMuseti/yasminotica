@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Dados sensíveis da ótica (não versionar)
+public/*.xlsx
+public/*.xls
+public/*.csv
