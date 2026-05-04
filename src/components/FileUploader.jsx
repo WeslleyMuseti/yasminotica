@@ -15,7 +15,7 @@ const SHEET_CONFIG = {
   'ESTOQUE ENTRADA SAÍDAS': { label: 'Estoque',              color: 'emerald' },
 };
 
-const FileUploader = ({ onDataLoaded }) => {
+const FileUploader = ({ onDataLoaded, onCancel }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [file, setFile]   = useState(null);
   const [status, setStatus] = useState('idle');
@@ -36,11 +36,24 @@ const FileUploader = ({ onDataLoaded }) => {
           const sheetData = { 'Planilha': parsed.data.filter(r => Object.values(r).some(v => v)) };
           setTimeout(() => { setSheets(Object.keys(sheetData)); onDataLoaded(sheetData); setStatus('success'); }, 800);
         } else {
-          // XLSX: carrega todas as abas
+          // XLSX: carrega todas as abas detectando cabeçalho real
           const wb = XLSX.read(e.target.result, { type: 'binary', cellDates: true });
           const sheetData = {};
+          const parseSheet = (ws) => {
+            const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+            if (!raw || raw.length === 0) return [];
+            let headerIdx = 0;
+            for (let i = 0; i < Math.min(raw.length, 10); i++) {
+              const nonEmpty = raw[i].filter(c => c !== '' && c !== null && c !== undefined).length;
+              if (nonEmpty >= 3) { headerIdx = i; break; }
+            }
+            const headers = raw[headerIdx].map((h, i) => (h !== '' && h !== null && h !== undefined ? String(h).trim() : `COL_${i}`));
+            return raw.slice(headerIdx + 1)
+              .map(row => { const obj = {}; headers.forEach((h, i) => { obj[h] = row[i] !== undefined ? row[i] : ''; }); return obj; })
+              .filter(r => Object.values(r).some(v => v !== '' && v !== null && v !== undefined));
+          };
           wb.SheetNames.forEach(name => {
-            const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '' });
+            const rows = parseSheet(wb.Sheets[name]);
             if (rows.length > 0) sheetData[name] = rows;
           });
           const names = Object.keys(sheetData);
@@ -56,13 +69,18 @@ const FileUploader = ({ onDataLoaded }) => {
   };
 
   return (
-    <div className="w-full max-w-3xl mx-auto p-4">
+    <div className="w-full max-w-4xl mx-auto p-4 relative z-10">
+      {/* Glow de Fundo */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3/4 h-3/4 bg-sky-500/20 blur-[120px] rounded-full pointer-events-none -z-10" />
+      
       <motion.div
         onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={(e) => { e.preventDefault(); setIsDragging(false); processFile(e.dataTransfer.files[0]); }}
-        animate={{ scale: isDragging ? 1.02 : 1, borderColor: isDragging ? 'rgba(56,189,248,0.5)' : 'rgba(255,255,255,0.1)' }}
-        className="glass-card p-16 relative overflow-hidden flex flex-col items-center justify-center border-2 border-dashed transition-colors duration-500"
+        animate={{ scale: isDragging ? 1.02 : 1 }}
+        className={`p-12 sm:p-20 relative overflow-hidden flex flex-col items-center justify-center border-2 border-dashed rounded-[3rem] transition-all duration-500 ${
+          isDragging ? 'border-sky-500/50 bg-sky-500/10 shadow-[0_0_50px_rgba(14,165,233,0.2)]' : 'border-white/10 bg-[#0b1120]/80 backdrop-blur-3xl shadow-2xl'
+        }`}
       >
         <AnimatePresence>
           {isDragging && (
@@ -77,9 +95,9 @@ const FileUploader = ({ onDataLoaded }) => {
         <motion.div
           animate={status === 'loading' ? { rotate: 360 } : {}}
           transition={status === 'loading' ? { repeat: Infinity, duration: 1.5, ease: 'linear' } : {}}
-          className={`p-6 rounded-3xl bg-gradient-to-br transition-all duration-500 shadow-2xl ${
-            status === 'success' ? 'from-emerald-500 to-teal-600' :
-            status === 'error' ? 'from-rose-500 to-pink-600' : 'from-sky-500 to-indigo-600'
+          className={`p-6 sm:p-8 rounded-[2rem] bg-gradient-to-br transition-all duration-500 shadow-2xl relative group ${
+            status === 'success' ? 'from-emerald-500 to-teal-600 shadow-[0_0_40px_rgba(16,185,129,0.3)]' :
+            status === 'error' ? 'from-rose-500 to-pink-600 shadow-[0_0_40px_rgba(244,63,94,0.3)]' : 'from-sky-500 to-indigo-600 shadow-[0_0_40px_rgba(14,165,233,0.3)]'
           }`}
         >
           {status === 'idle' && <Upload className="w-10 h-10 text-white" />}
@@ -116,13 +134,20 @@ const FileUploader = ({ onDataLoaded }) => {
             )}
           </AnimatePresence>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <label htmlFor="file-upload" className="button-primary" style={{ cursor: 'pointer', display: 'inline-block', margin: 0 }}>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-4 w-full max-w-2xl mx-auto">
+            {onCancel && (
+              <button onClick={onCancel} className="flex-1 px-6 py-4 rounded-2xl border border-white/5 bg-white/5 hover:bg-white/10 hover:border-white/10 text-slate-300 hover:text-white transition-all text-sm font-bold flex items-center justify-center gap-2 shadow-lg">
+                <X size={18} className="text-rose-400" /> Cancelar
+              </button>
+            )}
+            
+            <label htmlFor="file-upload" className="flex-1 px-8 py-4 rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-400 hover:to-indigo-400 text-white transition-all text-sm font-black flex items-center justify-center gap-2 shadow-[0_0_30px_rgba(14,165,233,0.3)] hover:shadow-[0_0_50px_rgba(14,165,233,0.5)] transform hover:scale-[1.02]" style={{ cursor: 'pointer' }}>
+              <Upload size={18} />
               {status === 'success' ? 'Trocar Arquivo' : 'Escolher Arquivo'}
             </label>
-            <a href="/planilha_teste_otica.csv" download
-              className="px-6 py-4 rounded-full border border-slate-600 hover:border-slate-400 hover:bg-slate-800 transition-all text-sm font-bold flex items-center gap-2">
-              <Download size={16} /> Baixar Modelo
+
+            <a href="/planilha_teste_otica.csv" download className="flex-1 px-6 py-4 rounded-2xl border border-white/5 bg-white/5 hover:bg-white/10 hover:border-white/10 text-slate-300 hover:text-white transition-all text-sm font-bold flex items-center justify-center gap-2 shadow-lg">
+              <Download size={18} className="text-emerald-400" /> Baixar Modelo
             </a>
           </div>
         </div>

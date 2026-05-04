@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Search, Download, Table2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, Table2, Edit2, Save, X } from 'lucide-react';
+import RowEditModal from './RowEditModal';
 
-const PAGE_SIZE = 15;
+const PAGE_SIZE = 100;
 
-const COLUMN_LABELS = {
+export const COLUMN_LABELS = {
   'OS': 'OS', 'DATA': 'Data', 'ANO': 'Ano', 'MÊS': 'Mês', 'CIDADE': 'Cidade',
   'NOME': 'Nome', 'DATA NASCIMENTO': 'Dt. Nasc.', 'TELEFONE CLIENTE': 'Telefone',
   'PRODUTO': 'Produto', 'DATA ENTREGA ÓCULOS': 'Entrega',
@@ -34,23 +35,47 @@ const fmt = (val) => {
   return s.length > 35 ? s.slice(0, 35) + '…' : s;
 };
 
-const DataTable = ({ sheetName, rows }) => {
+const DataTable = ({ sheetName, rows, onRowUpdate }) => {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [editingRow, setEditingRow] = useState(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+
+  const handleEditClick = (row) => {
+    setEditingRow(row);
+    setIsEditModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setEditingRow(null);
+    setIsEditModalOpen(false);
+  };
+
+  const handleSaveModal = (updatedData) => {
+    if (onRowUpdate) {
+      onRowUpdate(sheetName, editingRow, updatedData);
+    }
+    setEditingRow(null);
+    setIsEditModalOpen(false);
+  };
 
   const allCols = useMemo(() => {
     if (!rows || rows.length === 0) return [];
     const keys = new Set();
-    rows.slice(0, 20).forEach(r => Object.keys(r).forEach(k => keys.add(k)));
-    return [...keys].filter(k => k && k !== '').slice(0, 18);
+    rows.forEach(r => Object.keys(r).forEach(k => keys.add(k)));
+    return [...keys].filter(k => k && k !== '');
   }, [rows]);
 
   const filtered = useMemo(() => {
-    if (!search) return rows;
-    const q = search.toLowerCase();
-    return rows.filter(r =>
-      Object.values(r).some(v => String(v).toLowerCase().includes(q))
-    );
+    let result = rows;
+    if (search) {
+      const q = search.toLowerCase();
+      result = rows.filter(r =>
+        Object.values(r).some(v => String(v).toLowerCase().includes(q))
+      );
+    }
+    // Inverte a ordem para que os registros mais recentes (fim da planilha) apareçam primeiro
+    return [...result].reverse();
   }, [rows, search]);
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
@@ -92,6 +117,7 @@ const DataTable = ({ sheetName, rows }) => {
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="bg-white/5 border-b border-white/5">
+              <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-widest text-slate-400 whitespace-nowrap w-20">Ações</th>
               {allCols.map(col => (
                 <th key={col} className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-widest text-slate-400 whitespace-nowrap">
                   {COLUMN_LABELS[col] || col}
@@ -102,6 +128,11 @@ const DataTable = ({ sheetName, rows }) => {
           <tbody>
             {pageData.map((row, i) => (
               <tr key={i} className="border-b border-white/5 hover:bg-white/3 transition-colors">
+                <td className="px-4 py-3 text-slate-300 whitespace-nowrap text-xs">
+                  <button onClick={() => handleEditClick(row)} className="p-1.5 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 rounded-lg transition-colors" title="Editar">
+                    <Edit2 size={14} />
+                  </button>
+                </td>
                 {allCols.map(col => (
                   <td key={col} className="px-4 py-3 text-slate-300 whitespace-nowrap text-xs">
                     {fmt(row[col])}
@@ -148,6 +179,16 @@ const DataTable = ({ sheetName, rows }) => {
           </div>
         </div>
       )}
+
+      {/* Modal de Edição */}
+      <RowEditModal
+        isOpen={isEditModalOpen}
+        onClose={handleCloseModal}
+        onSave={handleSaveModal}
+        rowData={editingRow}
+        allCols={allCols}
+        COLUMN_LABELS={COLUMN_LABELS}
+      />
     </motion.div>
   );
 };
