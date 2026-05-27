@@ -20,11 +20,16 @@ $$ language 'plpgsql';
 -- 3. Tabela: clientes
 CREATE TABLE clientes (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    nome VARCHAR(255) NOT NULL,
+    nome_completo VARCHAR(255) NOT NULL,
     documento VARCHAR(20) UNIQUE, -- CPF/CNPJ
-    telefone VARCHAR(20),
+    whatsapp VARCHAR(20),
     email VARCHAR(255),
-    endereco TEXT,
+    instagram VARCHAR(100),
+    rua VARCHAR(255),
+    numero VARCHAR(20),
+    bairro VARCHAR(100),
+    cidade VARCHAR(100),
+    estado CHAR(2),
     criado_em TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     atualizado_em TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

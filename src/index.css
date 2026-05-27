@@ -140,3 +140,22 @@ section {
 .animate-float {
   animation: float 6s ease-in-out infinite;
 }
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #print-section, #print-section * {
+    visibility: visible;
+  }
+  #print-section {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    color: black !important;
+    background: white !important;
+    box-shadow: none !important;
+  }
+  @page { margin: 10mm; }
+}

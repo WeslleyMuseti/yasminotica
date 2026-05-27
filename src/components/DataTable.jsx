@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Search, Table2, Edit2, Save, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, Table2, Edit2, Save, X, ClipboardList } from 'lucide-react';
 import RowEditModal from './RowEditModal';
 
 const PAGE_SIZE = 100;
@@ -35,7 +35,7 @@ const fmt = (val) => {
   return s.length > 35 ? s.slice(0, 35) + '…' : s;
 };
 
-const DataTable = ({ sheetName, rows, onRowUpdate }) => {
+const DataTable = ({ sheetName, rows, onRowUpdate, onGenerateOS }) => {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [editingRow, setEditingRow] = useState(null);
@@ -129,9 +129,16 @@ const DataTable = ({ sheetName, rows, onRowUpdate }) => {
             {pageData.map((row, i) => (
               <tr key={i} className="border-b border-white/5 hover:bg-white/3 transition-colors">
                 <td className="px-4 py-3 text-slate-300 whitespace-nowrap text-xs">
-                  <button onClick={() => handleEditClick(row)} className="p-1.5 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 rounded-lg transition-colors" title="Editar">
-                    <Edit2 size={14} />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => handleEditClick(row)} className="p-1.5 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 rounded-lg transition-colors" title="Editar">
+                      <Edit2 size={14} />
+                    </button>
+                    {onGenerateOS && (
+                      <button onClick={() => onGenerateOS(row)} className="p-1.5 bg-fuchsia-500/10 text-fuchsia-400 hover:bg-fuchsia-500/20 rounded-lg transition-colors" title="Gerar OS">
+                        <ClipboardList size={14} />
+                      </button>
+                    )}
+                  </div>
                 </td>
                 {allCols.map(col => (
                   <td key={col} className="px-4 py-3 text-slate-300 whitespace-nowrap text-xs">

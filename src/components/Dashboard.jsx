@@ -317,117 +317,165 @@ const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick }) => {
   const container = { hidden:{opacity:0}, show:{opacity:1,transition:{staggerChildren:0.08}} };
 
   return (
-    <motion.div variants={container} initial="hidden" animate="show" className="space-y-8 pb-20">
-
-      {/* Badge sincronizado */}
-      {isSynced && (
-        <motion.div variants={{ hidden:{opacity:0}, show:{opacity:1} }}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-black uppercase tracking-widest">
-          <CheckCircle size={12}/> Dados Sincronizados · {availableTabs.length} tabelas · Yasmin Ótica
-        </motion.div>
-      )}
-
-      {/* ─── TAB BAR ─── */}
-      <div className="overflow-x-auto pb-1">
-        <div className="flex gap-2 min-w-max">
-          {availableTabs.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = currentTab === tab.key;
-            const count = (sheets[tab.key] || []).length;
-            return (
-              <button
-                key={tab.key}
-                onClick={() => { setActiveTab(tab.key); setViewMode('overview'); }}
-                className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-sm font-black transition-all whitespace-nowrap border ${
-                  isActive
-                    ? `bg-${tab.color}-500/20 border-${tab.color}-500/30 text-${tab.color}-400`
-                    : 'bg-white/5 border-white/5 text-slate-500 hover:bg-white/10 hover:text-slate-300'
-                }`}
-              >
-                <Icon size={15}/>
-                {tab.label}
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                  isActive ? `bg-${tab.color}-500/20 text-${tab.color}-300` : 'bg-white/10 text-slate-500'
-                }`}>
-                  {count.toLocaleString()}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ─── VIEW MODE TOGGLE ─── */}
-      <div className="flex flex-wrap items-center gap-2 justify-between w-full">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setViewMode('overview')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${
-              viewMode === 'overview' ? 'bg-sky-500/20 text-sky-400 border border-sky-500/20' : 'text-slate-500 hover:text-slate-300 bg-white/5 border border-transparent'
-            }`}
-          >
-            <BarChart2 size={14}/> Visão Geral
-          </button>
-          <button
-            onClick={() => setViewMode('table')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${
-              viewMode === 'table' ? 'bg-sky-500/20 text-sky-400 border border-sky-500/20' : 'text-slate-500 hover:text-slate-300 bg-white/5 border border-transparent'
-            }`}
-          >
-            <Table2 size={14}/> Ver Tabela Completa
-          </button>
-        </div>
-
-        {/* Botão Adicionar Informações */}
-        {onAddClick && currentRows && (
-          <button
-            onClick={() => {
-              const emptyRow = {};
-              if (currentRows.length > 0) {
-                Object.keys(currentRows[0]).forEach(k => emptyRow[k] = '');
-              }
-              onAddClick(currentTab, emptyRow);
-            }}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/30 transition-all ml-auto"
-          >
-            <PlusCircle size={14}/> Adicionar Informações
-          </button>
+    <motion.div variants={container} initial="hidden" animate="show" className="flex flex-col lg:flex-row gap-8 pb-20">
+      
+      {/* ─── SIDEBAR MENU ─── */}
+      <div className="w-full lg:w-64 flex-shrink-0 flex flex-col gap-4">
+        {/* Badge sincronizado */}
+        {isSynced && (
+          <motion.div variants={{ hidden:{opacity:0}, show:{opacity:1} }}
+            className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-black uppercase tracking-widest w-full">
+            <CheckCircle size={14}/> Sincronizado
+          </motion.div>
         )}
+
+        <div className="glass-card p-3 flex flex-col gap-1.5 sticky top-24 backdrop-blur-2xl border-white/10 shadow-2xl relative overflow-hidden">
+          {/* Efeito de luz sutil no topo do menu */}
+          <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
+          
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3 mt-1 px-3 flex items-center gap-2">
+            <Layers size={12} className="text-slate-400" /> Tabelas Disponíveis
+          </h3>
+          
+          <div className="relative flex flex-col gap-1.5 z-10">
+            {availableTabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = currentTab === tab.key;
+              const count = (sheets[tab.key] || []).length;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => { setActiveTab(tab.key); setViewMode('overview'); }}
+                  className={`relative flex items-center justify-between w-full px-4 py-3 rounded-xl text-sm font-bold transition-all duration-300 group ${
+                    isActive
+                      ? `text-${tab.color}-300`
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {/* Hover effect para itens inativos */}
+                  {!isActive && (
+                    <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 rounded-xl transition-opacity duration-300" />
+                  )}
+
+                  {/* Fundo ativo animado (Framer Motion) */}
+                  {isActive && (
+                    <motion.div
+                      layoutId="active-tab-bg"
+                      className={`absolute inset-0 bg-${tab.color}-500/10 border border-${tab.color}-500/20 rounded-xl`}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                    />
+                  )}
+                  {/* Borda lateral iluminada se ativo */}
+                  {isActive && (
+                    <motion.div
+                      layoutId="active-tab-indicator"
+                      className={`absolute left-0 top-1/2 -translate-y-1/2 h-1/2 w-[3px] bg-${tab.color}-400 rounded-r-full shadow-[0_0_12px_currentColor]`}
+                      transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                    />
+                  )}
+
+                  <div className="relative z-10 flex items-center gap-3">
+                    <div className={`p-1.5 rounded-lg transition-all duration-300 ${
+                      isActive 
+                        ? `bg-${tab.color}-500/20 text-${tab.color}-300 shadow-inner shadow-white/10` 
+                        : 'bg-transparent text-slate-500 group-hover:text-slate-300 group-hover:scale-110'
+                    }`}>
+                      <Icon size={16} strokeWidth={isActive ? 2.5 : 2} />
+                    </div>
+                    <span className="text-left tracking-wide leading-tight truncate max-w-[110px]" title={tab.label}>{tab.label}</span>
+                  </div>
+                  
+                  <span className={`relative z-10 px-2 py-0.5 rounded-md text-[10px] font-black transition-all duration-300 ${
+                    isActive 
+                      ? `bg-${tab.color}-500/20 text-${tab.color}-300 border border-${tab.color}-500/30 shadow-[0_0_10px_rgba(0,0,0,0.2)]` 
+                      : 'bg-black/20 border border-white/5 text-slate-500 group-hover:text-slate-400 group-hover:bg-black/40'
+                  }`}>
+                    {count.toLocaleString()}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
-      {/* ─── CONTENT ─── */}
-      <AnimatePresence mode="wait">
-        <motion.div key={`${currentTab}-${viewMode}`} initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0 }}>
+      {/* ─── MAIN CONTENT ─── */}
+      <div className="flex-1 min-w-0 flex flex-col gap-6">
+        
+        {/* ─── VIEW MODE TOGGLE & ACTIONS ─── */}
+        <div className="flex flex-wrap items-center gap-2 justify-between w-full glass-card p-3 rounded-2xl">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setViewMode('overview')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${
+                viewMode === 'overview' ? 'bg-sky-500/20 text-sky-400 border border-sky-500/20 shadow-[0_0_15px_rgba(56,189,248,0.15)]' : 'text-slate-500 hover:text-slate-300 bg-transparent border border-transparent'
+              }`}
+            >
+              <BarChart2 size={14}/> Visão Geral
+            </button>
+            <button
+              onClick={() => setViewMode('table')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${
+                viewMode === 'table' ? 'bg-sky-500/20 text-sky-400 border border-sky-500/20 shadow-[0_0_15px_rgba(56,189,248,0.15)]' : 'text-slate-500 hover:text-slate-300 bg-transparent border border-transparent'
+              }`}
+            >
+              <Table2 size={14}/> Ver Tabela Completa
+            </button>
+          </div>
 
-          {viewMode === 'table' ? (
-            <div className="glass-card p-6">
-              <DataTable sheetName={currentTab} rows={currentRows} onRowUpdate={onRowUpdate} />
-            </div>
-          ) : (
-            <>
-              {(['MARKETING', 'BD MARKETING', 'BD MARKETING ANTIGO', 'Registro_Vendas'].includes(currentTab)) && (
-                <MarketingOverview rows={currentRows} />
-              )}
-              {(currentTab === 'Controle_Parcelas' || currentTab === 'RELATÓRIO PARCELAS') && (
-                <ParcelasOverview rows={currentRows} />
-              )}
-              {currentTab === 'ORÇAMENTOS' && (
-                <OrcamentosOverview rows={currentRows} />
-              )}
-              {/* Outros sheets mostram diretamente a tabela */}
-              {!['MARKETING','BD MARKETING','BD MARKETING ANTIGO','Registro_Vendas','Controle_Parcelas','RELATÓRIO PARCELAS','ORÇAMENTOS'].includes(currentTab) && (
-                <div className="glass-card p-6">
-                  <p className="text-slate-400 text-xs font-black uppercase tracking-widest mb-4">
-                    {currentConfig?.label} · {currentRows.length.toLocaleString()} registros
-                  </p>
-                  <DataTable sheetName={currentTab} rows={currentRows} onRowUpdate={onRowUpdate} />
-                </div>
-              )}
-            </>
+          {/* Botão Adicionar Informações */}
+          {onAddClick && currentRows && (
+            <button
+              onClick={() => {
+                const emptyRow = {};
+                if (currentRows.length > 0) {
+                  Object.keys(currentRows[0]).forEach(k => emptyRow[k] = '');
+                }
+                onAddClick(currentTab, emptyRow);
+              }}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/30 transition-all ml-auto shadow-[0_0_15px_rgba(16,185,129,0.15)]"
+            >
+              <PlusCircle size={14}/> Adicionar Registro
+            </button>
           )}
-        </motion.div>
-      </AnimatePresence>
+        </div>
 
+        {/* ─── CONTENT AREA ─── */}
+        <AnimatePresence mode="wait">
+          <motion.div key={`${currentTab}-${viewMode}`} initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0 }}>
+
+            {viewMode === 'table' ? (
+              <div className="glass-card p-6">
+                <DataTable sheetName={currentTab} rows={currentRows} onRowUpdate={onRowUpdate} />
+              </div>
+            ) : (
+              <>
+                {(['MARKETING', 'BD MARKETING', 'BD MARKETING ANTIGO', 'Registro_Vendas'].includes(currentTab)) && (
+                  <MarketingOverview rows={currentRows} />
+                )}
+                {(currentTab === 'Controle_Parcelas' || currentTab === 'RELATÓRIO PARCELAS') && (
+                  <ParcelasOverview rows={currentRows} />
+                )}
+                {currentTab === 'ORÇAMENTOS' && (
+                  <OrcamentosOverview rows={currentRows} />
+                )}
+                {/* Outros sheets mostram diretamente a tabela */}
+                {!['MARKETING','BD MARKETING','BD MARKETING ANTIGO','Registro_Vendas','Controle_Parcelas','RELATÓRIO PARCELAS','ORÇAMENTOS'].includes(currentTab) && (
+                  <div className="glass-card p-6">
+                    <p className="text-slate-400 text-xs font-black uppercase tracking-widest mb-4">
+                      {currentConfig?.label || currentTab} · {currentRows.length.toLocaleString()} registros
+                    </p>
+                    <DataTable sheetName={currentTab} rows={currentRows} onRowUpdate={onRowUpdate} />
+                  </div>
+                )}
+              </>
+            )}
+          </motion.div>
+        </AnimatePresence>
+
+      </div>
     </motion.div>
   );
 };

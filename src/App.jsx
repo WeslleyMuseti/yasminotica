@@ -6,7 +6,8 @@ import GlobalSearch from './components/GlobalSearch';
 import RowDetailsModal from './components/RowDetailsModal';
 import RowEditModal from './components/RowEditModal';
 import { COLUMN_LABELS } from './components/DataTable';
-import { Eye, Upload, Download, RefreshCw } from 'lucide-react';
+import ClientRegistration from './components/ClientRegistration';
+import { Eye, Upload, Download, RefreshCw, Users, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as XLSX from 'xlsx';
 
@@ -94,7 +95,7 @@ function App() {
   const handleAddRow = (sheetName, newRow) => {
     setData(prev => ({
       ...prev,
-      [sheetName]: [newRow, ...(prev[sheetName] || [])]
+      [sheetName]: [...(prev[sheetName] || []), newRow]
     }));
   };
 
@@ -183,6 +184,22 @@ function App() {
             {/* Botões Ações do Arquivo */}
             <div className="flex items-center gap-2">
               <button
+                onClick={() => setView('clients')}
+                className={`flex items-center gap-2 px-4 py-2 glass-card text-xs font-black transition-all rounded-full ${
+                  view === 'clients' ? 'text-white bg-fuchsia-500/30 border-fuchsia-400' : 'text-fuchsia-400 border-fuchsia-400/20 hover:bg-fuchsia-400/10'
+                }`}
+              >
+                <Users size={13} /> Clientes
+              </button>
+              <button
+                onClick={() => setView('inadimplentes')}
+                className={`flex items-center gap-2 px-4 py-2 glass-card text-xs font-black transition-all rounded-full ${
+                  view === 'inadimplentes' ? 'text-white bg-rose-500/30 border-rose-400' : 'text-rose-400 border-rose-400/20 hover:bg-rose-400/10'
+                }`}
+              >
+                <AlertTriangle size={13} /> Inadimplentes
+              </button>
+              <button
                 onClick={handleDownload}
                 className="flex items-center gap-2 px-4 py-2 glass-card text-emerald-400 text-xs font-black border-emerald-400/20 hover:bg-emerald-400/10 transition-all rounded-full"
               >
@@ -201,12 +218,21 @@ function App() {
 
       {/* Conteúdo do Dashboard */}
       <div className="max-w-[1400px] mx-auto px-6 py-8">
-        <Dashboard 
-          data={data} 
-          isSynced={true} 
-          onRowUpdate={handleRowUpdate} 
-          onAddClick={(sheetName, emptyRow) => setAddingRowData({ sheetName, row: emptyRow })}
-        />
+        {(view === 'clients' || view === 'inadimplentes') ? (
+          <ClientRegistration 
+            initialTab={view === 'inadimplentes' ? 'inadimplentes' : 'todos'}
+            clientsData={data?.['CLIENTES_CADASTRADOS'] || []}
+            onAddClient={(newClient) => handleAddRow('CLIENTES_CADASTRADOS', newClient)}
+            onBack={() => setView('dashboard')} 
+          />
+        ) : (
+          <Dashboard 
+            data={data} 
+            isSynced={true} 
+            onRowUpdate={handleRowUpdate} 
+            onAddClick={(sheetName, emptyRow) => setAddingRowData({ sheetName, row: emptyRow })}
+          />
+        )}
       </div>
 
       {/* Modal de Detalhes da Busca Global */}
