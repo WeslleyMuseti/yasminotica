@@ -7,13 +7,14 @@ import RowDetailsModal from './components/RowDetailsModal';
 import RowEditModal from './components/RowEditModal';
 import { COLUMN_LABELS } from './components/DataTable';
 import ClientRegistration from './components/ClientRegistration';
-import { Eye, Upload, Download, RefreshCw, Users, AlertTriangle } from 'lucide-react';
+import ErpOptica from './components/ErpOptica';
+import { Eye, Upload, Download, RefreshCw, Users, AlertTriangle, Package } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as XLSX from 'xlsx';
 
 function App() {
   const [data, setData] = useState(null);
-  const [view, setView] = useState('loading'); // loading, dashboard, syncing, upload
+  const [view, setView] = useState('loading'); // loading, dashboard, syncing, upload, clients, erp
   const [uploadOpen, setUploadOpen] = useState(false);
   const [selectedRow, setSelectedRow] = useState(null);
   const [editingRowData, setEditingRowData] = useState(null);
@@ -61,6 +62,10 @@ function App() {
           const rows = parseSheet(wb.Sheets[name]);
           if (rows.length > 0) sheets[name] = rows;
         });
+        sheets['CAD_LENTES'] = sheets['CAD_LENTES'] || [];
+        sheets['CAD_ARMACOES'] = sheets['CAD_ARMACOES'] || [];
+        sheets['CONTAS_PAGAR'] = sheets['CONTAS_PAGAR'] || [];
+        sheets['CONTAS_RECEBER'] = sheets['CONTAS_RECEBER'] || [];
         setData(sheets);
         setView('dashboard');
       } catch {
@@ -72,7 +77,11 @@ function App() {
   }, []);
 
   const handleDataLoaded = (loadedData) => {
-    const sheets = Array.isArray(loadedData) ? { 'Planilha': loadedData } : loadedData;
+    const sheets = Array.isArray(loadedData) ? { 'Planilha': loadedData } : { ...loadedData };
+    sheets['CAD_LENTES'] = sheets['CAD_LENTES'] || [];
+    sheets['CAD_ARMACOES'] = sheets['CAD_ARMACOES'] || [];
+    sheets['CONTAS_PAGAR'] = sheets['CONTAS_PAGAR'] || [];
+    sheets['CONTAS_RECEBER'] = sheets['CONTAS_RECEBER'] || [];
     setData(sheets);
     setUploadOpen(false);
     setView('syncing');
@@ -80,7 +89,12 @@ function App() {
   };
 
   const handleSyncComplete = (syncedData) => {
-    setData(syncedData);
+    const sheets = { ...syncedData };
+    sheets['CAD_LENTES'] = sheets['CAD_LENTES'] || [];
+    sheets['CAD_ARMACOES'] = sheets['CAD_ARMACOES'] || [];
+    sheets['CONTAS_PAGAR'] = sheets['CONTAS_PAGAR'] || [];
+    sheets['CONTAS_RECEBER'] = sheets['CONTAS_RECEBER'] || [];
+    setData(sheets);
     setView('dashboard');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -96,6 +110,13 @@ function App() {
     setData(prev => ({
       ...prev,
       [sheetName]: [...(prev[sheetName] || []), newRow]
+    }));
+  };
+
+  const handleDeleteRow = (sheetName, rowToDelete) => {
+    setData(prev => ({
+      ...prev,
+      [sheetName]: prev[sheetName].filter(r => r !== rowToDelete)
     }));
   };
 
@@ -184,6 +205,14 @@ function App() {
             {/* Botões Ações do Arquivo */}
             <div className="flex items-center gap-2">
               <button
+                onClick={() => setView('dashboard')}
+                className={`flex items-center gap-2 px-4 py-2 glass-card text-xs font-black transition-all rounded-full ${
+                  view === 'dashboard' ? 'text-white bg-sky-500/30 border-sky-400' : 'text-sky-400 border-sky-400/20 hover:bg-sky-400/10'
+                }`}
+              >
+                <Eye size={13} /> Dashboard
+              </button>
+              <button
                 onClick={() => setView('clients')}
                 className={`flex items-center gap-2 px-4 py-2 glass-card text-xs font-black transition-all rounded-full ${
                   view === 'clients' ? 'text-white bg-fuchsia-500/30 border-fuchsia-400' : 'text-fuchsia-400 border-fuchsia-400/20 hover:bg-fuchsia-400/10'
@@ -192,12 +221,12 @@ function App() {
                 <Users size={13} /> Clientes
               </button>
               <button
-                onClick={() => setView('inadimplentes')}
+                onClick={() => setView('erp')}
                 className={`flex items-center gap-2 px-4 py-2 glass-card text-xs font-black transition-all rounded-full ${
-                  view === 'inadimplentes' ? 'text-white bg-rose-500/30 border-rose-400' : 'text-rose-400 border-rose-400/20 hover:bg-rose-400/10'
+                  view === 'erp' ? 'text-white bg-indigo-500/30 border-indigo-400' : 'text-indigo-400 border-indigo-400/20 hover:bg-indigo-400/10'
                 }`}
               >
-                <AlertTriangle size={13} /> Inadimplentes
+                <Package size={13} /> ERP Ótica
               </button>
               <button
                 onClick={handleDownload}
@@ -218,12 +247,30 @@ function App() {
 
       {/* Conteúdo do Dashboard */}
       <div className="max-w-[1400px] mx-auto px-6 py-8">
-        {(view === 'clients' || view === 'inadimplentes') ? (
+        {view === 'clients' ? (
           <ClientRegistration 
-            initialTab={view === 'inadimplentes' ? 'inadimplentes' : 'todos'}
+            initialTab="todos"
             clientsData={data?.['CLIENTES_CADASTRADOS'] || []}
+            salesData={data?.['Registro_Vendas'] || data?.['BD MARKETING'] || []}
+            lentesData={data?.['CAD_LENTES'] || []}
+            armacoesData={data?.['CAD_ARMACOES'] || []}
+            receberData={data?.['CONTAS_RECEBER'] || []}
             onAddClient={(newClient) => handleAddRow('CLIENTES_CADASTRADOS', newClient)}
+            onUpdateClient={(updatedClient) => handleRowUpdate('CLIENTES_CADASTRADOS', updatedClient.oldRow, updatedClient.newRow)}
+            onAddSale={(newSale) => handleAddRow(data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING', newSale)}
+            onDeleteSale={(saleToDelete) => handleDeleteRow(data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING', saleToDelete)}
+            onAddRow={handleAddRow}
+            onUpdateRow={handleRowUpdate}
             onBack={() => setView('dashboard')} 
+          />
+        ) : view === 'erp' ? (
+          <ErpOptica
+            data={data}
+            clientsData={data?.['CLIENTES_CADASTRADOS'] || []}
+            onAddRow={handleAddRow}
+            onUpdateRow={handleRowUpdate}
+            onDeleteRow={handleDeleteRow}
+            onBack={() => setView('dashboard')}
           />
         ) : (
           <Dashboard 

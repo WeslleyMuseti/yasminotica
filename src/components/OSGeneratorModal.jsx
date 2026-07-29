@@ -2,7 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Save, Printer, User, Eye, FileText, Calendar, DollarSign, Activity } from 'lucide-react';
 
-const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint }) => {
+const parseCurrency = (val) => {
+  if (!val) return 0;
+  if (typeof val === 'number') return val;
+  const cleaned = String(val).replace(/R\$/g, '').trim().replace(/\./g, '').replace(',', '.');
+  return parseFloat(cleaned) || 0;
+};
+
+const formatCurrency = (val) => {
+  return Number(val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }).replace('R$', '').trim();
+};
+
+const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesData = [], armacoesData = [] }) => {
   const [formData, setFormData] = useState({
     medico: '',
     dataEntrega: '',
@@ -38,14 +49,49 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint }) => {
   }, [clientData, isOpen]);
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    let newFormData = { ...formData, [name]: value };
+
+    if (name === 'lente' || name === 'armacao') {
+      // Find prices from ERP
+      const selectedLente = lentesData.find(l => {
+        const nome = `${l.MARCA || l.marca || ''} ${l.MODELO || l.modelo || ''}`.trim();
+        return nome === (name === 'lente' ? value : newFormData.lente);
+      });
+      const selectedArmacao = armacoesData.find(a => {
+        const nome = `${a.MARCA || a.marca || ''} ${a.MODELO || a.modelo || ''}`.trim();
+        return nome === (name === 'armacao' ? value : newFormData.armacao);
+      });
+
+      let totalProdutos = 0;
+      if (selectedLente) totalProdutos += parseCurrency(selectedLente.PRECO_VENDA || selectedLente.preco_venda);
+      if (selectedArmacao) totalProdutos += parseCurrency(selectedArmacao.PRECO_VENDA || selectedArmacao.preco_venda);
+      
+      if (totalProdutos > 0) {
+        newFormData.valorTotal = formatCurrency(totalProdutos);
+        
+        // Recalculate restante
+        const entrada = parseCurrency(newFormData.valorEntrada) || 0;
+        const rest = totalProdutos - entrada;
+        newFormData.restante = rest > 0 ? formatCurrency(rest) : '0,00';
+      }
+    }
+
+    if (name === 'valorTotal' || name === 'valorEntrada') {
+      const total = parseCurrency(newFormData.valorTotal) || 0;
+      const entrada = parseCurrency(newFormData.valorEntrada) || 0;
+      const rest = total - entrada;
+      newFormData.restante = rest > 0 ? formatCurrency(rest) : '0,00';
+    }
+
+    setFormData(newFormData);
   };
 
   const handleCalculateRestante = () => {
-    const total = parseFloat(formData.valorTotal.replace(',', '.')) || 0;
-    const entrada = parseFloat(formData.valorEntrada.replace(',', '.')) || 0;
+    const total = parseCurrency(formData.valorTotal) || 0;
+    const entrada = parseCurrency(formData.valorEntrada) || 0;
     const rest = total - entrada;
-    setFormData({ ...formData, restante: rest > 0 ? rest.toFixed(2).replace('.', ',') : '0,00' });
+    setFormData({ ...formData, restante: rest > 0 ? formatCurrency(rest) : '0,00' });
   };
 
   if (!isOpen) return null;
@@ -153,11 +199,41 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint }) => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] uppercase text-slate-500 font-bold">Marca/Tipo da Lente</label>
-                  <input type="text" name="lente" value={formData.lente} onChange={handleChange} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white" />
+                  <input 
+                    list="datalist-lentes-os"
+                    type="text" 
+                    name="lente" 
+                    value={formData.lente} 
+                    onChange={handleChange} 
+                    placeholder="Selecione ou digite..."
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white" 
+                  />
+                  <datalist id="datalist-lentes-os">
+                    {lentesData.map((l, idx) => {
+                      const nome = `${l.MARCA || l.marca || ''} ${l.MODELO || l.modelo || ''}`.trim();
+                      const preco = l.PRECO_VENDA || l.preco_venda || '0,00';
+                      return <option key={idx} value={nome}>{`R$ ${preco}`}</option>;
+                    })}
+                  </datalist>
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] uppercase text-slate-500 font-bold">Modelo da Armação</label>
-                  <input type="text" name="armacao" value={formData.armacao} onChange={handleChange} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white" />
+                  <input 
+                    list="datalist-armacoes-os"
+                    type="text" 
+                    name="armacao" 
+                    value={formData.armacao} 
+                    onChange={handleChange} 
+                    placeholder="Selecione ou digite..."
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white" 
+                  />
+                  <datalist id="datalist-armacoes-os">
+                    {armacoesData.map((a, idx) => {
+                      const nome = `${a.MARCA || a.marca || ''} ${a.MODELO || a.modelo || ''}`.trim();
+                      const preco = a.PRECO_VENDA || a.preco_venda || '0,00';
+                      return <option key={idx} value={nome}>{`R$ ${preco}`}</option>;
+                    })}
+                  </datalist>
                 </div>
               </div>
             </div>

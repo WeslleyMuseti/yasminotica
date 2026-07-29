@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Search, Table2, Edit2, Save, X, ClipboardList } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, Table2, Edit2, Save, X, ClipboardList, Eye } from 'lucide-react';
 import RowEditModal from './RowEditModal';
 
 const PAGE_SIZE = 100;
@@ -11,13 +11,39 @@ export const COLUMN_LABELS = {
   'PRODUTO': 'Produto', 'DATA ENTREGA ÓCULOS': 'Entrega',
   'SATISFAÇÃO DO CLIENTE': 'Satisfação', 'RESULTADO DA LIGAÇÃO/ MENSAGEM (30 DIAS)': 'Result. 30d',
   'RESULTADO DA LIGAÇÃO/ MENSAGE (6 MESES)': 'Result. 6m',
-  'DATA VENCIMENTO': 'Vencimento', 'MÊS': 'Mês', 'LOJA': 'Loja', 'NOME': 'Nome',
+  'DATA VENCIMENTO': 'Vencimento', 'LOJA': 'Loja',
   'VALOR PARCELA': 'Valor Parcela', 'PARCELA': 'Parcela', 'MOVIMENTAÇÃO': 'Moviment.',
   'N': 'Nº', 'DATA ORÇAMENTO': 'Data Orç.', 'NOME DO CLIENTE': 'Cliente',
   'VALOR DO ORÇAMENTO': 'Valor', 'ARMAÇÃO': 'Armação', 'LENTE': 'Lente',
   'OS DA VENDA': 'OS Venda', 'DATA  DA VENDA': 'Dt. Venda',
   'DATA DO CADASTRAMENTO': 'Dt. Cadastro', 'DIOPTRIA': 'Dioptria',
   'TIPO PRODUTO': 'Tipo', 'QTD (PAR)': 'Qtd.',
+  // Campos ERP Ótica
+  'marca': 'Marca', 'MARCA': 'Marca',
+  'modelo': 'Modelo', 'MODELO': 'Modelo',
+  'material': 'Material', 'MATERIAL': 'Material',
+  'indice_refracao': 'Índ. Refração', 'INDICE_REFRACAO': 'Índ. Refração',
+  'tratamento': 'Tratamento', 'TRATAMENTO': 'Tratamento',
+  'esferico_min': 'Esf. Mín.', 'esferico_max': 'Esf. Máx.',
+  'cilindrico_min': 'Cil. Mín.', 'cilindrico_max': 'Cil. Máx.',
+  'preco_compra': 'Pr. Compra (R$)', 'PRECO_COMPRA': 'Pr. Compra (R$)',
+  'preco_venda': 'Pr. Venda (R$)', 'PRECO_VENDA': 'Pr. Venda (R$)',
+  'estoque': 'Estoque', 'ESTOQUE': 'Estoque',
+  'referencia_sku': 'SKU / Ref.', 'REFERENCIA_SKU': 'SKU / Ref.',
+  'cor': 'Cor', 'COR': 'Cor',
+  'tamanho': 'Tamanho', 'TAMANHO': 'Tamanho',
+  'descricao': 'Descrição', 'DESCRICAO': 'Descrição',
+  'categoria': 'Categoria', 'CATEGORIA': 'Categoria',
+  'valor': 'Valor (R$)', 'VALOR': 'Valor (R$)',
+  'data_vencimento': 'Vencimento', 'DATA_VENCIMENTO': 'Vencimento',
+  'data_pagamento': 'Pagamento', 'DATA_PAGAMENTO': 'Pagamento',
+  'data_recebimento': 'Recebimento', 'DATA_RECEBIMENTO': 'Recebimento',
+  'status': 'Status', 'STATUS': 'Status',
+  'fornecedor': 'Fornecedor', 'FORNECEDOR': 'Fornecedor',
+  'observacoes': 'Observações', 'OBSERVACOES': 'Observações',
+  'cliente': 'Cliente', 'CLIENTE': 'Cliente',
+  'venda_os': 'OS / Venda', 'VENDA_OS': 'OS / Venda',
+  'meio_pagamento': 'Meio Pag.', 'MEIO_PAGAMENTO': 'Meio Pag.'
 };
 
 const fmt = (val) => {
@@ -35,7 +61,7 @@ const fmt = (val) => {
   return s.length > 35 ? s.slice(0, 35) + '…' : s;
 };
 
-const DataTable = ({ sheetName, rows, onRowUpdate, onGenerateOS }) => {
+const DataTable = ({ sheetName, rows, onRowUpdate, onGenerateOS, onViewProfile }) => {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [editingRow, setEditingRow] = useState(null);
@@ -130,12 +156,19 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onGenerateOS }) => {
               <tr key={i} className="border-b border-white/5 hover:bg-white/3 transition-colors">
                 <td className="px-4 py-3 text-slate-300 whitespace-nowrap text-xs">
                   <div className="flex items-center gap-1">
-                    <button onClick={() => handleEditClick(row)} className="p-1.5 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 rounded-lg transition-colors" title="Editar">
-                      <Edit2 size={14} />
-                    </button>
-                    {onGenerateOS && (
+                    {!onViewProfile && (
+                      <button onClick={() => handleEditClick(row)} className="p-1.5 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 rounded-lg transition-colors" title="Editar">
+                        <Edit2 size={14} />
+                      </button>
+                    )}
+                    {!onViewProfile && onGenerateOS && (
                       <button onClick={() => onGenerateOS(row)} className="p-1.5 bg-fuchsia-500/10 text-fuchsia-400 hover:bg-fuchsia-500/20 rounded-lg transition-colors" title="Gerar OS">
                         <ClipboardList size={14} />
+                      </button>
+                    )}
+                    {onViewProfile && (
+                      <button onClick={() => onViewProfile(row)} className="p-1.5 flex items-center gap-2 px-3 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 rounded-lg transition-colors font-black text-xs" title="Abrir Perfil do Cliente">
+                        <Eye size={14} /> Ver Perfil
                       </button>
                     )}
                   </div>

@@ -4,18 +4,30 @@ import { User, Phone, Mail, MapPin, CreditCard, CheckCircle, ArrowLeft, AtSign, 
 import DataTable from './DataTable';
 import OSGeneratorModal from './OSGeneratorModal';
 import PrintableOS from './PrintableOS';
+import ClientProfileModal from './ClientProfileModal';
 import * as XLSX from 'xlsx';
 
-const ClientRegistration = ({ clientsData, onAddClient, onBack, initialTab = 'todos' }) => {
+const parseCurrency = (val) => {
+  if (!val) return 0;
+  const cleaned = String(val).replace(/R\$/g, '').trim().replace(/\./g, '').replace(',', '.');
+  return parseFloat(cleaned) || 0;
+};
+
+const ClientRegistration = ({ clientsData, salesData = [], lentesData = [], armacoesData = [], receberData = [], onAddClient, onUpdateClient, onAddSale, onDeleteSale, onAddRow, onUpdateRow, onBack, initialTab = 'todos' }) => {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [osClientData, setOsClientData] = useState(null);
   const [osDataForPrint, setOsDataForPrint] = useState(null);
-
-  useEffect(() => {
-    setActiveTab(initialTab);
-  }, [initialTab]);
-
+  const [profileClientData, setProfileClientData] = useState(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [isGeneratingOS, setIsGeneratingOS] = useState(false);
+  const [editingClientData, setEditingClientData] = useState(null);
+  const [osFormData, setOsFormData] = useState({
+    medico: '', dataEntrega: '', lente: '', armacao: '',
+    odEsf: '', odCil: '', odEixo: '', odDnp: '', odAlt: '',
+    oeEsf: '', oeCil: '', oeEixo: '', oeDnp: '', oeAlt: '',
+    adicao: '', valorTotal: '', valorEntrada: '', restante: '', observacoes: '',
+    numeroOS: ''
+  });
   const [formData, setFormData] = useState({
     'Nome Completo': '',
     'CPF / CNPJ': '',
@@ -37,7 +49,38 @@ const ClientRegistration = ({ clientsData, onAddClient, onBack, initialTab = 'to
   const [success, setSuccess] = useState(false);
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    let { name, value } = e.target;
+
+    if (name === 'CPF / CNPJ') {
+      value = value.replace(/\D/g, '');
+      if (value.length <= 11) {
+        value = value.replace(/(\d{3})(\d)/, '$1.$2');
+        value = value.replace(/(\d{3})(\d)/, '$1.$2');
+        value = value.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+      } else {
+        value = value.replace(/^(\d{2})(\d)/, '$1.$2');
+        value = value.replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3');
+        value = value.replace(/\.(\d{3})(\d)/, '.$1/$2');
+        value = value.replace(/(\d{4})(\d)/, '$1-$2');
+      }
+      value = value.slice(0, 18);
+    } else if (name === 'WhatsApp') {
+      value = value.replace(/\D/g, '');
+      if (value.length > 0) {
+        value = value.replace(/^(\d{2})(\d)/g, '($1) $2');
+        value = value.replace(/(\d)(\d{4})$/, '$1-$2');
+      }
+      value = value.slice(0, 15);
+    } else if (name === 'E-mail') {
+      value = value.toLowerCase().replace(/\s/g, '');
+    } else if (name === 'Instagram') {
+      if (value.length > 0 && !value.startsWith('@')) {
+        value = '@' + value.replace(/@/g, '');
+      }
+      if (value === '@') value = '';
+    }
+
+    setFormData({ ...formData, [name]: value });
   };
 
   const downloadXML = async (dataToDownload) => {
@@ -101,13 +144,50 @@ const ClientRegistration = ({ clientsData, onAddClient, onBack, initialTab = 'to
     e.preventDefault();
     setIsSubmitting(true);
     
-    // Adiciona na estrutura de dados da interface (tabela)
-    onAddClient(formData);
+    const valorDevidoNum = parseCurrency(formData['Valor Devido']);
+    const isEmDia = formData['Status de Pagamento'] === 'Em dia' || valorDevidoNum <= 0;
 
-    // Salva o arquivo XML IMEDIATAMENTE acionando a janela "Salvar Como"
-    // Incluímos a formData recém preenchida junto com os que já existem
-    const dadosParaBaixar = [...clientsData, formData];
-    await downloadXML(dadosParaBaixar);
+    let dadosParaBaixar;
+    if (editingClientData) {
+      if (onUpdateClient) {
+        onUpdateClient({ oldRow: editingClientData, newRow: formData });
+      }
+      dadosParaBaixar = clientsData.map(c => c === editingClientData ? formData : c);
+
+      // Sincronização Bidirecional: se o cliente foi marcado como "Em dia" ou dívida zero, quita no ERP Contas a Receber
+      if (isEmDia && receberData && receberData.length > 0 && onUpdateRow) {
+        const cName = (formData['Nome Completo'] || formData['NOME'] || '').trim().toLowerCase();
+        receberData.forEach(conta => {
+          const contaCli = (conta.CLIENTE || conta.cliente || '').trim().toLowerCase();
+          const st = (conta.STATUS || conta.status || '').trim();
+          if (cName && (contaCli === cName || contaCli.includes(cName) || cName.includes(contaCli)) && (st === 'Pendente' || st === 'Atrasado' || st === 'Inadimplente')) {
+            onUpdateRow('CONTAS_RECEBER', conta, {
+              ...conta,
+              STATUS: 'Recebido',
+              DATA_RECEBIMENTO: new Date().toISOString().split('T')[0]
+            });
+          }
+        });
+      }
+    } else {
+      onAddClient(formData);
+      dadosParaBaixar = [...clientsData, formData];
+
+      // Sincronização Bidirecional: se o cliente é novo e já tem saldo devedor, cadastra em Contas a Receber no ERP
+      if (!isEmDia && valorDevidoNum > 0 && onAddRow) {
+        onAddRow('CONTAS_RECEBER', {
+          DESCRICAO: `Saldo Inicial / Cadastro (${formData['Marca de Lente'] || 'Lente'} + ${formData['Modelo de Armação'] || 'Armação'})`.trim(),
+          CLIENTE: formData['Nome Completo'] || 'Cliente',
+          VENDA_OS: '',
+          VALOR: valorDevidoNum.toFixed(2).replace('.', ','),
+          DATA_VENCIMENTO: formData['Data de Vencimento'] || new Date().toISOString().split('T')[0],
+          DATA_RECEBIMENTO: '',
+          STATUS: 'Pendente',
+          MEIO_PAGAMENTO: 'OS / A Definir',
+          OBSERVACOES: 'Gerado automaticamente ao cadastrar o cliente'
+        });
+      }
+    }
     
     setIsSubmitting(false);
     setSuccess(true);
@@ -131,7 +211,8 @@ const ClientRegistration = ({ clientsData, onAddClient, onBack, initialTab = 'to
         'Cidade': '',
         'Estado': ''
       });
-      setIsAdding(false); // Voltar para a tabela após sucesso
+      setIsAdding(false); 
+      setEditingClientData(null);
     }, 2000);
   };
 
@@ -143,16 +224,100 @@ const ClientRegistration = ({ clientsData, onAddClient, onBack, initialTab = 'to
   });
 
   const handleSaveAndPrintOS = (osData) => {
-    // Aqui podemos no futuro chamar uma função onAddOS(osData) para salvar na planilha raiz.
-    // Por enquanto, preparamos para impressão.
     setOsDataForPrint(osData);
+    
+    // Automatically fallback to subtracting valorTotal - valorEntrada if restante is somehow missing or malformed
+    let osRestante = parseCurrency(osData.restante);
+    if (osRestante === 0 && parseCurrency(osData.valorTotal) > 0) {
+      osRestante = Math.max(0, parseCurrency(osData.valorTotal) - parseCurrency(osData.valorEntrada));
+    }
+    
+    // 1. Baixa Automática no Estoque de Lentes
+    if (lentesData && lentesData.length > 0 && onUpdateRow && osData.lente) {
+      const matchedLente = lentesData.find(l => {
+        const label = `${l.MARCA || l.marca || ''} - ${l.MODELO || l.modelo || ''}`.trim();
+        return label === osData.lente || (l.MODELO && osData.lente.includes(l.MODELO)) || (l.modelo && osData.lente.includes(l.modelo));
+      });
+      if (matchedLente) {
+        const currentStock = parseInt(matchedLente.ESTOQUE || matchedLente.estoque || 0, 10);
+        if (currentStock > 0) {
+          onUpdateRow('CAD_LENTES', matchedLente, {
+            ...matchedLente,
+            ESTOQUE: currentStock - 1
+          });
+        }
+      }
+    }
+
+    // 2. Baixa Automática no Estoque de Armações
+    if (armacoesData && armacoesData.length > 0 && onUpdateRow && osData.armacao) {
+      const matchedArmacao = armacoesData.find(a => {
+        const label = `${a.MARCA || a.marca || ''} - ${a.MODELO || a.modelo || ''}`.trim();
+        return label === osData.armacao || (a.MODELO && osData.armacao.includes(a.MODELO)) || (a.modelo && osData.armacao.includes(a.modelo));
+      });
+      if (matchedArmacao) {
+        const currentStock = parseInt(matchedArmacao.ESTOQUE || matchedArmacao.estoque || 0, 10);
+        if (currentStock > 0) {
+          onUpdateRow('CAD_ARMACOES', matchedArmacao, {
+            ...matchedArmacao,
+            ESTOQUE: currentStock - 1
+          });
+        }
+      }
+    }
+
+    // 3. Lançamento Automático em Contas a Receber no Financeiro ERP
+    if (onAddRow) {
+      onAddRow('CONTAS_RECEBER', {
+        DESCRICAO: `Venda OS #${osData.numeroOS || 'S/N'} - ${(osData.lente + (osData.armacao ? ` + ${osData.armacao}` : '')).trim()}`,
+        CLIENTE: osClientData?.['Nome Completo'] || osClientData?.['NOME'] || 'Cliente',
+        VENDA_OS: osData.numeroOS || '',
+        VALOR: osData.valorTotal || '0,00',
+        DATA_VENCIMENTO: osData.dataEntrega || new Date().toISOString().split('T')[0],
+        DATA_RECEBIMENTO: osRestante <= 0 ? new Date().toISOString().split('T')[0] : '',
+        STATUS: osRestante <= 0 ? 'Recebido' : 'Pendente',
+        MEIO_PAGAMENTO: 'OS / A Definir',
+        OBSERVACOES: `Sinal: R$ ${osData.valorEntrada || '0,00'}, Restante: R$ ${osRestante > 0 ? osRestante.toFixed(2).replace('.', ',') : '0,00'}`
+      });
+    }
+
+    // Salvar automaticamente no histórico de compras
+    if (onAddSale && osClientData) {
+      onAddSale({
+        'DATA  DA VENDA': new Date().toISOString().split('T')[0],
+        'PRODUTO': (osData.lente + (osData.armacao ? ` + ${osData.armacao}` : '')).trim() || 'Óculos Completo',
+        'VALOR TOTAL': osData.valorTotal,
+        'SITUAÇÃO': osRestante > 0 ? 'Pendente' : 'Pago',
+        'OS DA VENDA': osData.numeroOS,
+        'NOME CLIENTE': osClientData['Nome Completo'] || osClientData['NOME'],
+        'TELEFONE': osClientData['WhatsApp'] || ''
+      });
+      
+      // Atualizar Saldo do Cliente
+      if (osRestante > 0 && onUpdateClient) {
+        const currentDebt = parseCurrency(osClientData['Valor Devido']);
+        const newDebt = currentDebt + osRestante;
+        
+        const updatedClient = {
+          ...osClientData,
+          'Valor Devido': newDebt.toFixed(2).replace('.', ','),
+          'Status de Pagamento': 'Inadimplente'
+        };
+        
+        onUpdateClient({ oldRow: osClientData, newRow: updatedClient });
+        
+        if (profileClientData && profileClientData['Nome Completo'] === osClientData['Nome Completo']) {
+          setProfileClientData(updatedClient);
+        }
+      }
+    }
     
     // Pequeno delay para garantir que o componente PrintableOS renderize antes de chamar o print
     setTimeout(() => {
       window.print();
-      // Opcional: Fechar modal após imprimir
+      setIsGeneratingOS(false);
       setOsClientData(null);
-      setTimeout(() => setOsDataForPrint(null), 1000); // Limpa depois de imprimir
+      setTimeout(() => setOsDataForPrint(null), 1000);
     }, 300);
   };
 
@@ -220,7 +385,12 @@ const ClientRegistration = ({ clientsData, onAddClient, onBack, initialTab = 'to
                   <Users size={14} className="text-sky-400"/> Clientes Listados · {filteredData.length} registros
                 </p>
                 {/* Reutilizando a tabela do dashboard para listar os clientes */}
-                <DataTable sheetName="CLIENTES_CADASTRADOS" rows={filteredData} onGenerateOS={setOsClientData} />
+                <DataTable 
+                  sheetName="CLIENTES_CADASTRADOS" 
+                  rows={filteredData} 
+                  onGenerateOS={setOsClientData} 
+                  onViewProfile={setProfileClientData}
+                />
               </>
             ) : (
               <div className="text-center py-20">
@@ -235,6 +405,193 @@ const ClientRegistration = ({ clientsData, onAddClient, onBack, initialTab = 'to
                 </button>
               </div>
             )}
+          </motion.div>
+        ) : isGeneratingOS && osClientData ? (
+          // ─── TELA DE GERAR OS (INLINE, IGUAL AO CADASTRO) ────────────
+          <motion.div
+            key="os-form"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="glass-card p-8 relative overflow-hidden max-w-4xl mx-auto"
+          >
+            <div className="absolute top-0 right-0 w-64 h-64 bg-fuchsia-500/10 rounded-full blur-[80px] pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-64 h-64 bg-sky-500/10 rounded-full blur-[80px] pointer-events-none" />
+
+            <div className="relative z-10 flex items-center gap-4 mb-8">
+              <div className="w-12 h-12 bg-fuchsia-500/20 rounded-2xl flex items-center justify-center">
+                <Download className="text-fuchsia-400" size={22} />
+              </div>
+              <div>
+                <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-indigo-400">Gerar Ordem de Serviço</h3>
+                <p className="text-slate-400 text-sm">Cliente: <span className="text-sky-400 font-bold">{osClientData['Nome Completo'] || osClientData['NOME']}</span></p>
+              </div>
+            </div>
+
+            <div className="relative z-10 space-y-8">
+
+              {/* Bloco 1: Receita */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-black uppercase tracking-widest text-slate-300 flex items-center gap-2 border-b border-white/10 pb-2">
+                  <Activity size={16} className="text-sky-400"/> Receita / Dioptria
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1">Nº da OS</label>
+                    <input type="text" value={osFormData.numeroOS} onChange={e => setOsFormData(p => ({...p, numeroOS: e.target.value}))} placeholder="Ex: OS-1234" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-fuchsia-400 font-bold focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50 transition-all" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1">Médico Oftalmologista</label>
+                    <input type="text" value={osFormData.medico} onChange={e => setOsFormData(p => ({...p, medico: e.target.value}))} placeholder="Nome do Médico" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1">Data de Entrega Prevista</label>
+                    <input type="date" value={osFormData.dataEntrega} onChange={e => setOsFormData(p => ({...p, dataEntrega: e.target.value}))} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all" />
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm mt-4">
+                    <thead>
+                      <tr className="text-[10px] uppercase tracking-widest text-slate-500 text-left">
+                        <th className="pb-2">Olho</th>
+                        <th className="pb-2">Esférico</th>
+                        <th className="pb-2">Cilíndrico</th>
+                        <th className="pb-2">Eixo</th>
+                        <th className="pb-2">DNP</th>
+                        <th className="pb-2">Altura</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td className="font-bold text-sky-400 pr-2">OD</td>
+                        {['odEsf','odCil','odEixo','odDnp','odAlt'].map(k => (
+                          <td key={k} className="pr-2"><input type="text" value={osFormData[k]} onChange={e => setOsFormData(p => ({...p, [k]: e.target.value}))} className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white" /></td>
+                        ))}
+                      </tr>
+                      <tr>
+                        <td className="font-bold text-emerald-400 pr-2 pt-2">OE</td>
+                        {['oeEsf','oeCil','oeEixo','oeDnp','oeAlt'].map(k => (
+                          <td key={k} className="pr-2 pt-2"><input type="text" value={osFormData[k]} onChange={e => setOsFormData(p => ({...p, [k]: e.target.value}))} className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white" /></td>
+                        ))}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div className="w-1/3 mt-2 space-y-2">
+                  <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1">Adição</label>
+                  <input type="text" value={osFormData.adicao} onChange={e => setOsFormData(p => ({...p, adicao: e.target.value}))} className="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2 text-center text-white" />
+                </div>
+              </div>
+
+              {/* Bloco 2: Produtos (Conectado ao Estoque do ERP) */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                  <h4 className="text-sm font-black uppercase tracking-widest text-slate-300 flex items-center gap-2">
+                    <Eye size={16} className="text-fuchsia-400"/> Lente &amp; Armação
+                  </h4>
+                  <span className="text-[10px] font-bold text-sky-400 bg-sky-500/10 px-2.5 py-0.5 rounded-full border border-sky-500/20">
+                    Sincronizado com Estoque
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1">Marca/Tipo da Lente (Estoque)</label>
+                    <input 
+                      list="datalist-lentes-os"
+                      type="text" 
+                      placeholder="Selecione ou digite a lente..." 
+                      value={osFormData.lente} 
+                      onChange={e => setOsFormData(p => ({...p, lente: e.target.value}))} 
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all" 
+                    />
+                    <datalist id="datalist-lentes-os">
+                      {lentesData && lentesData.map((l, idx) => {
+                        const label = `${l.MARCA || l.marca || ''} - ${l.MODELO || l.modelo || ''}`.trim();
+                        const est = l.ESTOQUE || l.estoque || 0;
+                        const pr = l.PRECO_VENDA || l.preco_venda || '0,00';
+                        return <option key={idx} value={label}>{`Estoque: ${est} par(es) | Pr: R$ ${pr}`}</option>;
+                      })}
+                    </datalist>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1">Modelo da Armação (Estoque)</label>
+                    <input 
+                      list="datalist-armacoes-os"
+                      type="text" 
+                      placeholder="Selecione ou digite a armação..." 
+                      value={osFormData.armacao} 
+                      onChange={e => setOsFormData(p => ({...p, armacao: e.target.value}))} 
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all" 
+                    />
+                    <datalist id="datalist-armacoes-os">
+                      {armacoesData && armacoesData.map((a, idx) => {
+                        const label = `${a.MARCA || a.marca || ''} - ${a.MODELO || a.modelo || ''}`.trim();
+                        const est = a.ESTOQUE || a.estoque || 0;
+                        const pr = a.PRECO_VENDA || a.preco_venda || '0,00';
+                        return <option key={idx} value={label}>{`Estoque: ${est} peça(s) | Pr: R$ ${pr}`}</option>;
+                      })}
+                    </datalist>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bloco 3: Financeiro */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-black uppercase tracking-widest text-slate-300 flex items-center gap-2 border-b border-white/10 pb-2">
+                  <DollarSign size={16} className="text-emerald-400"/> Financeiro
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1">Valor Total (R$)</label>
+                    <input type="text" value={osFormData.valorTotal} onChange={e => {
+                      const val = e.target.value;
+                      const total = parseCurrency(val);
+                      const entrada = parseCurrency(osFormData.valorEntrada);
+                      const rest = Math.max(0, total - entrada);
+                      setOsFormData(p => ({...p, valorTotal: val, restante: rest > 0 ? rest.toFixed(2).replace('.',',') : '0,00'}));
+                    }} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1">Sinal / Entrada (R$)</label>
+                    <input type="text" value={osFormData.valorEntrada} onChange={e => {
+                      const val = e.target.value;
+                      const total = parseCurrency(osFormData.valorTotal);
+                      const entrada = parseCurrency(val);
+                      const rest = Math.max(0, total - entrada);
+                      setOsFormData(p => ({...p, valorEntrada: val, restante: rest > 0 ? rest.toFixed(2).replace('.',',') : '0,00'}));
+                    }} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1">Restante (R$)</label>
+                    <input type="text" readOnly value={osFormData.restante} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-rose-400 font-bold cursor-not-allowed" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Observações */}
+              <div className="space-y-2">
+                <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1">Observações Adicionais</label>
+                <textarea value={osFormData.observacoes} onChange={e => setOsFormData(p => ({...p, observacoes: e.target.value}))} rows="2" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white resize-none focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all" />
+              </div>
+
+              {/* Ações */}
+              <div className="flex items-center justify-between pt-2">
+                <button
+                  type="button"
+                  onClick={() => { setIsGeneratingOS(false); setOsClientData(null); }}
+                  className="px-6 py-3 rounded-xl font-bold text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveAndPrintOS(osFormData)}
+                  className="flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-fuchsia-500 to-indigo-500 hover:from-fuchsia-400 hover:to-indigo-400 text-white font-black rounded-xl shadow-lg shadow-fuchsia-500/20 transition-all"
+                >
+                  <Download size={18} /> Salvar e Imprimir OS
+                </button>
+              </div>
+            </div>
           </motion.div>
         ) : (
           <motion.div 
@@ -262,8 +619,8 @@ const ClientRegistration = ({ clientsData, onAddClient, onBack, initialTab = 'to
                 >
                   <CheckCircle size={40} className="text-emerald-400" />
                 </motion.div>
-                <h3 className="text-2xl font-black text-white mb-2">Cliente Cadastrado!</h3>
-                <p className="text-slate-400 max-w-md mx-auto">O cliente foi adicionado com sucesso e já consta na sua tabela de registros.</p>
+                <h3 className="text-2xl font-black text-white mb-2">{editingClientData ? 'Cadastro Atualizado!' : 'Cliente Cadastrado!'}</h3>
+                <p className="text-slate-400 max-w-md mx-auto">{editingClientData ? 'As informações do cliente foram salvas com sucesso.' : 'O cliente foi adicionado com sucesso e já consta na sua tabela de registros.'}</p>
               </motion.div>
             ) : (
               <form onSubmit={handleSubmit} className="relative z-10 space-y-6">
@@ -355,6 +712,7 @@ const ClientRegistration = ({ clientsData, onAddClient, onBack, initialTab = 'to
                       {/* Marca de Lente */}
                       <div className="md:col-span-1">
                         <input 
+                          list="datalist-reg-lente"
                           type="text" 
                           name="Marca de Lente"
                           value={formData['Marca de Lente']}
@@ -362,10 +720,17 @@ const ClientRegistration = ({ clientsData, onAddClient, onBack, initialTab = 'to
                           placeholder="Marca de Lente (Ex: Zeiss, Hoya)"
                           className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all"
                         />
+                        <datalist id="datalist-reg-lente">
+                          {lentesData && lentesData.map((l, idx) => {
+                            const lNome = `${l.MARCA || l.marca || ''} - ${l.MODELO || l.modelo || ''}`.trim();
+                            return <option key={idx} value={lNome}>{`Estoque: ${l.ESTOQUE || 0} par(es)`}</option>;
+                          })}
+                        </datalist>
                       </div>
                       {/* Modelo de Armação */}
                       <div className="md:col-span-1">
                         <input 
+                          list="datalist-reg-armacao"
                           type="text" 
                           name="Modelo de Armação"
                           value={formData['Modelo de Armação']}
@@ -373,6 +738,12 @@ const ClientRegistration = ({ clientsData, onAddClient, onBack, initialTab = 'to
                           placeholder="Modelo de Armação (Ex: Ray-Ban)"
                           className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all"
                         />
+                        <datalist id="datalist-reg-armacao">
+                          {armacoesData && armacoesData.map((a, idx) => {
+                            const aNome = `${a.MARCA || a.marca || ''} - ${a.MODELO || a.modelo || ''}`.trim();
+                            return <option key={idx} value={aNome}>{`Estoque: ${a.ESTOQUE || 0} peça(s)`}</option>;
+                          })}
+                        </datalist>
                       </div>
                     </div>
                   </div>
@@ -499,7 +870,10 @@ const ClientRegistration = ({ clientsData, onAddClient, onBack, initialTab = 'to
                   {clientsData.length > 0 && (
                     <button 
                       type="button"
-                      onClick={() => setIsAdding(false)}
+                      onClick={() => {
+                        setIsAdding(false);
+                        setEditingClientData(null);
+                      }}
                       className="px-6 py-3 rounded-xl font-bold text-slate-400 hover:text-white hover:bg-white/5 transition-all"
                     >
                       Cancelar
@@ -517,7 +891,7 @@ const ClientRegistration = ({ clientsData, onAddClient, onBack, initialTab = 'to
                       </>
                     ) : (
                       <>
-                        <CheckCircle size={18} /> Cadastrar Cliente
+                        <CheckCircle size={18} /> {editingClientData ? 'Salvar Alterações' : 'Cadastrar Cliente'}
                       </>
                     )}
                   </button>
@@ -532,6 +906,8 @@ const ClientRegistration = ({ clientsData, onAddClient, onBack, initialTab = 'to
       <OSGeneratorModal 
         isOpen={!!osClientData} 
         clientData={osClientData} 
+        lentesData={lentesData}
+        armacoesData={armacoesData}
         onClose={() => setOsClientData(null)} 
         onSaveAndPrint={handleSaveAndPrintOS} 
       />
@@ -539,6 +915,144 @@ const ClientRegistration = ({ clientsData, onAddClient, onBack, initialTab = 'to
       {osDataForPrint && (
         <PrintableOS clientData={osClientData} osData={osDataForPrint} />
       )}
+
+      {/* Modal de Perfil e Histórico */}
+      <ClientProfileModal
+        isOpen={!!profileClientData}
+        onClose={() => setProfileClientData(null)}
+        clientData={profileClientData}
+        clientHistory={salesData.filter(sale => {
+          if (!profileClientData) return false;
+          const clientName = (profileClientData['Nome Completo'] || profileClientData['NOME'] || '').toLowerCase().trim();
+          const saleClientName = (sale['NOME CLIENTE'] || sale['NOME'] || sale['Cliente'] || '').toLowerCase().trim();
+          return clientName && saleClientName.includes(clientName);
+        })}
+        onUpdateStatus={(newStatus) => {
+          if (onUpdateClient && profileClientData) {
+            onUpdateClient({
+              oldRow: profileClientData,
+              newRow: { ...profileClientData, 'Status de Pagamento': newStatus }
+            });
+            setProfileClientData({ ...profileClientData, 'Status de Pagamento': newStatus });
+
+            // Sincronização com Contas a Receber do ERP
+            if (newStatus === 'Em dia' && receberData && receberData.length > 0 && onUpdateRow) {
+              const cName = (profileClientData['Nome Completo'] || profileClientData['NOME'] || '').trim().toLowerCase();
+              receberData.forEach(conta => {
+                const contaCli = (conta.CLIENTE || conta.cliente || '').trim().toLowerCase();
+                const st = (conta.STATUS || conta.status || '').trim();
+                if (cName && (contaCli === cName || contaCli.includes(cName) || cName.includes(contaCli)) && (st === 'Pendente' || st === 'Atrasado' || st === 'Inadimplente')) {
+                  onUpdateRow('CONTAS_RECEBER', conta, {
+                    ...conta,
+                    STATUS: 'Recebido',
+                    DATA_RECEBIMENTO: new Date().toISOString().split('T')[0]
+                  });
+                }
+              });
+            }
+          }
+        }}
+        onAddPurchase={(newPurchase) => {
+          if (onAddSale) onAddSale(newPurchase);
+        }}
+        onEditClick={() => {
+          setEditingClientData(profileClientData);
+          setFormData({
+            'Nome Completo': profileClientData['Nome Completo'] || profileClientData['NOME'] || '',
+            'CPF / CNPJ': profileClientData['CPF / CNPJ'] || '',
+            'WhatsApp': profileClientData['WhatsApp'] || profileClientData['TELEFONE CLIENTE'] || '',
+            'E-mail': profileClientData['E-mail'] || '',
+            'Instagram': profileClientData['Instagram'] || '',
+            'Marca de Lente': profileClientData['Marca de Lente'] || '',
+            'Modelo de Armação': profileClientData['Modelo de Armação'] || '',
+            'Status de Pagamento': profileClientData['Status de Pagamento'] || 'Em dia',
+            'Valor Devido': profileClientData['Valor Devido'] || '',
+            'Data de Vencimento': profileClientData['Data de Vencimento'] || '',
+            'Rua': profileClientData['Rua'] || '',
+            'Número': profileClientData['Número'] || '',
+            'Bairro': profileClientData['Bairro'] || '',
+            'Cidade': profileClientData['Cidade'] || '',
+            'Estado': profileClientData['Estado'] || ''
+          });
+          setIsAdding(true);
+          setProfileClientData(null);
+        }}
+        onGenerateOS={(clientData) => {
+          setOsClientData(clientData);
+          setOsFormData({
+            medico: '', dataEntrega: '',
+            lente: clientData['Marca de Lente'] || '',
+            armacao: clientData['Modelo de Armação'] || '',
+            odEsf: '', odCil: '', odEixo: '', odDnp: '', odAlt: '',
+            oeEsf: '', oeCil: '', oeEixo: '', oeDnp: '', oeAlt: '',
+            adicao: '', valorTotal: clientData['Valor Devido'] || '',
+            valorEntrada: '', restante: '', observacoes: '',
+            numeroOS: `OS-${Math.floor(1000 + Math.random() * 9000)}`
+          });
+          setIsGeneratingOS(true);
+          setProfileClientData(null);
+        }}
+        onDeleteSale={(historyIndex) => {
+          const clientName = (profileClientData?.['Nome Completo'] || profileClientData?.['NOME'] || '').toLowerCase().trim();
+          const clientSales = salesData.filter(sale => {
+            const saleClientName = (sale['NOME CLIENTE'] || sale['NOME'] || sale['Cliente'] || '').toLowerCase().trim();
+            return clientName && saleClientName.includes(clientName);
+          });
+          const saleToDelete = clientSales[historyIndex];
+          if (saleToDelete && onDeleteSale) {
+            onDeleteSale(saleToDelete);
+          }
+        }}
+        onRegisterPayment={(paymentString, paymentOS) => {
+          if (!profileClientData || !onUpdateClient) return;
+          
+          const amountPaid = parseCurrency(paymentString);
+          if (amountPaid <= 0) return;
+
+          const currentDebt = parseCurrency(profileClientData['Valor Devido']);
+          const newDebt = Math.max(0, currentDebt - amountPaid);
+          const newStatus = newDebt === 0 ? 'Em dia' : profileClientData['Status de Pagamento'];
+
+          const updatedClient = {
+            ...profileClientData,
+            'Valor Devido': newDebt.toFixed(2).replace('.', ','),
+            'Status de Pagamento': newStatus
+          };
+
+          onUpdateClient({ oldRow: profileClientData, newRow: updatedClient });
+          setProfileClientData(updatedClient);
+
+          if (onAddSale) {
+            onAddSale({
+              'DATA  DA VENDA': new Date().toISOString().split('T')[0],
+              'PRODUTO': '💰 Pagamento Recebido',
+              'VALOR TOTAL': amountPaid.toFixed(2).replace('.', ','),
+              'SITUAÇÃO': 'Pago',
+              'OS DA VENDA': paymentOS ? paymentOS.trim() : '—',
+              'NOME CLIENTE': profileClientData['Nome Completo'] || profileClientData['NOME'],
+              'TELEFONE': profileClientData['WhatsApp'] || ''
+            });
+          }
+
+          // Sincronização com Contas a Receber do ERP (se quitou toda a dívida ou se abateu)
+          if (newDebt === 0 && receberData && receberData.length > 0 && onUpdateRow) {
+            const cName = (profileClientData['Nome Completo'] || profileClientData['NOME'] || '').trim().toLowerCase();
+            receberData.forEach(conta => {
+              const contaCli = (conta.CLIENTE || conta.cliente || '').trim().toLowerCase();
+              const st = (conta.STATUS || conta.status || '').trim();
+              if (cName && (contaCli === cName || contaCli.includes(cName) || cName.includes(contaCli)) && (st === 'Pendente' || st === 'Atrasado' || st === 'Inadimplente')) {
+                onUpdateRow('CONTAS_RECEBER', conta, {
+                  ...conta,
+                  STATUS: 'Recebido',
+                  DATA_RECEBIMENTO: new Date().toISOString().split('T')[0]
+                });
+              }
+            });
+          }
+        }}
+        receberData={receberData}
+        onUpdateRow={onUpdateRow}
+      />
     </motion.div>
   );
 };
