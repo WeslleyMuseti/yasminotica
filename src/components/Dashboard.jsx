@@ -9,6 +9,8 @@ import {
   MonitorSmartphone, Layers, Table2, BarChart2, PlusCircle
 } from 'lucide-react';
 import StatsCard from './StatsCard';
+import FileUploader from './FileUploader';
+import { Upload as UploadIcon } from 'lucide-react';
 import DataTable from './DataTable';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -281,7 +283,8 @@ const OrcamentosOverview = ({ rows }) => {
 };
 
 // ─── DASHBOARD PRINCIPAL ──────────────────────────────────────────────────────
-const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick }) => {
+const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick, onDataLoaded }) => {
+  const [showUpload, setShowUpload] = useState(false);
   const [activeTab, setActiveTab] = useState(null);
   const [viewMode, setViewMode] = useState('overview'); // 'overview' | 'table'
 
@@ -423,6 +426,13 @@ const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick }) => {
             >
               <Table2 size={14}/> Ver Tabela Completa
             </button>
+
+            <button
+              onClick={() => setShowUpload(!showUpload)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black bg-amber-500/20 text-amber-400 border border-amber-500/20 hover:bg-amber-500/30 transition-all shadow-[0_0_15px_rgba(245,158,11,0.15)]"
+            >
+              <UploadIcon size={14}/> Carregar Planilha
+            </button>
           </div>
 
           {/* Botão Adicionar Informações */}
@@ -442,7 +452,24 @@ const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick }) => {
           )}
         </div>
 
+
+        {/* ─── UPLOAD AREA ─── */}
+        <AnimatePresence>
+          {showUpload && (
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mb-6">
+              <FileUploader 
+                onDataLoaded={(loadedData) => {
+                  setShowUpload(false);
+                  if (onDataLoaded) onDataLoaded(loadedData);
+                }} 
+                onCancel={() => setShowUpload(false)}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
+        
         {/* ─── CONTENT AREA ─── */}
+
         <AnimatePresence mode="wait">
           <motion.div key={`${currentTab}-${viewMode}`} initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0 }}>
 

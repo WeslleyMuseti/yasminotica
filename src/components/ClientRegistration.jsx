@@ -23,17 +23,27 @@ const ClientRegistration = ({ clientsData, salesData = [], lentesData = [], arma
   const [editingClientData, setEditingClientData] = useState(null);
   const [osFormData, setOsFormData] = useState({
     medico: '', dataEntrega: '', lente: '', armacao: '',
-    odEsf: '', odCil: '', odEixo: '', odDnp: '', odAlt: '',
-    oeEsf: '', oeCil: '', oeEixo: '', oeDnp: '', oeAlt: '',
+    odEsf: '', odCil: '', odEixo: '', odDnp: '', odAlt: '', odDp: '', odOpa: '',
+    oeEsf: '', oeCil: '', oeEixo: '', oeDnp: '', oeAlt: '', oeDp: '', oeOpa: '',
     adicao: '', valorTotal: '', valorEntrada: '', restante: '', observacoes: '',
-    numeroOS: ''
+    numeroOS: '', formasPagamento: '', responsavel: '', voucher: '', rg: ''
   });
   const [formData, setFormData] = useState({
     'Nome Completo': '',
     'CPF / CNPJ': '',
+    'RG': '',
+    'Responsável': '',
     'WhatsApp': '',
+        'Referência 1': '',
+        'Referência 2': '',
+        'Referência 1': '',
+        'Referência 2': '',
+    'Referência 1': '',
+    'Referência 2': '',
     'E-mail': '',
     'Instagram': '',
+    'Facebook': '',
+    'TikTok': '',
     'Marca de Lente': '',
     'Modelo de Armação': '',
     'Status de Pagamento': 'Em dia',
@@ -64,7 +74,7 @@ const ClientRegistration = ({ clientsData, salesData = [], lentesData = [], arma
         value = value.replace(/(\d{4})(\d)/, '$1-$2');
       }
       value = value.slice(0, 18);
-    } else if (name === 'WhatsApp') {
+    } else if (name === 'WhatsApp' || name === 'Referência 1' || name === 'Referência 2') {
       value = value.replace(/\D/g, '');
       if (value.length > 0) {
         value = value.replace(/^(\d{2})(\d)/g, '($1) $2');
@@ -73,7 +83,7 @@ const ClientRegistration = ({ clientsData, salesData = [], lentesData = [], arma
       value = value.slice(0, 15);
     } else if (name === 'E-mail') {
       value = value.toLowerCase().replace(/\s/g, '');
-    } else if (name === 'Instagram') {
+    } else if (name === 'Instagram' || name === 'TikTok') {
       if (value.length > 0 && !value.startsWith('@')) {
         value = '@' + value.replace(/@/g, '');
       }
@@ -197,9 +207,15 @@ const ClientRegistration = ({ clientsData, salesData = [], lentesData = [], arma
       setFormData({
         'Nome Completo': '',
         'CPF / CNPJ': '',
+        'RG': '',
+        'Responsável': '',
         'WhatsApp': '',
+        'Referência 1': '',
+        'Referência 2': '',
         'E-mail': '',
         'Instagram': '',
+        'Facebook': '',
+        'TikTok': '',
         'Marca de Lente': '',
         'Modelo de Armação': '',
         'Status de Pagamento': 'Em dia',
@@ -464,13 +480,13 @@ const ClientRegistration = ({ clientsData, salesData = [], lentesData = [], arma
                     <tbody>
                       <tr>
                         <td className="font-bold text-sky-400 pr-2">OD</td>
-                        {['odEsf','odCil','odEixo','odDnp','odAlt'].map(k => (
+                        {['odEsf','odCil','odEixo','odDnp','odAlt','odDp','odOpa'].map(k => (
                           <td key={k} className="pr-2"><input type="text" value={osFormData[k]} onChange={e => setOsFormData(p => ({...p, [k]: e.target.value}))} className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white" /></td>
                         ))}
                       </tr>
                       <tr>
                         <td className="font-bold text-emerald-400 pr-2 pt-2">OE</td>
-                        {['oeEsf','oeCil','oeEixo','oeDnp','oeAlt'].map(k => (
+                        {['oeEsf','oeCil','oeEixo','oeDnp','oeAlt','oeDp','oeOpa'].map(k => (
                           <td key={k} className="pr-2 pt-2"><input type="text" value={osFormData[k]} onChange={e => setOsFormData(p => ({...p, [k]: e.target.value}))} className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-center text-white" /></td>
                         ))}
                       </tr>
@@ -657,6 +673,36 @@ const ClientRegistration = ({ clientsData, salesData = [], lentesData = [], arma
                     />
                   </div>
 
+                  {/* RG */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-2">
+                      <CreditCard size={14} className="text-fuchsia-400" /> RG
+                    </label>
+                    <input 
+                      type="text" 
+                      name="RG"
+                      value={formData['RG']}
+                      onChange={handleChange}
+                      placeholder="00.000.000-0"
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50 transition-all"
+                    />
+                  </div>
+
+                  {/* Responsável */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-2">
+                      <User size={14} className="text-sky-400" /> Responsável
+                    </label>
+                    <input 
+                      type="text" 
+                      name="Responsável"
+                      value={formData['Responsável']}
+                      onChange={handleChange}
+                      placeholder="Nome do Responsável (se houver)"
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all"
+                    />
+                  </div>
+
                   {/* Telefone */}
                   <div className="space-y-2">
                     <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-2">
@@ -670,6 +716,36 @@ const ClientRegistration = ({ clientsData, salesData = [], lentesData = [], arma
                       onChange={handleChange}
                       placeholder="(00) 00000-0000"
                       className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all"
+                    />
+                  </div>
+
+                  {/* Ref 1 */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-2">
+                      <Phone size={14} className="text-sky-400" /> Referência 1
+                    </label>
+                    <input 
+                      type="text" 
+                      name="Referência 1"
+                      value={formData['Referência 1']}
+                      onChange={handleChange}
+                      placeholder="(00) 00000-0000"
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all"
+                    />
+                  </div>
+
+                  {/* Ref 2 */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-2">
+                      <Phone size={14} className="text-sky-400" /> Referência 2
+                    </label>
+                    <input 
+                      type="text" 
+                      name="Referência 2"
+                      value={formData['Referência 2']}
+                      onChange={handleChange}
+                      placeholder="(00) 00000-0000"
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all"
                     />
                   </div>
 
@@ -700,6 +776,36 @@ const ClientRegistration = ({ clientsData, salesData = [], lentesData = [], arma
                       onChange={handleChange}
                       placeholder="@usuario"
                       className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-pink-500/50 transition-all"
+                    />
+                  </div>
+
+                  {/* Facebook */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-2">
+                      <AtSign size={14} className="text-blue-500" /> Facebook
+                    </label>
+                    <input 
+                      type="text" 
+                      name="Facebook"
+                      value={formData['Facebook']}
+                      onChange={handleChange}
+                      placeholder="Nome ou link"
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all"
+                    />
+                  </div>
+
+                  {/* TikTok */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-2">
+                      <AtSign size={14} className="text-gray-300" /> TikTok
+                    </label>
+                    <input 
+                      type="text" 
+                      name="TikTok"
+                      value={formData['TikTok']}
+                      onChange={handleChange}
+                      placeholder="@usuario"
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-gray-300/50 transition-all"
                     />
                   </div>
 
@@ -960,9 +1066,15 @@ const ClientRegistration = ({ clientsData, salesData = [], lentesData = [], arma
           setFormData({
             'Nome Completo': profileClientData['Nome Completo'] || profileClientData['NOME'] || '',
             'CPF / CNPJ': profileClientData['CPF / CNPJ'] || '',
+            'RG': profileClientData['RG'] || '',
+            'Responsável': profileClientData['Responsável'] || '',
             'WhatsApp': profileClientData['WhatsApp'] || profileClientData['TELEFONE CLIENTE'] || '',
+            'Referência 1': profileClientData['Referência 1'] || '',
+            'Referência 2': profileClientData['Referência 2'] || '',
             'E-mail': profileClientData['E-mail'] || '',
             'Instagram': profileClientData['Instagram'] || '',
+            'Facebook': profileClientData['Facebook'] || '',
+            'TikTok': profileClientData['TikTok'] || '',
             'Marca de Lente': profileClientData['Marca de Lente'] || '',
             'Modelo de Armação': profileClientData['Modelo de Armação'] || '',
             'Status de Pagamento': profileClientData['Status de Pagamento'] || 'Em dia',

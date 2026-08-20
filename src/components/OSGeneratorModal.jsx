@@ -19,14 +19,18 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
     dataEntrega: '',
     lente: '',
     armacao: '',
-    odEsf: '', odCil: '', odEixo: '', odDnp: '', odAlt: '',
-    oeEsf: '', oeCil: '', oeEixo: '', oeDnp: '', oeAlt: '',
+    odEsf: '', odCil: '', odEixo: '', odDnp: '', odAlt: '', odDp: '', odOpa: '',
+    oeEsf: '', oeCil: '', oeEixo: '', oeDnp: '', oeAlt: '', oeDp: '', oeOpa: '',
     adicao: '',
     valorTotal: '',
     valorEntrada: '',
     restante: '',
     observacoes: '',
-    numeroOS: ''
+    numeroOS: '',
+    formasPagamento: '',
+    responsavel: '',
+    voucher: '',
+    rg: ''
   });
 
   useEffect(() => {

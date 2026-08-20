@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, User, Phone, MapPin, Calendar, CreditCard, ShoppingBag, PlusCircle, AlertTriangle, CheckCircle, Activity, Edit2, ClipboardList, DollarSign } from 'lucide-react';
+import { X, User, Phone, MapPin, Calendar, CreditCard, ShoppingBag, PlusCircle, AlertTriangle, CheckCircle, Activity, Edit2, ClipboardList, DollarSign, AtSign } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const ClientProfileModal = ({ isOpen, onClose, clientData, clientHistory, onUpdateStatus, onAddPurchase, onEditClick, onGenerateOS, onRegisterPayment, onDeleteSale, receberData = [], onUpdateRow }) => {
@@ -84,9 +84,34 @@ const ClientProfileModal = ({ isOpen, onClose, clientData, clientHistory, onUpda
                         <Phone size={12} className="text-emerald-400"/> {clientData['WhatsApp']}
                       </span>
                     )}
+                    {clientData['Referência 1'] && (
+                      <span className="flex items-center gap-1.5 text-xs text-slate-400 font-medium" title="Referência 1">
+                        <Phone size={12} className="text-sky-400"/> {clientData['Referência 1']}
+                      </span>
+                    )}
+                    {clientData['Referência 2'] && (
+                      <span className="flex items-center gap-1.5 text-xs text-slate-400 font-medium" title="Referência 2">
+                        <Phone size={12} className="text-sky-400"/> {clientData['Referência 2']}
+                      </span>
+                    )}
                     {clientData['Cidade'] && (
                       <span className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
                         <MapPin size={12} className="text-fuchsia-400"/> {clientData['Cidade']}
+                      </span>
+                    )}
+                    {clientData['Instagram'] && (
+                      <span className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
+                        <AtSign size={12} className="text-pink-400"/> {clientData['Instagram']}
+                      </span>
+                    )}
+                    {clientData['Facebook'] && (
+                      <span className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
+                        <AtSign size={12} className="text-blue-500"/> {clientData['Facebook']}
+                      </span>
+                    )}
+                    {clientData['TikTok'] && (
+                      <span className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
+                        <AtSign size={12} className="text-gray-300"/> {clientData['TikTok']}
                       </span>
                     )}
                   </div>
@@ -116,10 +141,18 @@ const ClientProfileModal = ({ isOpen, onClose, clientData, clientHistory, onUpda
             <div className="p-6 sm:p-8 overflow-y-auto custom-scrollbar bg-black/20 flex-1">
               
               {/* Cards de Resumo */}
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-8">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4 mb-8">
                 <div className="bg-white/5 border border-white/5 rounded-2xl p-4 flex flex-col justify-center">
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 flex items-center gap-1.5"><CreditCard size={12} className="text-amber-400"/> CPF/CNPJ</p>
                   <p className="text-sm font-bold text-slate-200">{clientData['CPF / CNPJ'] || 'Não informado'}</p>
+                </div>
+                <div className="bg-white/5 border border-white/5 rounded-2xl p-4 flex flex-col justify-center">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 flex items-center gap-1.5"><CreditCard size={12} className="text-blue-400"/> RG</p>
+                  <p className="text-sm font-bold text-slate-200">{clientData['RG'] || 'Não informado'}</p>
+                </div>
+                <div className="bg-white/5 border border-white/5 rounded-2xl p-4 flex flex-col justify-center">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 flex items-center gap-1.5"><User size={12} className="text-emerald-400"/> Responsável</p>
+                  <p className="text-sm font-bold text-slate-200">{clientData['Responsável'] || 'Não informado'}</p>
                 </div>
                 <div className="bg-white/5 border border-white/5 rounded-2xl p-4 flex flex-col justify-center">
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 flex items-center gap-1.5"><Calendar size={12} className="text-pink-400"/> Vencimento</p>

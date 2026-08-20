@@ -23,9 +23,10 @@ const PrintableOS = ({ osData, clientData }) => {
         <h3 className="text-lg font-bold border-b border-gray-300 mb-3 pb-1 uppercase">Dados do Cliente</h3>
         <div className="grid grid-cols-2 gap-4 text-sm">
           <p><strong>Nome:</strong> {clientData['Nome Completo']}</p>
-          <p><strong>CPF/CNPJ:</strong> {clientData['CPF / CNPJ'] || 'Não informado'}</p>
+          <p><strong>CPF/CNPJ:</strong> {clientData['CPF / CNPJ'] || 'Não informado'} {osData.rg ? `| RG: ${osData.rg}` : ''}</p>
           <p><strong>WhatsApp:</strong> {clientData['WhatsApp'] || 'Não informado'}</p>
           <p><strong>Endereço:</strong> {clientData['Rua']} {clientData['Número']}, {clientData['Bairro']} - {clientData['Cidade']}/{clientData['Estado']}</p>
+          {osData.responsavel && <p className="col-span-2"><strong>Responsável:</strong> {osData.responsavel}</p>}
         </div>
       </div>
 
@@ -46,6 +47,8 @@ const PrintableOS = ({ osData, clientData }) => {
               <th className="border border-black p-2">Eixo</th>
               <th className="border border-black p-2">DNP</th>
               <th className="border border-black p-2">Altura</th>
+              <th className="border border-black p-2">DP</th>
+              <th className="border border-black p-2">OPA</th>
             </tr>
           </thead>
           <tbody>
@@ -56,6 +59,8 @@ const PrintableOS = ({ osData, clientData }) => {
               <td className="border border-black p-2">{osData.odEixo || '---'}</td>
               <td className="border border-black p-2">{osData.odDnp || '---'}</td>
               <td className="border border-black p-2">{osData.odAlt || '---'}</td>
+              <td className="border border-black p-2">{osData.odDp || '---'}</td>
+              <td className="border border-black p-2">{osData.odOpa || '---'}</td>
             </tr>
             <tr>
               <td className="border border-black p-2 font-bold">OE</td>
@@ -64,6 +69,8 @@ const PrintableOS = ({ osData, clientData }) => {
               <td className="border border-black p-2">{osData.oeEixo || '---'}</td>
               <td className="border border-black p-2">{osData.oeDnp || '---'}</td>
               <td className="border border-black p-2">{osData.oeAlt || '---'}</td>
+              <td className="border border-black p-2">{osData.oeDp || '---'}</td>
+              <td className="border border-black p-2">{osData.oeOpa || '---'}</td>
             </tr>
           </tbody>
         </table>
@@ -82,6 +89,10 @@ const PrintableOS = ({ osData, clientData }) => {
       {/* Financeiro */}
       <div className="mb-6">
         <h3 className="text-lg font-bold border-b border-gray-300 mb-3 pb-1 uppercase">Financeiro</h3>
+        <div className="grid grid-cols-2 gap-4 text-sm mb-4">
+          <p><strong>Forma de Pagamento:</strong> {osData.formasPagamento || 'Não informada'}</p>
+          <p><strong>Voucher:</strong> {osData.voucher || 'Nenhum'}</p>
+        </div>
         <div className="grid grid-cols-3 gap-4 text-sm">
           <div className="border border-black p-3 text-center">
             <p className="uppercase text-xs font-bold text-gray-500 mb-1">Valor Total</p>
@@ -106,18 +117,47 @@ const PrintableOS = ({ osData, clientData }) => {
         </div>
       )}
 
+      {/* Termos do Contrato */}
+      <div className="mb-6 text-[11px] leading-snug text-justify border border-black p-4 mt-6">
+        <h3 className="text-center font-bold mb-2 uppercase text-xs">CONTRATO DE VENDA E COMPRA DE ARMAÇÕES DE ÓCULOS, LENTES E LENTES DE CONTATO</h3>
+        <p className="mb-1">As partes acima nominadas, doravante determinadas ÓTICA e SOLICITANTE tem entre si justas e acertadas o presente contrato, pelas cláusulas abaixo:</p>
+        <p className="mb-1">A SOLICITANTE adquire neste ato da ÓTICA a armação e lente, ou a lente de contato, pelo preço certo e ajustado nas condições acima descritas, cujo valor reconhece a SOLICITANTE como líquido, certo e devido.</p>
+        <p className="mb-1">A compra é feita em caráter irrevogável e irretratável obrigando as partes, herdeiros e sucessores.</p>
+        <p className="mb-1">A SOLICITANTE, caso não cumpra com o pagamento dos valores acima descritos, arcará com uma multa de 2% (dois por cento) sobre o valor devido, bem como com juros de mora e correção monetária dos valores, até a sua quitação.</p>
+        <p className="mb-1">Em caso de não pagamento dos valores acima avançados o nome da SOLICITANTE será inscrito nos serviços de proteção ao crédito SPC e SERASA, o que autoriza de forma expressa.</p>
+        <p className="mb-2">E por estarem justas e contratadas firmam o presente.</p>
+        <p className="font-bold text-center mt-2 border-t border-dashed border-gray-400 pt-2">Os serviços não retirados no prazo de 30 dias será o nome protestado.</p>
+      </div>
+
+      {/* Recebimento */}
+      <div className="mb-4 flex justify-between text-xs">
+        <div className="border-b border-black w-2/3 mr-4 flex items-end pb-1">
+          <span className="mr-2">Adquiri em perfeito estado na data:</span>
+          <span className="flex-1 text-center">____/____/________</span>
+        </div>
+        <div className="border-b border-black w-1/3 flex items-end pb-1">
+          <span className="mr-2">Ass:</span>
+        </div>
+      </div>
+
       {/* Assinaturas */}
-      <div className="mt-20 pt-10 flex justify-between px-10 text-center">
+      <div className="mt-12 pt-4 flex justify-between px-10 text-center">
         <div className="w-1/3">
           <div className="border-t border-black pt-2 uppercase text-xs font-bold">
-            Assinatura do Cliente
+            SOLICITANTE
           </div>
         </div>
         <div className="w-1/3">
           <div className="border-t border-black pt-2 uppercase text-xs font-bold">
-            Yasmin Ótica
+            ÓTICA
           </div>
         </div>
+      </div>
+
+      {/* Mensagem Bíblica */}
+      <div className="mt-8 text-center text-[10px] italic text-gray-600">
+        Sl 139:23:24 "Sonda-me ó Deus, e conhece o meu coração, prova-me, e conhece os meus pensamentos<br/>
+        E vê se há em mim algum caminho mau e guia-me pelo caminho eterno"
       </div>
 
     </div>
