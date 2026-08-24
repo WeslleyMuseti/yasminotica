@@ -13,6 +13,51 @@ const parseCurrency = (val) => {
   return parseFloat(cleaned) || 0;
 };
 
+const isValidCpfCnpj = (val) => {
+  if (!val) return true; // Allows empty
+  const clean = val.replace(/[^\d]+/g, '');
+  if (clean.length === 0) return true;
+  if (clean.length === 11) {
+    if (/^(\d)\1{10}$/.test(clean)) return false;
+    let add = 0;
+    for (let i = 0; i < 9; i++) add += parseInt(clean.charAt(i)) * (10 - i);
+    let rev = 11 - (add % 11);
+    if (rev === 10 || rev === 11) rev = 0;
+    if (rev !== parseInt(clean.charAt(9))) return false;
+    add = 0;
+    for (let i = 0; i < 10; i++) add += parseInt(clean.charAt(i)) * (11 - i);
+    rev = 11 - (add % 11);
+    if (rev === 10 || rev === 11) rev = 0;
+    if (rev !== parseInt(clean.charAt(10))) return false;
+    return true;
+  } else if (clean.length === 14) {
+    if (/^(\d)\1{13}$/.test(clean)) return false;
+    let size = clean.length - 2;
+    let numbers = clean.substring(0, size);
+    const digits = clean.substring(size);
+    let sum = 0;
+    let pos = size - 7;
+    for (let i = size; i >= 1; i--) {
+      sum += numbers.charAt(size - i) * pos--;
+      if (pos < 2) pos = 9;
+    }
+    let result = sum % 11 < 2 ? 0 : 11 - (sum % 11);
+    if (result !== parseInt(digits.charAt(0))) return false;
+    size = size + 1;
+    numbers = clean.substring(0, size);
+    sum = 0;
+    pos = size - 7;
+    for (let i = size; i >= 1; i--) {
+      sum += numbers.charAt(size - i) * pos--;
+      if (pos < 2) pos = 9;
+    }
+    result = sum % 11 < 2 ? 0 : 11 - (sum % 11);
+    if (result !== parseInt(digits.charAt(1))) return false;
+    return true;
+  }
+  return false;
+};
+
 const ClientRegistration = ({ clientsData, salesData = [], lentesData = [], armacoesData = [], receberData = [], onAddClient, onUpdateClient, onAddSale, onDeleteSale, onAddRow, onUpdateRow, onBack, initialTab = 'todos' }) => {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [osClientData, setOsClientData] = useState(null);
@@ -30,16 +75,10 @@ const ClientRegistration = ({ clientsData, salesData = [], lentesData = [], arma
   });
   const [formData, setFormData] = useState({
     'Nome Completo': '',
+    'Data de Nascimento': '',
     'CPF / CNPJ': '',
     'RG': '',
-    'Responsável': '',
     'WhatsApp': '',
-        'Referência 1': '',
-        'Referência 2': '',
-        'Referência 1': '',
-        'Referência 2': '',
-    'Referência 1': '',
-    'Referência 2': '',
     'E-mail': '',
     'Instagram': '',
     'Facebook': '',
@@ -53,10 +92,25 @@ const ClientRegistration = ({ clientsData, salesData = [], lentesData = [], arma
     'Número': '',
     'Bairro': '',
     'Cidade': '',
-    'Estado': ''
+    'Estado': '',
+    'Responsável Nome': '',
+    'Responsável CPF': '',
+    'Responsável RG': '',
+    'Responsável WhatsApp': '',
+    'Responsável Instagram': '',
+    'Responsável Facebook': '',
+    'Responsável TikTok': '',
+    'Responsável Rua': '',
+    'Responsável Número': '',
+    'Responsável Bairro': '',
+    'Responsável Cidade': '',
+    'Responsável Estado': ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [cpfError, setCpfError] = useState('');
+  const [responsavelCpfError, setResponsavelCpfError] = useState('');
+
 
   const handleChange = (e) => {
     let { name, value } = e.target;
@@ -208,10 +262,7 @@ const ClientRegistration = ({ clientsData, salesData = [], lentesData = [], arma
         'Nome Completo': '',
         'CPF / CNPJ': '',
         'RG': '',
-        'Responsável': '',
         'WhatsApp': '',
-        'Referência 1': '',
-        'Referência 2': '',
         'E-mail': '',
         'Instagram': '',
         'Facebook': '',
@@ -225,7 +276,19 @@ const ClientRegistration = ({ clientsData, salesData = [], lentesData = [], arma
         'Número': '',
         'Bairro': '',
         'Cidade': '',
-        'Estado': ''
+        'Estado': '',
+        'Responsável Nome': '',
+        'Responsável CPF': '',
+        'Responsável RG': '',
+        'Responsável WhatsApp': '',
+        'Responsável Instagram': '',
+        'Responsável Facebook': '',
+        'Responsável TikTok': '',
+        'Responsável Rua': '',
+        'Responsável Número': '',
+        'Responsável Bairro': '',
+        'Responsável Cidade': '',
+        'Responsável Estado': ''
       });
       setIsAdding(false); 
       setEditingClientData(null);
@@ -658,6 +721,20 @@ const ClientRegistration = ({ clientsData, salesData = [], lentesData = [], arma
                     />
                   </div>
 
+                  {/* Data de Nascimento */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-2">
+                      <Calendar size={14} className="text-sky-400" /> Data de Nascimento
+                    </label>
+                    <input 
+                      type="date" 
+                      name="Data de Nascimento"
+                      value={formData['Data de Nascimento']}
+                      onChange={handleChange}
+                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all"
+                    />
+                  </div>
+
                   {/* Documento */}
                   <div className="space-y-2">
                     <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-2">
@@ -668,9 +745,14 @@ const ClientRegistration = ({ clientsData, salesData = [], lentesData = [], arma
                       name="CPF / CNPJ"
                       value={formData['CPF / CNPJ']}
                       onChange={handleChange}
+                      onBlur={(e) => {
+                        const val = e.target.value;
+                        setCpfError(isValidCpfCnpj(val) ? '' : 'CPF/CNPJ Incorreto');
+                      }}
                       placeholder="000.000.000-00"
-                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50 transition-all"
+                      className={`w-full bg-black/40 border rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 transition-all ${cpfError ? 'border-red-500 focus:ring-red-500/50' : 'border-white/10 focus:ring-fuchsia-500/50'}`}
                     />
+                    {cpfError && <p className="text-red-500 text-xs ml-1 font-bold">{cpfError}</p>}
                   </div>
 
                   {/* RG */}
@@ -688,20 +770,6 @@ const ClientRegistration = ({ clientsData, salesData = [], lentesData = [], arma
                     />
                   </div>
 
-                  {/* Responsável */}
-                  <div className="space-y-2">
-                    <label className="text-xs font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-2">
-                      <User size={14} className="text-sky-400" /> Responsável
-                    </label>
-                    <input 
-                      type="text" 
-                      name="Responsável"
-                      value={formData['Responsável']}
-                      onChange={handleChange}
-                      placeholder="Nome do Responsável (se houver)"
-                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all"
-                    />
-                  </div>
 
                   {/* Telefone */}
                   <div className="space-y-2">
@@ -807,6 +875,82 @@ const ClientRegistration = ({ clientsData, salesData = [], lentesData = [], arma
                       placeholder="@usuario"
                       className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-gray-300/50 transition-all"
                     />
+                  </div>
+
+                  {/* Dados do Responsável */}
+                  <div className="space-y-4 md:col-span-2 pt-4 border-t border-white/5 mt-4">
+                    <label className="text-sm font-black uppercase tracking-widest text-slate-300 flex items-center gap-2 mb-2">
+                      <User size={16} className="text-sky-400" /> Cadastro de Responsável
+                    </label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Nome do Responsável</label>
+                        <input type="text" name="Responsável Nome" value={formData['Responsável Nome']} onChange={handleChange} placeholder="Nome do Responsável" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">CPF / CNPJ</label>
+                        <input 
+                          type="text" 
+                          name="Responsável CPF" 
+                          value={formData['Responsável CPF']} 
+                          onChange={handleChange} 
+                          onBlur={(e) => {
+                            const val = e.target.value;
+                            setResponsavelCpfError(isValidCpfCnpj(val) ? '' : 'CPF/CNPJ Incorreto');
+                          }}
+                          placeholder="CPF/CNPJ do Responsável" 
+                          className={`w-full bg-black/40 border rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 transition-all ${responsavelCpfError ? 'border-red-500 focus:ring-red-500/50' : 'border-white/10 focus:ring-sky-500/50'}`} 
+                        />
+                        {responsavelCpfError && <p className="text-red-500 text-xs ml-1 font-bold">{responsavelCpfError}</p>}
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">RG</label>
+                        <input type="text" name="Responsável RG" value={formData['Responsável RG']} onChange={handleChange} placeholder="RG do Responsável" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">WhatsApp</label>
+                        <input type="text" name="Responsável WhatsApp" value={formData['Responsável WhatsApp']} onChange={handleChange} placeholder="WhatsApp do Responsável" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all" />
+                      </div>
+                      
+                      <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-1"><AtSign size={10} className="text-pink-400" /> Instagram</label>
+                          <input type="text" name="Responsável Instagram" value={formData['Responsável Instagram']} onChange={handleChange} placeholder="@usuario" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-pink-500/50 transition-all" />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-1"><AtSign size={10} className="text-blue-500" /> Facebook</label>
+                          <input type="text" name="Responsável Facebook" value={formData['Responsável Facebook']} onChange={handleChange} placeholder="Nome ou link" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all" />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 flex items-center gap-1"><AtSign size={10} className="text-gray-300" /> TikTok</label>
+                          <input type="text" name="Responsável TikTok" value={formData['Responsável TikTok']} onChange={handleChange} placeholder="@usuario" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-gray-300/50 transition-all" />
+                        </div>
+                      </div>
+
+                      
+                      <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div className="space-y-2 md:col-span-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Rua / Logradouro</label>
+                          <input type="text" name="Responsável Rua" value={formData['Responsável Rua']} onChange={handleChange} placeholder="Rua do Responsável" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all" />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Número</label>
+                          <input type="text" name="Responsável Número" value={formData['Responsável Número']} onChange={handleChange} placeholder="Nº" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all" />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Bairro</label>
+                          <input type="text" name="Responsável Bairro" value={formData['Responsável Bairro']} onChange={handleChange} placeholder="Bairro" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all" />
+                        </div>
+                        <div className="space-y-2 md:col-span-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Cidade</label>
+                          <input type="text" name="Responsável Cidade" value={formData['Responsável Cidade']} onChange={handleChange} placeholder="Cidade" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all" />
+                        </div>
+                        <div className="space-y-2 md:col-span-2">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Estado</label>
+                          <input type="text" name="Responsável Estado" value={formData['Responsável Estado']} onChange={handleChange} placeholder="Estado" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/50 transition-all" />
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Dados Ópticos */}
@@ -1014,6 +1158,7 @@ const ClientRegistration = ({ clientsData, salesData = [], lentesData = [], arma
         clientData={osClientData} 
         lentesData={lentesData}
         armacoesData={armacoesData}
+        salesData={salesData}
         onClose={() => setOsClientData(null)} 
         onSaveAndPrint={handleSaveAndPrintOS} 
       />

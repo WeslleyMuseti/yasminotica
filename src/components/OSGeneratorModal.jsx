@@ -13,7 +13,28 @@ const formatCurrency = (val) => {
   return Number(val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }).replace('R$', '').trim();
 };
 
-const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesData = [], armacoesData = [] }) => {
+const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesData = [], armacoesData = [], salesData = [] }) => {
+  const [selectedCity, setSelectedCity] = useState('');
+  
+  // Payment builder state
+  const [payMethod, setPayMethod] = useState('Dinheiro');
+  const [payValue, setPayValue] = useState('');
+  const [payInstallments, setPayInstallments] = useState('1');
+
+  const handleAddPayment = () => {
+    if (!payValue) return;
+    let text = `R$ ${payValue} no ${payMethod}`;
+    if (payMethod === 'Crédito' && parseInt(payInstallments) > 1) {
+      text += ` em ${payInstallments}x`;
+    }
+    setFormData(prev => {
+      const current = prev.formasPagamento ? prev.formasPagamento + '\n' : '';
+      return { ...prev, formasPagamento: current + text };
+    });
+    setPayValue('');
+    setPayInstallments('1');
+  };
+
   const [formData, setFormData] = useState({
     medico: '',
     dataEntrega: '',
@@ -35,7 +56,8 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
 
   useEffect(() => {
     if (clientData && isOpen) {
-      setFormData({
+      setFormData(prev => ({
+        ...prev,
         medico: '',
         dataEntrega: '',
         lente: clientData['Marca de Lente'] || '',
@@ -47,10 +69,36 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
         valorEntrada: '',
         restante: '',
         observacoes: '',
-        numeroOS: `OS-${Math.floor(1000 + Math.random() * 9000)}`
-      });
+        numeroOS: '' // Cleared until city is chosen
+      }));
+      setSelectedCity('');
     }
   }, [clientData, isOpen]);
+
+  // Handle auto generation of OS when city changes
+  useEffect(() => {
+    if (selectedCity && isOpen) {
+      let prefix = '';
+      if (selectedCity === 'Cajati') prefix = 'CAJ';
+      else if (selectedCity === 'Registro') prefix = 'REG';
+      else if (selectedCity === 'Pariquera-Açu') prefix = 'PAR';
+
+      if (prefix) {
+        let maxNum = 0;
+        salesData.forEach(sale => {
+          const os = sale['OS DA VENDA'];
+          if (os && os.startsWith(prefix + '-')) {
+            const numPart = parseInt(os.replace(prefix + '-', ''), 10);
+            if (!isNaN(numPart) && numPart > maxNum) {
+              maxNum = numPart;
+            }
+          }
+        });
+        const nextNum = maxNum + 1;
+        setFormData(prev => ({ ...prev, numeroOS: `${prefix}-${nextNum}` }));
+      }
+    }
+  }, [selectedCity, isOpen, salesData]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -142,17 +190,30 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
                 <Activity size={16} className="text-sky-400"/> Receita / Dioptria
               </h4>
               
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase text-slate-500 font-bold">Unidade (Cidade)</label>
+                  <select 
+                    value={selectedCity} 
+                    onChange={(e) => setSelectedCity(e.target.value)} 
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-sky-400 font-bold focus:outline-none focus:border-sky-500/50"
+                  >
+                    <option value="">Selecione...</option>
+                    <option value="Cajati">Cajati (CAJ)</option>
+                    <option value="Registro">Registro (REG)</option>
+                    <option value="Pariquera-Açu">Pariquera-Açu (PAR)</option>
+                  </select>
+                </div>
                 <div className="space-y-1">
                   <label className="text-[10px] uppercase text-slate-500 font-bold">Nº da OS</label>
-                  <input type="text" name="numeroOS" value={formData.numeroOS} onChange={handleChange} placeholder="Ex: OS-1234" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-fuchsia-400 font-bold focus:outline-none focus:border-fuchsia-500/50" />
+                  <input type="text" name="numeroOS" value={formData.numeroOS} onChange={handleChange} placeholder="CAJ-001" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-fuchsia-400 font-bold focus:outline-none focus:border-fuchsia-500/50" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] uppercase text-slate-500 font-bold">Médico Oftalmologista</label>
                   <input type="text" name="medico" value={formData.medico} onChange={handleChange} placeholder="Nome do Médico" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-sky-500/50" />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] uppercase text-slate-500 font-bold">Data de Entrega Prevista</label>
+                  <label className="text-[10px] uppercase text-slate-500 font-bold">Data de Entrega</label>
                   <input type="date" name="dataEntrega" value={formData.dataEntrega} onChange={handleChange} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-sky-500/50" />
                 </div>
               </div>
@@ -259,6 +320,54 @@ const OSGeneratorModal = ({ isOpen, onClose, clientData, onSaveAndPrint, lentesD
                 <div className="space-y-1">
                   <label className="text-[10px] uppercase text-slate-500 font-bold">Restante (R$)</label>
                   <input type="text" name="restante" value={formData.restante} onChange={handleChange} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white bg-white/5" readOnly />
+                </div>
+                <div className="space-y-3 md:col-span-3 p-4 border border-emerald-500/30 rounded-xl bg-emerald-500/5">
+                  <label className="text-[10px] uppercase text-emerald-400 font-bold block mb-2">Adicionar Pagamento</label>
+                  
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {['Dinheiro', 'PIX', 'Débito', 'Crédito'].map(method => (
+                      <button
+                        key={method}
+                        type="button"
+                        onClick={() => setPayMethod(method)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${payMethod === method ? 'bg-emerald-500 text-white' : 'bg-black/40 text-slate-400 hover:text-white'}`}
+                      >
+                        {method}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex gap-3 items-end">
+                    <div className="flex-1 space-y-1">
+                      <label className="text-[10px] uppercase text-slate-500 font-bold">Valor (R$)</label>
+                      <input type="text" value={payValue} onChange={e => setPayValue(e.target.value)} placeholder="0,00" className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-emerald-500/50 outline-none" />
+                    </div>
+                    {payMethod === 'Crédito' && (
+                      <div className="w-24 space-y-1">
+                        <label className="text-[10px] uppercase text-slate-500 font-bold">Parcelas</label>
+                        <select value={payInstallments} onChange={e => setPayInstallments(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl px-2 py-2.5 text-sm text-white focus:border-emerald-500/50 outline-none">
+                          {[1,2,3,4,5,6,7,8,9,10,11,12].map(n => (
+                            <option key={n} value={n}>{n}x</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    <button type="button" onClick={handleAddPayment} className="px-4 py-2.5 bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-xl font-bold transition-colors text-sm">
+                      + Adicionar
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-1 md:col-span-3">
+                  <label className="text-[10px] uppercase text-slate-500 font-bold">Formas de Pagamento Selecionadas (Editável)</label>
+                  <textarea 
+                    name="formasPagamento" 
+                    value={formData.formasPagamento} 
+                    onChange={handleChange} 
+                    rows="2"
+                    placeholder="Adicione pelos botões acima ou digite aqui..." 
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white resize-none focus:outline-none focus:border-emerald-500/50" 
+                  />
                 </div>
               </div>
             </div>

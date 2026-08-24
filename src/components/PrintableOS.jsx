@@ -23,12 +23,40 @@ const PrintableOS = ({ osData, clientData }) => {
         <h3 className="text-lg font-bold border-b border-gray-300 mb-3 pb-1 uppercase">Dados do Cliente</h3>
         <div className="grid grid-cols-2 gap-4 text-sm">
           <p><strong>Nome:</strong> {clientData['Nome Completo']}</p>
-          <p><strong>CPF/CNPJ:</strong> {clientData['CPF / CNPJ'] || 'Não informado'} {osData.rg ? `| RG: ${osData.rg}` : ''}</p>
+          <p><strong>CPF/CNPJ:</strong> {clientData['CPF / CNPJ'] || 'Não informado'} {clientData['RG'] ? `| RG: ${clientData['RG']}` : ''}</p>
           <p><strong>WhatsApp:</strong> {clientData['WhatsApp'] || 'Não informado'}</p>
-          <p><strong>Endereço:</strong> {clientData['Rua']} {clientData['Número']}, {clientData['Bairro']} - {clientData['Cidade']}/{clientData['Estado']}</p>
-          {osData.responsavel && <p className="col-span-2"><strong>Responsável:</strong> {osData.responsavel}</p>}
+          <p>
+            <strong>Redes Sociais:</strong>{' '}
+            {[
+              clientData['Instagram'] && `Insta: ${clientData['Instagram']}`,
+              clientData['Facebook'] && `FB: ${clientData['Facebook']}`,
+              clientData['TikTok'] && `TikTok: ${clientData['TikTok']}`
+            ].filter(Boolean).join(' | ') || 'Não informado'}
+          </p>
+          <p className="col-span-2"><strong>Endereço:</strong> {clientData['Rua']} {clientData['Número']}, {clientData['Bairro']} - {clientData['Cidade']}/{clientData['Estado']}</p>
         </div>
       </div>
+
+      {/* Dados do Responsável */}
+      {(clientData['Responsável Nome'] || osData.responsavel) && (
+        <div className="mb-6">
+          <h3 className="text-lg font-bold border-b border-gray-300 mb-3 pb-1 uppercase">Dados do Responsável</h3>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <p><strong>Nome:</strong> {clientData['Responsável Nome'] || osData.responsavel}</p>
+            <p><strong>CPF/CNPJ:</strong> {clientData['Responsável CPF'] || 'Não informado'} {clientData['Responsável RG'] ? `| RG: ${clientData['Responsável RG']}` : ''}</p>
+            <p><strong>WhatsApp:</strong> {clientData['Responsável WhatsApp'] || 'Não informado'}</p>
+            <p>
+              <strong>Redes Sociais:</strong>{' '}
+              {[
+                clientData['Responsável Instagram'] && `Insta: ${clientData['Responsável Instagram']}`,
+                clientData['Responsável Facebook'] && `FB: ${clientData['Responsável Facebook']}`,
+                clientData['Responsável TikTok'] && `TikTok: ${clientData['Responsável TikTok']}`
+              ].filter(Boolean).join(' | ') || 'Não informado'}
+            </p>
+            <p className="col-span-2"><strong>Endereço:</strong> {clientData['Responsável Rua']} {clientData['Responsável Número']}, {clientData['Responsável Bairro']} - {clientData['Responsável Cidade']}/{clientData['Responsável Estado']}</p>
+          </div>
+        </div>
+      )}
 
       {/* Dados da Receita */}
       <div className="mb-6">
@@ -90,7 +118,7 @@ const PrintableOS = ({ osData, clientData }) => {
       <div className="mb-6">
         <h3 className="text-lg font-bold border-b border-gray-300 mb-3 pb-1 uppercase">Financeiro</h3>
         <div className="grid grid-cols-2 gap-4 text-sm mb-4">
-          <p><strong>Forma de Pagamento:</strong> {osData.formasPagamento || 'Não informada'}</p>
+          <p className="whitespace-pre-wrap"><strong>Formas de Pagamento:</strong><br/>{osData.formasPagamento || 'Não informada'}</p>
           <p><strong>Voucher:</strong> {osData.voucher || 'Nenhum'}</p>
         </div>
         <div className="grid grid-cols-3 gap-4 text-sm">
@@ -141,13 +169,22 @@ const PrintableOS = ({ osData, clientData }) => {
       </div>
 
       {/* Assinaturas */}
-      <div className="mt-12 pt-4 flex justify-between px-10 text-center">
-        <div className="w-1/3">
+      <div className={`mt-12 pt-4 flex ${clientData['Responsável Nome'] || osData.responsavel ? 'justify-between' : 'justify-around'} px-4 text-center`}>
+        <div className="w-[28%]">
           <div className="border-t border-black pt-2 uppercase text-xs font-bold">
             SOLICITANTE
           </div>
         </div>
-        <div className="w-1/3">
+        
+        {(clientData['Responsável Nome'] || osData.responsavel) && (
+          <div className="w-[28%]">
+            <div className="border-t border-black pt-2 uppercase text-xs font-bold">
+              RESPONSÁVEL
+            </div>
+          </div>
+        )}
+
+        <div className="w-[28%]">
           <div className="border-t border-black pt-2 uppercase text-xs font-bold">
             ÓTICA
           </div>

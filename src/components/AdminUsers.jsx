@@ -5,6 +5,7 @@ const AdminUsers = ({ users, setUsers, onBack }) => {
   const [newUser, setNewUser] = useState('');
   const [newPass, setNewPass] = useState('');
   const [newRole, setNewRole] = useState('vendedor');
+  const [newCity, setNewCity] = useState('');
 
   const toggleAuth = (username) => {
     setUsers(users.map(u => u.username === username ? { ...u, authorized: !u.authorized } : u));
@@ -18,10 +19,15 @@ const AdminUsers = ({ users, setUsers, onBack }) => {
   const addUser = (e) => {
     e.preventDefault();
     if (!newUser || !newPass) return;
+    if (newRole === 'vendedor' && !newCity) {
+      alert('Selecione a unidade do vendedor!');
+      return;
+    }
     if (users.find(u => u.username === newUser)) return;
-    setUsers([...users, { username: newUser, password: newPass, role: newRole, authorized: true }]);
+    setUsers([...users, { username: newUser, password: newPass, role: newRole, city: newRole === 'vendedor' ? newCity : '', authorized: true }]);
     setNewUser('');
     setNewPass('');
+    setNewCity('');
   };
 
   return (
@@ -49,7 +55,7 @@ const AdminUsers = ({ users, setUsers, onBack }) => {
                   <div>
                     
                     <p className="font-bold text-white">{u.username} {u.username === 'wmusete' && <span className="text-[10px] bg-fuchsia-500 text-white px-2 py-0.5 rounded-full ml-2">Master</span>}</p>
-                    <p className="text-xs text-slate-400">Senha: {u.password} | Perfil: {u.role}</p>
+                    <p className="text-xs text-slate-400">Senha: {u.password} | Perfil: {u.role}{u.city && ` | Unidade: ${u.city}`}</p>
 
                   </div>
                 </div>
@@ -103,6 +109,18 @@ const AdminUsers = ({ users, setUsers, onBack }) => {
                   <option value="administrativo">Administrativo (Tudo)</option>
                 </select>
               </div>
+
+              {newRole === 'vendedor' && (
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-slate-400 ml-1">Unidade (Cidade)</label>
+                  <select value={newCity} onChange={e => setNewCity(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 mt-1 text-white focus:outline-none focus:border-sky-500">
+                    <option value="">Selecione a cidade...</option>
+                    <option value="Cajati">Cajati (CAJ)</option>
+                    <option value="Registro">Registro (REG)</option>
+                    <option value="Pariquera-Açu">Pariquera-Açu (PAR)</option>
+                  </select>
+                </div>
+              )}
 
               <button type="submit" className="w-full py-3 bg-sky-500 hover:bg-sky-400 text-white font-black rounded-xl transition-all">
                 Adicionar Conta
