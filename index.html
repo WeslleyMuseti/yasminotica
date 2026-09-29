@@ -7,12 +7,38 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@700;800;900&display=swap" rel="stylesheet">
-    <title>Dashboard Ótica Vision - Analytics e Redes Sociais</title>
-    <meta name="description" content="Dashboard avançado para gestão de óticas, análise de faturamento e desempenho de redes sociais através de planilhas." />
+    <title>Yasmin Ótica - Sistema de Gestão e Analytics</title>
+    <meta name="description" content="Sistema de Gestão Integrado Yasmin Ótica - Vendas, Ordens de Serviço, Clientes, Estoque e ERP." />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <script src="https://cdn.tailwindcss.com"></script>
   </head>
-  <body>
-    <div id="root"></div>
+  <body style="background-color: #F2EFE7; margin: 0; padding: 0; font-family: 'Outfit', 'Inter', sans-serif;">
+    <div id="root">
+      <div style="position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #F2EFE7; background-image: radial-gradient(at 0% 0%, hsla(210, 100%, 12%, 0.95) 0, transparent 65%), radial-gradient(at 100% 100%, hsla(260, 100%, 12%, 0.95) 0, transparent 65%); color: white; user-select: none; z-index: 99999;">
+        <div style="position: absolute; top: 30%; left: 50%; transform: translate(-50%, -50%); width: 320px; height: 320px; background: radial-gradient(circle, rgba(236,72,153,0.25) 0%, rgba(7,11,20,0) 70%); border-radius: 50%; filter: blur(50px);"></div>
+        <div style="position: relative; z-index: 10; display: flex; flex-direction: column; align-items: center; text-align: center; max-width: 360px; padding: 20px;">
+          <div style="background: rgba(15, 23, 42, 0.9); padding: 16px 24px; border-radius: 24px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 0 35px rgba(236, 72, 153, 0.25); margin-bottom: 20px;">
+            <img src="/logo-yasmin-transparent.png" alt="Yasmin Ótica" style="height: 64px; width: auto; object-contain;" onerror="this.src='/logo-yasmin.png';" />
+          </div>
+          <h1 style="font-size: 24px; font-weight: 900; letter-spacing: -0.5px; margin: 0 0 6px 0; color: #ffffff;">YASMIN ÓTICA</h1>
+          <p style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; color: #94a3b8; margin: 0 0 24px 0; background: rgba(255,255,255,0.05); padding: 4px 14px; border-radius: 9999px; border: 1px solid rgba(255,255,255,0.05);">Sistema de Gestão & ERP</p>
+          
+          <div style="width: 220px; height: 6px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255,255,255,0.1); border-radius: 9999px; overflow: hidden; position: relative; margin-bottom: 16px;">
+            <div style="position: absolute; top: 0; left: 0; height: 100%; width: 45%; background: linear-gradient(90deg, #ec4899, #10b981); border-radius: 9999px; animation: splashPulse 1.2s infinite ease-in-out;"></div>
+          </div>
+          <p style="font-size: 12px; font-weight: 600; color: #cbd5e1; margin: 0;">Inicializando sistema...</p>
+        </div>
+      </div>
+      <style>
+        @keyframes splashPulse {
+          0% { left: -45%; width: 45%; }
+          50% { left: 35%; width: 60%; }
+          100% { left: 100%; width: 45%; }
+        }
+      </style>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

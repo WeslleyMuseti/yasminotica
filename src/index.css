@@ -1,8 +1,8 @@
 :root {
-  --bg-primary: #020617;
+  --bg-primary: #F2EFE7;
   --bg-secondary: #0f172a;
-  --bg-glass: rgba(15, 23, 42, 0.6);
-  --border-glass: rgba(255, 255, 255, 0.08);
+  --bg-glass: rgba(13, 19, 34, 0.92);
+  --border-glass: rgba(255, 255, 255, 0.1);
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
   --accent-primary: #38bdf8;
@@ -15,6 +15,7 @@
 
 html {
   scroll-behavior: smooth;
+  overscroll-behavior-y: none;
 }
 
 * {
@@ -29,9 +30,11 @@ body {
   color: var(--text-primary);
   min-height: 100vh;
   overflow-x: hidden;
+  overscroll-behavior-y: none;
   background-image: 
-    radial-gradient(at 0% 0%, hsla(210, 100%, 15%, 1) 0, transparent 50%), 
-    radial-gradient(at 100% 100%, hsla(260, 100%, 15%, 1) 0, transparent 50%);
+    radial-gradient(at 0% 0%, hsla(210, 100%, 12%, 0.95) 0, transparent 65%), 
+    radial-gradient(at 100% 100%, hsla(260, 100%, 12%, 0.95) 0, transparent 65%),
+    radial-gradient(at 50% 50%, hsla(220, 35%, 15%, 0.35) 0, transparent 75%);
   background-attachment: fixed;
 }
 
@@ -141,21 +144,196 @@ section {
   animation: float 6s ease-in-out infinite;
 }
 
+/* Barra de rolagem estilizada para o catálogo ERP e listas */
+.erp-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(245, 158, 11, 0.4) rgba(15, 23, 42, 0.8);
+}
+.erp-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.erp-scroll::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.8);
+  border-radius: 9999px;
+}
+.erp-scroll::-webkit-scrollbar-thumb {
+  background: rgba(245, 158, 11, 0.4);
+  border-radius: 9999px;
+}
+.erp-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(245, 158, 11, 0.75);
+}
+
 @media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm 10mm;
+  }
+
+  /* Oculta elementos de navegação e controles no modo de impressão */
+  nav, header, aside {
+    display: none !important;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Oculta tudo por padrão na impressão */
   body * {
-    visibility: hidden;
+    visibility: hidden !important;
   }
-  #print-section, #print-section * {
-    visibility: visible;
+  
+  /* Torna visíveis apenas os documentos de impressão oficiais */
+  #print-section,
+  #print-section *,
+  #print-receipt-section,
+  #print-receipt-section *,
+  #print-cash-voucher-section,
+  #print-cash-voucher-section *,
+  #print-label-section,
+  #print-label-section * {
+    visibility: visible !important;
   }
+
+  /* ─── ETIQUETAS TÉRMICAS ÓTICAS & JOALHERIA (BORBOLETA / HASTE & 50x30mm) ─── */
+  body.printing-label {
+    width: auto !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+
+  #print-label-section {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 1mm !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    display: block !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    z-index: 999999999 !important;
+  }
+
+  .label-glasses-tail-wrapper {
+    width: 100% !important;
+    max-width: 90mm !important;
+    height: 18mm !important;
+    max-height: 20mm !important;
+    margin: 0 auto !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+    display: flex !important;
+    align-items: center !important;
+  }
+
+  .label-glasses-body {
+    width: 70% !important;
+    height: 100% !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    border: 1px solid #000000 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .label-glasses-tail {
+    width: 30% !important;
+    height: 12px !important;
+    box-sizing: border-box !important;
+    border-top: 1px solid #000000 !important;
+    border-bottom: 1px solid #000000 !important;
+    border-right: 1px solid #000000 !important;
+    border-radius: 0 9999px 9999px 0 !important;
+    background: #ffffff !important;
+  }
+
+  .label-glasses-butterfly {
+    width: 100% !important;
+    max-width: 85mm !important;
+    height: 18mm !important;
+    max-height: 20mm !important;
+    margin: 0 auto !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+  }
+
+  .label-50x30 {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 48mm !important;
+    max-height: 28mm !important;
+    margin: 0 auto !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+  }
+
+  /* Posicionamento 100% centralizado no meio da folha */
+  #print-cash-voucher-section,
+  #print-receipt-section {
+    position: absolute !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    display: block !important;
+    text-align: center !important;
+    z-index: 999999999 !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-before: avoid !important;
+    break-before: avoid !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  #print-cash-voucher-section > div,
+  #print-receipt-section > div {
+    display: inline-block !important;
+    margin: 0 auto !important;
+    text-align: left !important;
+    width: 360px !important;
+    max-width: 90% !important;
+    box-sizing: border-box !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
   #print-section {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    color: black !important;
-    background: white !important;
-    box-shadow: none !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    display: block !important;
   }
-  @page { margin: 10mm; }
+
+  #print-section > div {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
 }

@@ -27,3 +27,11 @@ dist-ssr
 public/*.xlsx
 public/*.xls
 public/*.csv
+*.csv
+
+# Arquivos compactados e patches temporários
+*.zip
+*.rar
+*.tar.gz
+patch*.cjs
+

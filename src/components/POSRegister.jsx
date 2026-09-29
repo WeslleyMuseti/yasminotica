@@ -1,0 +1,2629 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import {
+  ShoppingCart, User, Search, Plus, Trash2, CheckCircle2,
+  Printer, DollarSign, CreditCard, QrCode, FileText,
+  Package, AlertTriangle, ArrowRight, Eye, ChevronDown,
+  Sparkles, RefreshCw, X, ShieldCheck, Calendar, Phone,
+  UserPlus, ClipboardList, Glasses, Layers, Tag, Check,
+  Lock, Unlock, ArrowDownRight, ArrowUpRight, Building, Wallet, History, Receipt,
+  Ticket, Percent, AlertOctagon, Star
+} from 'lucide-react';
+import PrintableOS from './PrintableOS';
+import PrintableReceipt from './PrintableReceipt';
+import OSGeneratorModal from './OSGeneratorModal';
+import CashManagementModal, { PrintableCashVoucher } from './CashManagementModal';
+import CashHistoryModal from './CashHistoryModal';
+import { PrintableLabelModal } from './PrintableLabel';
+import { decrementStockAtomically, isSameClient } from '../firebaseSync';
+
+const cleanVal = (v) => {
+  if (v === null || v === undefined || v === '') return 0;
+  if (typeof v === 'number') return isNaN(v) ? 0 : v;
+  let str = String(v).replace(/R\$\s?/g, '').trim();
+  if (!str) return 0;
+  if (str.includes(',')) {
+    str = str.replace(/\./g, '').replace(',', '.');
+  } else if (str.includes('.')) {
+    const parts = str.split('.');
+    if (parts.length === 2 && parts[1].length === 3 && parts[0].length >= 1) {
+      str = parts.join('');
+    } else if (parts.length > 2) {
+      str = str.replace(/\./g, '');
+    }
+  }
+  const parsed = parseFloat(str);
+  return isNaN(parsed) ? 0 : parsed;
+};
+
+const fmtMoeda = (v) => `R$ ${Number(cleanVal(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const parseCurrency = cleanVal;
+
+const POSRegister = ({
+  data = {},
+  clientsData = [],
+  salesData = [],
+  armacoesData = [],
+  lentesData = [],
+  receberData = [],
+  currentUser,
+  onAddSale,
+  onAddClient,
+  onUpdateRow,
+  onAddRow,
+  onNavigateToNewClient,
+  onNavigateToERP,
+  onBack
+}) => {
+  // ─── ESTADOS PRINCIPAIS ──────────────────────────────────────────
+  const [selectedClient, setSelectedClient] = useState(null);
+  const [clientSearch, setClientSearch] = useState('');
+
+  // Modal de Cadastro Rápido de Cliente (sem sair do PDV e sem perder o carrinho)
+  const [isQuickClientModalOpen, setIsQuickClientModalOpen] = useState(false);
+  const [quickClientForm, setQuickClientForm] = useState({
+    nome: '',
+    cpf: '',
+    whatsapp: '',
+    cidade: '',
+    odEsf: '',
+    oeEsf: '',
+    medico: ''
+  });
+  const [quickClientError, setQuickClientError] = useState('');
+  const [isSavingQuickClient, setIsSavingQuickClient] = useState(false);
+
+  // Carrinho de Compras
+  const [cart, setCart] = useState([]);
+  const [productCategory, setProductCategory] = useState('armacoes'); // 'mais_vendidos', 'armacoes', 'lentes', 'todos', 'avulso'
+  const [productSearch, setProductSearch] = useState('');
+  const [selectedCityStock, setSelectedCityStock] = useState('TODAS');
+
+  // Item Avulso
+  const [customItem, setCustomItem] = useState({ nome: '', preco: '', qtd: 1, categoria: 'Outros' });
+
+  // Desconto Global & Vouchers
+  const [discountInput, setDiscountInput] = useState('');
+  const discount = useMemo(() => cleanVal(discountInput), [discountInput]);
+  const [voucherCodeInput, setVoucherCodeInput] = useState('');
+  const [appliedVoucher, setAppliedVoucher] = useState(null);
+  const [voucherError, setVoucherError] = useState('');
+
+  const vouchersData = useMemo(() => data?.['VOUCHERS'] || [], [data]);
+
+  // ─── SISTEMA DE PAGAMENTO ────────────────────────────────────────
+  const [payments, setPayments] = useState([]);
+  const [currentMethod, setCurrentMethod] = useState('dinheiro'); // 'dinheiro', 'pix', 'debito', 'credito', 'carne'
+  const [paymentInputVal, setPaymentInputVal] = useState('');
+  const [payInstallments, setPayInstallments] = useState(1);
+  const [payFirstDueDate, setPayFirstDueDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().split('T')[0];
+  });
+  const [customDueDates, setCustomDueDates] = useState({});
+  const [cashTendered, setCashTendered] = useState('');
+
+  const getInstallmentDate = (firstDateStr, offset) => {
+    if (!firstDateStr) {
+      const d = new Date();
+      d.setDate(d.getDate() + 30 * (offset + 1));
+      return d.toISOString().split('T')[0];
+    }
+    const parts = firstDateStr.split('-');
+    if (parts.length === 3) {
+      const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+      d.setMonth(d.getMonth() + offset);
+      return d.toISOString().split('T')[0];
+    }
+    return firstDateStr;
+  };
+
+  // Estado de Sucesso / Pós-Venda
+  const [completedSale, setCompletedSale] = useState(null);
+  const [savedClientForOS, setSavedClientForOS] = useState(null);
+
+  // Modal de Geração de OS
+  const [isOSModalOpen, setIsOSModalOpen] = useState(false);
+  const [osPrintData, setOsPrintData] = useState(null);
+  const [receiptPrintData, setReceiptPrintData] = useState(null);
+
+  // ─── GESTÃO DE FLUXO DE CAIXA, TURNOS & SANGRIA ──────────────────
+  const isVendor = currentUser?.role === 'vendedor';
+  const userFixedCity = isVendor ? (currentUser?.city || currentUser?.assignedStore || 'Cajati') : null;
+
+  const [selectedPOSCity, setSelectedPOSCity] = useState(() => {
+    return userFixedCity || currentUser?.city || currentUser?.assignedStore || 'Cajati';
+  });
+
+  useEffect(() => {
+    if (userFixedCity) {
+      setSelectedPOSCity(userFixedCity);
+    }
+  }, [userFixedCity]);
+
+  const [cashModalState, setCashModalState] = useState({ isOpen: false, type: 'ABERTURA' });
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [cashVoucherPrintData, setCashVoucherPrintData] = useState(null);
+
+  const handleTriggerCashPrint = (voucher) => {
+    setOsPrintData(null);
+    setReceiptPrintData(null);
+    setCashVoucherPrintData(voucher);
+    setTimeout(() => {
+      window.print();
+    }, 250);
+  };
+
+  const cashMovements = useMemo(() => {
+    return data?.['FLUXO_CAIXA'] || [];
+  }, [data]);
+
+  const activeSession = useMemo(() => {
+    const cityMovements = [...cashMovements]
+      .filter(m => m.unidade === selectedPOSCity)
+      .sort((a, b) => new Date(a.dataHora || a.timestamp || 0) - new Date(b.dataHora || b.timestamp || 0));
+
+    let currentOpen = null;
+    cityMovements.forEach(m => {
+      if (m.tipo === 'ABERTURA') {
+        currentOpen = {
+          unidade: m.unidade,
+          operador: m.operador,
+          fundoInicial: cleanVal(m.valor),
+          dataHoraAbertura: m.dataHora || m.timestamp,
+          timestamp: m.dataHora || m.timestamp
+        };
+      } else if (m.tipo === 'FECHAMENTO') {
+        currentOpen = null;
+      }
+    });
+
+    return currentOpen;
+  }, [cashMovements, selectedPOSCity]);
+
+  const liveDrawerCash = useMemo(() => {
+    if (!activeSession) return 0;
+    const sessionStart = new Date(activeSession.dataHoraAbertura || 0);
+    const movements = cashMovements.filter(m => {
+      if (m.unidade !== selectedPOSCity) return false;
+      return new Date(m.dataHora || 0) >= sessionStart;
+    });
+
+    let saldo = activeSession.fundoInicial || 0;
+    movements.forEach(m => {
+      const v = cleanVal(m.valor);
+      if (m.tipo === 'SUPRIMENTO') saldo += v;
+      else if (m.tipo === 'SANGRIA') saldo -= v;
+      else if (m.tipo === 'VENDA' && String(m.formaPagamento || '').toUpperCase().includes('DINHEIRO')) {
+        saldo += v;
+      }
+    });
+    return Math.max(0, saldo);
+  }, [activeSession, cashMovements, selectedPOSCity]);
+
+  const handleOpenCash = async (openData) => {
+    if (onAddRow) {
+      await onAddRow('FLUXO_CAIXA', {
+        id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+        tipo: 'ABERTURA',
+        dataHora: openData.dataHoraAbertura,
+        data: new Date().toLocaleDateString('pt-BR'),
+        unidade: openData.unidade,
+        operador: openData.operador,
+        valor: openData.fundoInicial,
+        formaPagamento: 'DINHEIRO',
+        motivo: 'Abertura de Caixa (Fundo de Troco)',
+        detalhes: openData.observacoes || ''
+      });
+    }
+  };
+
+  const handleAddSangria = async (sangriaData) => {
+    if (onAddRow) {
+      await onAddRow('FLUXO_CAIXA', {
+        id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+        tipo: 'SANGRIA',
+        dataHora: sangriaData.dataHora,
+        data: new Date().toLocaleDateString('pt-BR'),
+        unidade: sangriaData.unidade,
+        operador: sangriaData.operador,
+        valor: sangriaData.valor,
+        formaPagamento: 'DINHEIRO',
+        motivo: sangriaData.motivo,
+        detalhes: sangriaData.detalhes || ''
+      });
+
+      // Se for despesa da loja, cria lançamento no CONTAS_PAGAR
+      if (sangriaData.motivo === 'Pagamento de Despesa Local' || sangriaData.despesaCategoria) {
+        await onAddRow('CONTAS_PAGAR', {
+          'DESPESA': sangriaData.detalhes || sangriaData.motivo,
+          'CATEGORIA': sangriaData.despesaCategoria || 'Despesa de Caixa',
+          'VALOR': sangriaData.valor,
+          'DATA': new Date().toLocaleDateString('pt-BR'),
+          'STATUS': 'Pago',
+          'CIDADE': sangriaData.unidade,
+          'OBSERVAÇÕES': `Sangria de Caixa realizada por ${sangriaData.operador}`
+        });
+      }
+    }
+  };
+
+  const handleAddSuprimento = async (suprimentoData) => {
+    if (onAddRow) {
+      await onAddRow('FLUXO_CAIXA', {
+        id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+        tipo: 'SUPRIMENTO',
+        dataHora: suprimentoData.dataHora,
+        data: new Date().toLocaleDateString('pt-BR'),
+        unidade: suprimentoData.unidade,
+        operador: suprimentoData.operador,
+        valor: suprimentoData.valor,
+        formaPagamento: 'DINHEIRO',
+        motivo: suprimentoData.motivo
+      });
+    }
+  };
+
+  const handleCloseCash = async (closeData) => {
+    if (onAddRow) {
+      await onAddRow('FLUXO_CAIXA', {
+        id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+        tipo: 'FECHAMENTO',
+        dataHora: new Date().toISOString(),
+        data: new Date().toLocaleDateString('pt-BR'),
+        unidade: closeData.unidade,
+        operador: closeData.operador,
+        valor: closeData.dinheiroContado,
+        fundoInicial: closeData.fundoInicial,
+        totalVendas: closeData.totalVendas,
+        dinheiroEsperado: closeData.dinheiroEsperado,
+        diferenca: closeData.diferenca,
+        status: closeData.status,
+        formaPagamento: 'TODAS',
+        motivo: `Fechamento de Caixa - ${closeData.status}`,
+        detalhes: closeData.observacoes || ''
+      });
+    }
+  };
+
+  // ─── FONTES DE DADOS DO ESTOQUE ERP ──────────────────────────────
+  const erpArmacoes = useMemo(() => {
+    const list = data?.['CAD_ARMACOES'] || armacoesData || [];
+    if (!userFixedCity) return list;
+    return list.filter(item => {
+      const u = String(item['UNIDADE'] || item['CIDADE'] || item['LOJA'] || item['Unidade'] || '').trim().toUpperCase();
+      return u && u !== 'CENTRAL' && u.includes(userFixedCity.toUpperCase());
+    });
+  }, [data, armacoesData, userFixedCity]);
+
+  const erpLentes = useMemo(() => {
+    const list = data?.['CAD_LENTES'] || lentesData || [];
+    if (!userFixedCity) return list;
+    return list.filter(item => {
+      const u = String(item['UNIDADE'] || item['CIDADE'] || item['LOJA'] || item['Unidade'] || '').trim().toUpperCase();
+      return u && u !== 'CENTRAL' && u.includes(userFixedCity.toUpperCase());
+    });
+  }, [data, lentesData, userFixedCity]);
+
+  const erpGeral = useMemo(() => {
+    const list = data?.['ESTOQUE'] || data?.['ESTOQUE ENTRADA SAÍDAS'] || [];
+    if (!userFixedCity) return list;
+    return list.filter(item => {
+      const u = String(item['UNIDADE'] || item['CIDADE'] || item['LOJA'] || item['Unidade'] || '').trim().toUpperCase();
+      return u && u !== 'CENTRAL' && u.includes(userFixedCity.toUpperCase());
+    });
+  }, [data, userFixedCity]);
+
+  // ─── FILTROS DE CLIENTES ─────────────────────────────────────────
+  const filteredClients = useMemo(() => {
+    if (!clientSearch) return [];
+    const q = clientSearch.toLowerCase();
+    return clientsData.filter(c => {
+      if (userFixedCity) {
+        const cCity = String(c['Cidade'] || c['CIDADE'] || c['Unidade'] || '').trim().toLowerCase();
+        if (cCity && !cCity.includes(userFixedCity.toLowerCase()) && !userFixedCity.toLowerCase().includes(cCity)) {
+          return false;
+        }
+      }
+      return (
+        (c['Nome Completo'] && c['Nome Completo'].toLowerCase().includes(q)) ||
+        (c['NOME'] && c['NOME'].toLowerCase().includes(q)) ||
+        (c['CPF / CNPJ'] && c['CPF / CNPJ'].includes(q)) ||
+        (c['WhatsApp'] && c['WhatsApp'].includes(q))
+      );
+    });
+  }, [clientSearch, clientsData, userFixedCity]);
+
+  // ─── ANÁLISE FINANCEIRA E ALERTA DE INADIMPLÊNCIA DO CLIENTE NO PDV ────
+  const selectedClientFinancials = useMemo(() => {
+    if (!selectedClient) return null;
+    const clientInvoices = (receberData || []).filter(inv => isSameClient(selectedClient, inv));
+    let totalAberto = 0;
+    let totalVencido = 0;
+    let hasOverdue = false;
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    clientInvoices.forEach(inv => {
+      const val = cleanVal(inv.VALOR || inv.valor || 0);
+      const st = String(inv.STATUS || inv.status || 'Pendente').trim();
+      const isPaid = st === 'Recebido' || st === 'Pago';
+      const dtVenc = String(inv.DATA_VENCIMENTO || inv['DATA VENCIMENTO'] || inv.VENCIMENTO || '');
+
+      if (!isPaid) {
+        totalAberto += val;
+        if (dtVenc && dtVenc < todayStr) {
+          hasOverdue = true;
+          totalVencido += val;
+        }
+      }
+    });
+
+    if (clientInvoices.length === 0) {
+      totalAberto = cleanVal(selectedClient['Valor Devido'] || selectedClient['VALOR DEVIDO'] || 0);
+      if (String(selectedClient['Status de Pagamento'] || '').toLowerCase() === 'inadimplente') {
+        hasOverdue = true;
+        totalVencido = totalAberto;
+      }
+    }
+
+    const isInadimplente = hasOverdue || String(selectedClient['Status de Pagamento'] || '').toLowerCase() === 'inadimplente';
+
+    return {
+      totalAberto,
+      totalVencido: totalVencido > 0 ? totalVencido : (isInadimplente ? totalAberto : 0),
+      isInadimplente,
+      countInvoices: clientInvoices.length
+    };
+  }, [selectedClient, receberData]);
+
+  // ─── MAPA DE MAIS VENDIDOS (CROSS-REFERENCE COM VENDAS DO ERP) ────────
+  const salesCountMap = useMemo(() => {
+    const map = {};
+    (salesData || []).forEach(sale => {
+      const p = String(sale['PRODUTO'] || sale['ARMAÇÃO'] || sale['MODELO'] || '').toLowerCase();
+      if (p) {
+        map[p] = (map[p] || 0) + 1;
+      }
+    });
+    return map;
+  }, [salesData]);
+
+  // ─── FILTROS DO CATÁLOGO DE PRODUTOS ──────────────────────────────
+  const filteredProducts = useMemo(() => {
+    let source = [];
+    if (productCategory === 'armacoes') {
+      source = erpArmacoes.map(i => ({ ...i, _type: 'armacoes' }));
+    } else if (productCategory === 'lentes') {
+      source = erpLentes.map(i => ({ ...i, _type: 'lentes' }));
+    } else if (productCategory === 'geral') {
+      source = erpGeral.map(i => ({ ...i, _type: 'geral' }));
+    } else if (productCategory === 'mais_vendidos') {
+      const all = [
+        ...erpArmacoes.map(i => ({ ...i, _type: 'armacoes' })),
+        ...erpLentes.map(i => ({ ...i, _type: 'lentes' }))
+      ];
+      source = all.sort((a, b) => {
+        const textA = String(a['MODELO'] || a['MARCA'] || a['PRODUTO'] || '').toLowerCase();
+        const textB = String(b['MODELO'] || b['MARCA'] || b['PRODUTO'] || '').toLowerCase();
+        const countA = salesCountMap[textA] || 0;
+        const countB = salesCountMap[textB] || 0;
+        return countB - countA;
+      });
+    } else if (productCategory === 'todos') {
+      source = [
+        ...erpArmacoes.map(i => ({ ...i, _type: 'armacoes' })),
+        ...erpLentes.map(i => ({ ...i, _type: 'lentes' })),
+        ...erpGeral.map(i => ({ ...i, _type: 'geral' }))
+      ];
+    }
+
+    const q = productSearch.toLowerCase().trim();
+    const effectiveCityFilter = userFixedCity || (selectedCityStock !== 'TODAS' ? selectedCityStock : null);
+
+    return source.filter(item => {
+      if (effectiveCityFilter) {
+        const itemUnit = String(item['UNIDADE'] || item['CIDADE'] || item['LOJA'] || item['Unidade'] || '').trim().toUpperCase();
+        if (isVendor) {
+          if (!itemUnit || itemUnit === 'CENTRAL' || !itemUnit.includes(effectiveCityFilter.toUpperCase())) {
+            return false;
+          }
+        } else {
+          if (itemUnit && !itemUnit.includes(effectiveCityFilter.toUpperCase())) {
+            return false;
+          }
+        }
+      }
+      if (!q) return true;
+      const text = Object.values(item).join(' ').toLowerCase();
+      return text.includes(q);
+    });
+  }, [productCategory, erpArmacoes, erpLentes, erpGeral, salesCountMap, productSearch, selectedCityStock, userFixedCity, isVendor]);
+
+  // ─── OPERAÇÕES DO CARRINHO ───────────────────────────────────────
+  const addToCart = (product, type) => {
+    const effectiveType = type || product._type || (product['LENTE'] ? 'lentes' : (product['COR'] || product['MODELO'] ? 'armacoes' : 'geral'));
+    const id = product.id || `${effectiveType}_${product['MARCA'] || ''}_${product['MODELO'] || ''}_${product['REFERENCIA_SKU'] || ''}_${product['NOME'] || ''}_${product['LENTE'] || ''}`;
+    
+    let name = 'Produto';
+    let details = '';
+
+    if (effectiveType === 'armacoes') {
+      name = `${product['MARCA'] || ''} ${product['MODELO'] || product['PRODUTO'] || 'Armação'}`.trim();
+      const extra = [];
+      if (product['REFERENCIA_SKU']) extra.push(`Ref: ${product['REFERENCIA_SKU']}`);
+      if (product['COR']) extra.push(`Cor: ${product['COR']}`);
+      if (product['UNIDADE']) extra.push(`Loja: ${product['UNIDADE']}`);
+      details = extra.join(' | ');
+    } else if (effectiveType === 'lentes') {
+      name = `${product['MARCA'] || ''} ${product['MODELO'] || product['LENTE'] || product['PRODUTO'] || 'Lente'}`.trim();
+      const extra = [];
+      if (product['MATERIAL']) extra.push(product['MATERIAL']);
+      if (product['INDICE_REFRACAO']) extra.push(`Índice: ${product['INDICE_REFRACAO']}`);
+      if (product['TRATAMENTO']) extra.push(product['TRATAMENTO']);
+      details = extra.join(' | ');
+    } else {
+      name = product['PRODUTO'] || product['DESCRICAO'] || product['NOME'] || 'Produto do Estoque';
+    }
+
+    const price = cleanVal(product['PRECO_VENDA'] || product['VALOR'] || product['PRECO'] || product['VALOR UNITARIO'] || 0);
+    const stockAvailable = parseInt(product['ESTOQUE'] || product['EM ESTOQUE'] || product['QTD'] || 999, 10);
+
+    setCart(prev => {
+      const existing = prev.find(item => item.id === id);
+      if (existing) {
+        return prev.map(item => item.id === id ? { ...item, qtd: item.qtd + 1 } : item);
+      }
+      return [...prev, {
+        id,
+        rawProduct: product,
+        type,
+        nome: name,
+        detalhes: details,
+        imagem: product['IMAGEM'] || null,
+        preco: price,
+        qtd: 1,
+        estoqueMax: stockAvailable
+      }];
+    });
+  };
+
+  const addCustomItemToCart = (e) => {
+    e.preventDefault();
+    if (!customItem.nome || !customItem.preco) return;
+    const price = cleanVal(customItem.preco);
+    setCart(prev => [
+      ...prev,
+      {
+        id: `custom_${Date.now()}`,
+        type: 'avulso',
+        nome: customItem.nome,
+        detalhes: customItem.categoria || 'Serviço Avulso',
+        preco: price,
+        qtd: Number(customItem.qtd) || 1,
+        categoria: customItem.categoria
+      }
+    ]);
+    setCustomItem({ nome: '', preco: '', qtd: 1, categoria: 'Outros' });
+  };
+
+  const updateCartQty = (id, delta) => {
+    setCart(prev => prev.map(item => {
+      if (item.id === id) {
+        const newQty = item.qtd + delta;
+        return newQty > 0 ? { ...item, qtd: newQty } : null;
+      }
+      return item;
+    }).filter(Boolean));
+  };
+
+  const removeFromCart = (id) => {
+    setCart(prev => prev.filter(item => item.id !== id));
+  };
+
+  // ─── LEITOR DE CÓDIGO DE BARRAS USB AUTOMÁTICO ────────────────────
+  const [barcodeToast, setBarcodeToast] = useState(null);
+  const [labelModalData, setLabelModalData] = useState(null);
+
+  const playScannerBeep = (isSuccess = true) => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      if (isSuccess) {
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.08);
+        gain.gain.setValueAtTime(0.25, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.12);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.12);
+      } else {
+        osc.frequency.setValueAtTime(320, ctx.currentTime);
+        osc.frequency.setValueAtTime(220, ctx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.25, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.22);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.22);
+      }
+    } catch (e) {
+      // Audio context might be restricted prior to interaction
+    }
+  };
+
+  useEffect(() => {
+    if (barcodeToast) {
+      const timer = setTimeout(() => setBarcodeToast(null), 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [barcodeToast]);
+
+  const handleBarcodeScanned = (rawCode) => {
+    const code = String(rawCode || '').trim();
+    if (!code || code.length < 2) return;
+
+    const q = code.toUpperCase();
+
+    const findMatch = (item) => {
+      const sku = String(item['REFERENCIA_SKU'] || item['referencia_sku'] || item['REFERENCIA'] || item['referencia'] || item['Referência'] || item['CODIGO'] || item['codigo'] || item['SKU'] || item['sku'] || item['EAN'] || item['CODIGO_BARRAS'] || item.id || '').trim().toUpperCase();
+      const modelo = String(item['MODELO'] || item['modelo'] || item['PRODUTO'] || item['produto'] || item['DESCRICAO'] || item['descricao'] || '').trim().toUpperCase();
+      const marca = String(item['MARCA'] || item['marca'] || '').trim().toUpperCase();
+      const full = `${marca} ${modelo}`.trim().toUpperCase();
+
+      if (sku && (sku === q || sku.replace(/\D/g, '') === q.replace(/\D/g, ''))) return true;
+      if (sku && (sku.includes(q) || q.includes(sku)) && (sku.length >= 4 || q.length >= 4)) return true;
+      if (modelo && modelo === q) return true;
+      if (full && full === q) return true;
+      return false;
+    };
+
+    let matchedItem = erpArmacoes.find(findMatch);
+    let matchedType = 'armacoes';
+
+    if (!matchedItem) {
+      matchedItem = erpLentes.find(findMatch);
+      if (matchedItem) {
+        matchedType = 'lentes';
+      } else {
+        matchedItem = erpGeral.find(findMatch);
+        if (matchedItem) {
+          matchedType = 'geral';
+        }
+      }
+    }
+
+    if (matchedItem) {
+      addToCart(matchedItem, matchedType);
+      playScannerBeep(true);
+      const name = `${matchedItem['MARCA'] || ''} ${matchedItem['MODELO'] || matchedItem['PRODUTO'] || 'Produto'}`.trim();
+      setBarcodeToast({
+        id: Date.now(),
+        type: 'success',
+        title: 'Produto adicionado via Leitor de Código de Barras!',
+        message: `${name} (${matchedItem['REFERENCIA_SKU'] || matchedItem['CODIGO'] || matchedItem['SKU'] || code})`,
+        price: cleanVal(matchedItem['PRECO_VENDA'] || matchedItem['VALOR'] || 0)
+      });
+    } else {
+      playScannerBeep(false);
+      setBarcodeToast({
+        id: Date.now(),
+        type: 'warning',
+        title: 'Código Não Encontrado',
+        message: `Código "${code}" lido, mas não localizado no estoque atual.`
+      });
+    }
+  };
+
+  useEffect(() => {
+    let buffer = '';
+    let lastKeyTime = 0;
+    let keyTimestamps = [];
+
+    const handleKeyDown = (e) => {
+      const now = performance.now();
+      const activeEl = document.activeElement;
+      const isInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable);
+
+      // Se for Enter (fim da transmissão do leitor USB)
+      if (e.key === 'Enter' || e.keyCode === 13) {
+        if (buffer.length >= 2) {
+          const totalDuration = now - (keyTimestamps[0] || now);
+          const avgInterval = totalDuration / Math.max(1, buffer.length - 1);
+
+          // Leitor USB dispara caracteres rapidamente (< 60ms)
+          if (!isInputFocused || avgInterval < 60) {
+            e.preventDefault();
+            e.stopPropagation();
+            const scanned = buffer;
+            buffer = '';
+            keyTimestamps = [];
+
+            if (isInputFocused && activeEl) {
+              try {
+                activeEl.blur();
+                setProductSearch('');
+                setClientSearch('');
+              } catch (_) {}
+            }
+
+            handleBarcodeScanned(scanned);
+            return;
+          }
+        }
+        buffer = '';
+        keyTimestamps = [];
+        return;
+      }
+
+      // Captura apenas caracteres imprimíveis únicos
+      if (e.key && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (now - lastKeyTime > 80) {
+          buffer = '';
+          keyTimestamps = [];
+        }
+
+        buffer += e.key;
+        keyTimestamps.push(now);
+        lastKeyTime = now;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [erpArmacoes, erpLentes, erpGeral]);
+
+  // ─── CÁLCULOS FINANCEIROS E RESTANTE ─────────────────────────────
+  const subtotal = useMemo(() => {
+    return cart.reduce((acc, item) => acc + (item.preco * item.qtd), 0);
+  }, [cart]);
+
+  const voucherDiscount = useMemo(() => {
+    if (!appliedVoucher) return 0;
+    const tipo = String(appliedVoucher.TIPO_DESCONTO || appliedVoucher.tipo_desconto || 'VALOR').toUpperCase();
+    const val = cleanVal(appliedVoucher.VALOR_DESCONTO || appliedVoucher.valor_desconto);
+    if (tipo === 'PORCENTAGEM') {
+      return Math.round((subtotal * (val / 100)) * 100) / 100;
+    }
+    return Math.min(subtotal, val);
+  }, [appliedVoucher, subtotal]);
+
+  const totalFinal = useMemo(() => {
+    return Math.max(0, subtotal - (Number(discount) || 0) - voucherDiscount);
+  }, [subtotal, discount, voucherDiscount]);
+
+  const totalPaid = useMemo(() => {
+    return payments.reduce((acc, p) => acc + p.valor, 0);
+  }, [payments]);
+
+  const remaining = useMemo(() => {
+    return Math.max(0, totalFinal - totalPaid);
+  }, [totalFinal, totalPaid]);
+
+  const isFullyCovered = useMemo(() => {
+    return totalFinal > 0 && remaining <= 0.01;
+  }, [totalFinal, remaining]);
+
+  // ─── HANDLERS DE VOUCHER / CUPOM ────────────────────────────────
+  const handleApplyVoucher = (codeParam) => {
+    const rawCode = codeParam || voucherCodeInput;
+    const code = String(rawCode || '').trim().toUpperCase();
+    setVoucherError('');
+    if (!code) {
+      setVoucherError('Digite o código do voucher.');
+      return;
+    }
+
+    const found = vouchersData.find(v => {
+      const c = String(v.CODIGO || v.codigo || '').trim().toUpperCase();
+      return c === code;
+    });
+
+    if (!found) {
+      setVoucherError(`Voucher "${code}" não encontrado.`);
+      return;
+    }
+
+    const status = String(found.STATUS || found.status || 'Ativo').trim().toLowerCase();
+    if (status !== 'ativo') {
+      setVoucherError(`Voucher "${code}" está ${status}.`);
+      return;
+    }
+
+    const totalQtd = parseInt(found.QUANTIDADE_TOTAL || found.quantidade_total || 0, 10);
+    const usedQtd = parseInt(found.QUANTIDADE_USADA || found.quantidade_usada || 0, 10);
+    if (totalQtd > 0 && usedQtd >= totalQtd) {
+      setVoucherError(`Voucher "${code}" esgotado (${usedQtd}/${totalQtd} usados).`);
+      return;
+    }
+
+    const validity = found.VALIDADE || found.validade;
+    if (validity) {
+      const valDate = new Date(validity + 'T23:59:59');
+      if (!isNaN(valDate.getTime()) && new Date() > valDate) {
+        setVoucherError(`Voucher expirou em ${validity}.`);
+        return;
+      }
+    }
+
+    const store = found.UNIDADE || found.unidade || 'Todas';
+    const currentCity = userFixedCity || selectedPOSCity || currentUser?.city || 'Todas';
+    if (store !== 'Todas' && currentCity !== 'Todas' && store.toLowerCase() !== currentCity.toLowerCase()) {
+      setVoucherError(`Voucher válido apenas para a loja ${store}.`);
+      return;
+    }
+
+    setAppliedVoucher(found);
+    setVoucherError('');
+    setVoucherCodeInput('');
+  };
+
+  const handleRemoveVoucher = () => {
+    setAppliedVoucher(null);
+    setVoucherError('');
+  };
+
+  // ─── HELPER: CONSTRUIR OBJETO DE PAGAMENTO ───────────────────────
+  const formatSafeDate = (dStr) => {
+    if (!dStr) return new Date().toLocaleDateString('pt-BR');
+    if (dStr.includes('/')) return dStr;
+    const parts = dStr.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return dStr;
+  };
+
+  const buildPaymentObject = (method, val, cashReceivedVal, installmentsCount, dueDate, customDates = {}) => {
+    let texto = '';
+    let parcelasDetalhe = [];
+    let trocoLocal = 0;
+    const n = parseInt(installmentsCount, 10) || 1;
+    const valorNumerico = Math.max(0, cleanVal(val));
+
+    if (method === 'dinheiro') {
+      const recebido = cleanVal(cashReceivedVal) || valorNumerico;
+      trocoLocal = Math.max(0, recebido - valorNumerico);
+      texto = `💵 Dinheiro: ${fmtMoeda(valorNumerico)}${trocoLocal > 0 ? ` (Recebido: ${fmtMoeda(recebido)} | Troco: ${fmtMoeda(trocoLocal)})` : ''}`;
+    } else if (method === 'pix') {
+      texto = `⚡ PIX: ${fmtMoeda(valorNumerico)}`;
+    } else if (method === 'debito') {
+      texto = `💳 Cartão Débito: ${fmtMoeda(valorNumerico)}`;
+    } else if (method === 'credito') {
+      const vParc = n > 0 ? valorNumerico / n : valorNumerico;
+      if (n > 1) {
+        for (let i = 1; i <= n; i++) {
+          parcelasDetalhe.push({
+            numero: i,
+            totalParcelas: n,
+            valor: vParc.toFixed(2).replace('.', ',')
+          });
+        }
+        texto = `💳 Cartão Crédito (${n}x de ${fmtMoeda(vParc)}): ${fmtMoeda(valorNumerico)}`;
+      } else {
+        texto = `💳 Cartão Crédito (1x à vista): ${fmtMoeda(valorNumerico)}`;
+      }
+    } else if (method === 'carne' || method === 'boleto') {
+      const vParc = n > 0 ? valorNumerico / n : valorNumerico;
+      for (let i = 1; i <= n; i++) {
+        const rawDue = customDates[i] || getInstallmentDate(dueDate, i - 1);
+        const formattedDue = formatSafeDate(rawDue);
+        parcelasDetalhe.push({
+          numero: i,
+          totalParcelas: n,
+          vencimento: formattedDue,
+          valor: vParc.toFixed(2).replace('.', ',')
+        });
+      }
+      const vencsTexto = parcelasDetalhe.map(p => `${p.numero}ª ${p.vencimento}`).join(', ');
+      texto = `📄 Boleto (${n}x de ${fmtMoeda(vParc)} | Venc: ${vencsTexto}): ${fmtMoeda(valorNumerico)}`;
+    }
+
+    return {
+      id: `pay_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      metodo: method,
+      valor: valorNumerico,
+      texto,
+      parcelas: parcelasDetalhe,
+      troco: trocoLocal,
+      valorRecebido: cleanVal(cashReceivedVal)
+    };
+  };
+
+  // ─── ADICIONAR FORMA DE PAGAMENTO À LISTA FRACIONADA ──────────────
+  const handleAddPayment = () => {
+    if (payments.length > 0 && isFullyCovered) {
+      alert(`O valor total da compra (${fmtMoeda(totalFinal)}) já está 100% coberto. Se deseja alterar as formas de pagamento, remova o pagamento lançado clicando na lixeira 🗑️ abaixo.`);
+      return;
+    }
+
+    if (currentMethod === 'carne' && selectedClientFinancials?.isInadimplente) {
+      const clientName = selectedClient?.['Nome Completo'] || selectedClient?.['NOME'] || 'o cliente';
+      const vencido = fmtMoeda(selectedClientFinancials.totalVencido || selectedClientFinancials.totalAberto);
+      const allow = window.confirm(
+        `⚠️ ALERTA DE RISCO DE CRÉDITO:\n\n${clientName} possui parcelas vencidas em aberto no valor de ${vencido}.\n\nDeseja realmente autorizar a emissão de NOVO CARNÊ para este cliente?`
+      );
+      if (!allow) return;
+    }
+
+    const rawVal = cleanVal(paymentInputVal) || (currentMethod === 'dinheiro' ? cleanVal(cashTendered) : 0) || remaining;
+    const val = remaining > 0 ? Math.min(rawVal, remaining) : (rawVal || totalFinal);
+
+    if (val <= 0) {
+      alert('Informe o valor a ser pago nesta forma de pagamento.');
+      return;
+    }
+
+    const newPay = buildPaymentObject(currentMethod, val, cashTendered, payInstallments, payFirstDueDate, customDueDates);
+    setPayments(prev => [...prev, newPay]);
+    setPaymentInputVal('');
+    setCashTendered('');
+    setPayInstallments(1);
+    setCustomDueDates({});
+  };
+
+  const removePayment = (id) => {
+    setPayments(prev => prev.filter(p => p.id !== id));
+  };
+
+  // ─── FINALIZAÇÃO DA VENDA NO CAIXA ──────────────────────────────
+  const handleFinalizeSale = async () => {
+    if (!selectedClient) {
+      alert('Por favor, selecione um cliente cadastrado no topo antes de finalizar a venda.');
+      document.getElementById('pos-client-search-input')?.focus();
+      return;
+    }
+    if (cart.length === 0) {
+      alert('Adicione pelo menos um produto do estoque ao carrinho.');
+      return;
+    }
+
+    let effectivePayments = [...payments];
+
+    // Se houver pagamentos fracionados lançados, mas ainda falta cobrir
+    if (effectivePayments.length > 0 && remaining > 0.01) {
+      alert(`Ainda resta um saldo de ${fmtMoeda(remaining)} para cobrir o total de ${fmtMoeda(totalFinal)}. Adicione a forma de pagamento do restante antes de finalizar.`);
+      return;
+    }
+
+    // Se nenhum pagamento foi adicionado à lista fracionada:
+    if (effectivePayments.length === 0) {
+      const valDigitado = cleanVal(paymentInputVal);
+      // Se o usuário digitou um valor menor que o total sem clicar em adicionar fracionado:
+      if (valDigitado > 0 && valDigitado < totalFinal - 0.01) {
+        alert(`O valor digitado (${fmtMoeda(valDigitado)}) é menor que o total da compra (${fmtMoeda(totalFinal)}). Clique em "+ Dividir / Adicionar Este Pagamento Fracionado" para lançar os ${fmtMoeda(valDigitado)} e em seguida adicione a forma de pagamento do restante (${fmtMoeda(totalFinal - valDigitado)}).`);
+        return;
+      }
+
+      const autoPay = buildPaymentObject(currentMethod, totalFinal, cashTendered, payInstallments, payFirstDueDate, customDueDates);
+      effectivePayments = [autoPay];
+    }
+
+    // Alerta de risco financeiro caso haja carnê/boleto para cliente inadimplente
+    const hasCarne = effectivePayments.some(p => p.metodo === 'carne' || p.metodo === 'boleto');
+    if (hasCarne && selectedClientFinancials?.isInadimplente) {
+      const clientName = selectedClient['Nome Completo'] || selectedClient['NOME'] || 'o cliente';
+      const vencido = fmtMoeda(selectedClientFinancials.totalVencido || selectedClientFinancials.totalAberto);
+      const allow = window.confirm(
+        `⚠️ ALERTA DE RISCO DE CRÉDITO:\n\n${clientName} possui parcelas vencidas no valor de ${vencido}.\n\nDeseja realmente autorizar e FINALIZAR a venda com emissão de novo carnê?`
+      );
+      if (!allow) return;
+    }
+
+    const clientId = selectedClient.id || selectedClient._id || selectedClient.CLIENTE_ID || `client_${Date.now()}`;
+    const clientCpf = String(selectedClient['CPF / CNPJ'] || selectedClient['CPF'] || '').trim();
+    const clientName = selectedClient['Nome Completo'] || selectedClient['NOME'] || 'Cliente';
+    const city = userFixedCity || selectedPOSCity || selectedClient['Cidade'] || selectedClient['CIDADE'] || currentUser?.city || 'Cajati';
+    const todayStr = new Date().toLocaleDateString('pt-BR');
+
+    // Montar texto de pagamento consolidado
+    const formaPagamentoTexto = effectivePayments.map(p => p.texto).join(' + ');
+    const trocoTotal = effectivePayments.reduce((acc, p) => acc + (p.troco || 0), 0);
+    const descricaoItens = cart.map(i => `${i.qtd}x ${i.nome}`).join(' + ');
+
+    const newSale = {
+      'CLIENTE_ID': clientId,
+      'CLIENTE_CPF': clientCpf,
+      'CPF': clientCpf,
+      'CLIENTE': clientName,
+      'NOME': clientName,
+      'NOME CLIENTE': clientName,
+      'CIDADE': city,
+      'LOJA': city,
+      'DATA': todayStr,
+      'DATA  DA VENDA': todayStr,
+      'PRODUTO': descricaoItens,
+      'VALOR TOTAL': totalFinal,
+      'VALOR DA VENDA': totalFinal,
+      'FORMA_PAGTO': formaPagamentoTexto,
+      'VENDEDOR': currentUser?.username || 'Caixa',
+      'VOUCHER': appliedVoucher ? (appliedVoucher.CODIGO || appliedVoucher.codigo) : '',
+      'DESCONTO_VOUCHER': voucherDiscount
+    };
+
+    // 1. Salvar Venda no Firebase
+    if (onAddSale) {
+      await onAddSale(newSale);
+    }
+
+    // 1.1 Atualizar uso do Cupom/Voucher se aplicado
+    if (appliedVoucher && onUpdateRow) {
+      const currentUsed = parseInt(appliedVoucher.QUANTIDADE_USADA || appliedVoucher.quantidade_usada || 0, 10);
+      const totalQtd = parseInt(appliedVoucher.QUANTIDADE_TOTAL || appliedVoucher.quantidade_total || 0, 10);
+      const nextUsed = currentUsed + 1;
+      const isEsgotado = totalQtd > 0 && nextUsed >= totalQtd;
+
+      const updatedVoucher = {
+        ...appliedVoucher,
+        QUANTIDADE_USADA: nextUsed,
+        quantidade_usada: nextUsed,
+        STATUS: isEsgotado ? 'Esgotado' : (appliedVoucher.STATUS || appliedVoucher.status || 'Ativo'),
+        status: isEsgotado ? 'Esgotado' : (appliedVoucher.STATUS || appliedVoucher.status || 'Ativo')
+      };
+      await onUpdateRow('VOUCHERS', appliedVoucher, updatedVoucher);
+    }
+
+    // 2. Baixar Estoque dos Itens Vendidos no ERP (Transações Atômicas no Firestore)
+    for (const item of cart) {
+      if (item.rawProduct && (item.type === 'armacoes' || item.type === 'lentes' || item.type === 'geral')) {
+        let sheetName = 'CAD_ARMACOES';
+        if (item.type === 'lentes') sheetName = 'CAD_LENTES';
+        else if (item.type === 'geral') sheetName = 'ESTOQUE';
+
+        const currentStock = parseInt(item.rawProduct['ESTOQUE'] || item.rawProduct['EM ESTOQUE'] || 1, 10);
+        const updatedStock = Math.max(0, currentStock - item.qtd);
+        const updatedProduct = {
+          ...item.rawProduct,
+          'ESTOQUE': updatedStock,
+          ...(item.rawProduct['EM ESTOQUE'] !== undefined ? { 'EM ESTOQUE': updatedStock } : {})
+        };
+
+        // Baixa atômica no banco de dados em nuvem
+        const targetDocId = item.rawProduct.id || item.rawProduct._id;
+        if (targetDocId) {
+          try {
+            await decrementStockAtomically(sheetName, targetDocId, item.qtd);
+          } catch (stockErr) {
+            console.warn('Aviso no decremento atômico de estoque:', stockErr);
+          }
+        }
+
+        if (onUpdateRow) {
+          await onUpdateRow(sheetName, item.rawProduct, updatedProduct);
+        }
+      }
+    }
+
+    // 3. Se houver parcelas de Boleto em venda que NÃO envolve confecção de OS (itens gerais sem armação/lente),
+    // registrar em CONTAS_RECEBER. Caso haja armação ou lente, a geração das duplicatas fica retida
+    // na OS (Semáforo Azul) até a conferência e liberação financeira pela administração!
+    const hasOpticalItems = cart.some(i => i.type === 'armacoes' || i.type === 'lentes');
+    if (!hasOpticalItems) {
+      for (const pay of effectivePayments) {
+        if ((pay.metodo === 'carne' || pay.metodo === 'boleto') && pay.parcelas && pay.parcelas.length > 0 && onAddRow) {
+          for (const p of pay.parcelas) {
+            await onAddRow('CONTAS_RECEBER', {
+              'CLIENTE_ID': clientId,
+              'CLIENTE_CPF': clientCpf,
+              'CPF': clientCpf,
+              'CLIENTE': clientName,
+              'NOME CLIENTE': clientName,
+              'DOCUMENTO': `BOLETO ${p.numero}/${p.totalParcelas} - PDV`,
+              'VALOR': typeof p.valor === 'number' ? p.valor.toFixed(2).replace('.', ',') : String(p.valor || '0,00'),
+              'DATA_VENCIMENTO': p.vencimento,
+              'DATA VENCIMENTO': p.vencimento,
+              'STATUS': 'Pendente',
+              'CIDADE': city,
+              'MEIO_PAGAMENTO': 'Boleto Bancário / Carnê',
+              'DESCRICAO': `Venda PDV - Parcela ${p.numero}/${p.totalParcelas} (${descricaoItens})`
+            });
+          }
+        }
+      }
+    }
+
+    // 4. Registrar Movimentações no FLUXO_CAIXA em tempo real com rastreabilidade de cliente
+    if (onAddRow) {
+      for (const pay of effectivePayments) {
+        await onAddRow('FLUXO_CAIXA', {
+          id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+          tipo: 'VENDA',
+          dataHora: new Date().toISOString(),
+          data: todayStr,
+          unidade: city,
+          operador: currentUser?.username || 'Caixa',
+          valor: cleanVal(pay.valor),
+          formaPagamento: String(pay.metodo || 'DINHEIRO').toUpperCase(),
+          motivo: `Venda PDV - ${clientName}`,
+          detalhes: descricaoItens,
+          CLIENTE_ID: clientId,
+          CLIENTE_CPF: clientCpf,
+          CPF: clientCpf
+        });
+      }
+    }
+
+    // Identificar itens de armação e lente vendidos para pré-carregar na OS
+    const armacaoItem = cart.find(i => i.type === 'armacoes' || i.type === 'geral' || (i.rawProduct && (i.rawProduct.MARCA || i.rawProduct.MODELO)));
+    const lenteItem = cart.find(i => i.type === 'lentes');
+    const todosItensNomes = cart.map(i => `${i.qtd > 1 ? `${i.qtd}x ` : ''}${i.nome}`).join(' + ');
+
+    const valorTotalFmt = totalFinal.toFixed(2).replace('.', ',');
+    // Apenas pagamentos imediatos (Dinheiro, PIX, Cartão Débito, Cartão Crédito) contam como Entrada/Sinal pago no ato
+    // Boleto e Carnê são parcelamentos a prazo que vencem no futuro e constituem o saldo a pagar (falta)
+    const totalPagoImediato = effectivePayments.reduce((acc, p) => {
+      const metodoLower = String(p.metodo || '').toLowerCase();
+      if (metodoLower === 'boleto' || metodoLower === 'carne') {
+        return acc;
+      }
+      return acc + (cleanVal(p.valor) || 0);
+    }, 0);
+    const valorEntradaFmt = totalPagoImediato.toFixed(2).replace('.', ',');
+    const restanteFmt = Math.max(0, totalFinal - totalPagoImediato).toFixed(2).replace('.', ',');
+
+    const todasParcelas = effectivePayments.flatMap(p => p.parcelas || []);
+
+    const clientForOS = {
+      ...selectedClient,
+      'Modelo de Armação': armacaoItem ? armacaoItem.nome : (selectedClient['Modelo de Armação'] || ''),
+      'Marca de Lente': lenteItem ? lenteItem.nome : (selectedClient['Marca de Lente'] || ''),
+      'Armação': armacaoItem ? armacaoItem.nome : (selectedClient['Modelo de Armação'] || ''),
+      'Lente': lenteItem ? lenteItem.nome : (selectedClient['Marca de Lente'] || ''),
+      'PRODUTO': todosItensNomes || 'Óculos Completo',
+      'Valor Devido': valorTotalFmt,
+      'valorTotal': valorTotalFmt,
+      'valorEntrada': valorEntradaFmt,
+      'restante': restanteFmt,
+      'formasPagamento': formaPagamentoTexto,
+      'parcelas': todasParcelas,
+      'PARCELAS_JSON': JSON.stringify(todasParcelas),
+      'Cidade': city,
+      'CIDADE': city,
+      'LOJA': city,
+      'selectedCity': city,
+      'observacoes': `Venda Caixa PDV: ${todosItensNomes}`
+    };
+
+    setSavedClientForOS(clientForOS);
+
+    // 4. Preparar Comprovante & Modal de Sucesso
+
+    setCompletedSale({
+      ...newSale,
+      itens: cart,
+      subtotal,
+      desconto: discount,
+      descontoVoucher: voucherDiscount,
+      voucher: appliedVoucher,
+      valorTotal: totalFinal,
+      formaPagamento: formaPagamentoTexto,
+      pagamentosLista: effectivePayments,
+      trocoTotal,
+      parcelas: todasParcelas,
+      cidade: city,
+      vendedor: currentUser?.username || 'Caixa'
+    });
+
+    // Limpar formulário de venda
+    setCart([]);
+    setPayments([]);
+    setDiscountInput('');
+    setCashTendered('');
+    setPaymentInputVal('');
+    setAppliedVoucher(null);
+    setVoucherCodeInput('');
+    setVoucherError('');
+  };
+
+  // ─── SALVAMENTO DA OS GERADA PELO MODAL PADRÃO ──────────────────
+  const handleSaveOSFromModal = async (osGeneratedData) => {
+    if (!savedClientForOS) return;
+    const clientName = savedClientForOS['Nome Completo'] || savedClientForOS['NOME'] || 'Cliente';
+    const todayStr = new Date().toLocaleDateString('pt-BR');
+    const osRestante = Math.max(0, parseCurrency(osGeneratedData.valorTotal) - parseCurrency(osGeneratedData.valorEntrada));
+
+    const clientId = savedClientForOS.id || savedClientForOS._id || savedClientForOS.CLIENTE_ID || '';
+    const clientCpf = String(savedClientForOS['CPF / CNPJ'] || savedClientForOS['CPF'] || '').trim();
+
+    if (onAddSale) {
+      await onAddSale({
+        'CLIENTE_ID': clientId,
+        'CLIENTE_CPF': clientCpf,
+        'CPF': clientCpf,
+        'DATA': todayStr,
+        'DATA  DA VENDA': todayStr,
+        'PRODUTO': (osGeneratedData.lente + (osGeneratedData.armacao ? ` + ${osGeneratedData.armacao}` : '')).trim() || 'Óculos com Grau',
+        'VALOR TOTAL': osGeneratedData.valorTotal,
+        'VALOR DA VENDA': osGeneratedData.valorTotal,
+        'VALOR ENTRADA': osGeneratedData.valorEntrada || '0,00',
+        'SINAL': osGeneratedData.valorEntrada || '0,00',
+        'RESTANTE': osGeneratedData.restante || (osRestante > 0 ? osRestante.toFixed(2).replace('.', ',') : '0,00'),
+        'FORMAS_PAGAMENTO': osGeneratedData.formasPagamento || '',
+        'SITUAÇÃO': 'Aguardando Confirmação',
+        'OS DA VENDA': osGeneratedData.numeroOS,
+        'OS': osGeneratedData.numeroOS,
+        'STATUS_OS': 'Aguardando Confirmação',
+        'PAGAMENTO_CONFERIDO': 'Não',
+        'DUPLICATAS_GERADAS': false,
+        'PARCELAS_JSON': JSON.stringify(
+          (osGeneratedData.parcelas && osGeneratedData.parcelas.length > 0)
+            ? osGeneratedData.parcelas
+            : (savedClientForOS?.parcelas || [])
+        ),
+        'PREVISAO_ENTREGA': osGeneratedData.dataEntrega || todayStr,
+        'LABORATORIO': osGeneratedData.laboratorio || '',
+        'NOME CLIENTE': clientName,
+        'CLIENTE': clientName,
+        'NOME': clientName,
+        'TELEFONE': savedClientForOS['WhatsApp'] || savedClientForOS['TELEFONE'] || '',
+        'CIDADE': userFixedCity || osGeneratedData.selectedCity || osGeneratedData.unidade || savedClientForOS['Cidade'] || savedClientForOS['CIDADE'] || 'Cajati',
+        'LOJA': userFixedCity || osGeneratedData.selectedCity || osGeneratedData.unidade || savedClientForOS['Cidade'] || savedClientForOS['CIDADE'] || 'Cajati',
+        'UNIDADE': userFixedCity || osGeneratedData.selectedCity || osGeneratedData.unidade || savedClientForOS['Cidade'] || savedClientForOS['CIDADE'] || 'Cajati',
+        'DIOPTRIA': `OD: ${osGeneratedData.odEsf || ''}/${osGeneratedData.odCil || ''} OE: ${osGeneratedData.oeEsf || ''}/${osGeneratedData.oeCil || ''} AD: ${osGeneratedData.adicao || ''}`,
+        'OD_ESF': osGeneratedData.odEsf || '',
+        'OD_CIL': osGeneratedData.odCil || '',
+        'OD_EIXO': osGeneratedData.odEixo || '',
+        'OD_DNP': osGeneratedData.odDnp || '',
+        'OD_ALT': osGeneratedData.odAlt || '',
+        'OE_ESF': osGeneratedData.oeEsf || '',
+        'OE_CIL': osGeneratedData.oeCil || '',
+        'OE_EIXO': osGeneratedData.oeEixo || '',
+        'OE_DNP': osGeneratedData.oeDnp || '',
+        'OE_ALT': osGeneratedData.oeAlt || '',
+        'ADICAO': osGeneratedData.adicao || '',
+        'MEDICO': osGeneratedData.medico || '',
+        'OBSERVACOES': osGeneratedData.observacoes || ''
+      });
+    }
+
+    setCashVoucherPrintData(null);
+    setReceiptPrintData(null);
+    setOsPrintData({
+      ...osGeneratedData,
+      itens: completedSale?.itens || cart
+    });
+    setIsOSModalOpen(false);
+
+    setTimeout(() => {
+      window.print();
+    }, 400);
+  };
+
+  const handlePrintReceipt = (sale) => {
+    setOsPrintData(null);
+    setCashVoucherPrintData(null);
+    setReceiptPrintData(sale);
+    setTimeout(() => {
+      window.print();
+    }, 350);
+  };
+
+  const handleResetForNewSale = () => {
+    setCompletedSale(null);
+    setSavedClientForOS(null);
+    setOsPrintData(null);
+    setReceiptPrintData(null);
+    setCashVoucherPrintData(null);
+    setSelectedClient(null);
+    setPayments([]);
+    setCart([]);
+    setClientSearch('');
+    setCashTendered('');
+    setDiscountInput('');
+    setPaymentInputVal('');
+  };
+
+  return (
+    <div className="space-y-6">
+      
+      {/* Toast Visual de Leitor de Código de Barras */}
+      {barcodeToast && (
+        <div className="fixed top-5 right-5 z-[99999] max-w-sm w-full bg-slate-900/95 backdrop-blur-xl border border-amber-500/40 shadow-2xl rounded-2xl p-4 animate-in slide-in-from-top-4 duration-200">
+          <div className="flex items-start gap-3">
+            <div className={`p-2.5 rounded-xl shrink-0 ${barcodeToast.type === 'success' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'}`}>
+              {barcodeToast.type === 'success' ? <CheckCircle2 size={20} /> : <AlertTriangle size={20} />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-black uppercase text-white tracking-wide">{barcodeToast.title}</p>
+              <p className="text-xs text-slate-300 font-medium truncate mt-0.5">{barcodeToast.message}</p>
+              {barcodeToast.price !== undefined && (
+                <p className="text-xs font-black text-amber-400 mt-1">{fmtMoeda(barcodeToast.price)}</p>
+              )}
+            </div>
+            <button onClick={() => setBarcodeToast(null)} className="text-slate-400 hover:text-white p-1">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ─── CABEÇALHO DO CAIXA ───────────────────────────────────── */}
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900/90 border border-slate-800 p-5 rounded-3xl shadow-xl backdrop-blur-md">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
+            <ShoppingCart size={24} />
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-xl font-black text-white uppercase tracking-tight flex items-center gap-2">
+                Frente de Caixa <span className="text-emerald-400">PDV</span>
+              </h1>
+            </div>
+            <p className="text-xs text-slate-400 font-bold">Vendas ágeis com emissão de recibo e baixa no estoque ERP</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="text-right hidden sm:block">
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">Operador / Atendente</span>
+            <span className="text-sm font-bold text-white uppercase">{currentUser?.username || 'Operador'}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ─── BARRA DE CONTROLE DE CAIXA, TURNO & SANGRIA (MULTI-LOJA) ─── */}
+      <div className="bg-slate-900/95 border border-slate-800/90 p-3.5 sm:p-4 rounded-3xl shadow-2xl backdrop-blur-xl">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4">
+          
+          {/* LADO ESQUERDO: SELETOR DE LOJA & STATUS DO TURNO */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            
+            {/* Seletor de Loja / Unidade */}
+            <div className="h-10 flex items-center gap-2 bg-slate-950/90 border border-slate-700/60 px-3.5 rounded-xl shadow-inner">
+              <Building size={15} className="text-emerald-400 shrink-0" />
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Loja:</span>
+              {isVendor ? (
+                <div className="flex items-center gap-1.5 text-xs text-white font-black uppercase">
+                  <span>{selectedPOSCity}</span>
+                  <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold">Unidade Fixa</span>
+                </div>
+              ) : (
+                <select
+                  value={selectedPOSCity}
+                  onChange={e => setSelectedPOSCity(e.target.value)}
+                  className="bg-transparent text-xs text-white font-black uppercase outline-none cursor-pointer pr-1"
+                >
+                  {['Cajati', 'Registro', 'Jacupiranga', 'Venda Externa'].map(c => (
+                    <option key={c} value={c} className="bg-slate-900 text-white font-bold">{c}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {/* Status do Turno (Aberto / Fechado) */}
+            {activeSession ? (
+              <div className="h-10 flex items-center gap-2.5 bg-emerald-500/10 border border-emerald-500/30 px-3.5 rounded-xl text-xs font-bold text-emerald-400 shadow-sm whitespace-nowrap">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0 shadow-lg shadow-emerald-400/50" />
+                <span>
+                  <strong>Caixa Aberto · {selectedPOSCity}</strong>
+                  <span className="text-slate-400 font-normal ml-1.5 text-[11px]">
+                    (Início: {activeSession.dataHoraAbertura ? new Date(activeSession.dataHoraAbertura).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '---'})
+                  </span>
+                </span>
+              </div>
+            ) : (
+              <div className="h-10 flex items-center gap-2 bg-rose-500/10 border border-rose-500/30 px-3.5 rounded-xl text-xs font-bold text-rose-400 shadow-sm whitespace-nowrap">
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-400 shrink-0" />
+                <span><strong>Caixa Fechado</strong> · {selectedPOSCity}</span>
+              </div>
+            )}
+          </div>
+
+          {/* LADO DIREITO: GAVETA & BOTÕES DE AÇÕES DE CAIXA */}
+          <div className="flex flex-wrap items-center gap-2">
+            
+            {/* Gaveta Dinheiro em Espécie */}
+            <div 
+              onClick={() => setCashModalState({ isOpen: true, type: 'EXTRATO' })}
+              className="h-10 bg-slate-950/90 hover:bg-black border border-emerald-500/40 hover:border-emerald-400 px-3.5 rounded-xl flex items-center gap-2.5 cursor-pointer transition-all group shadow-sm active:scale-95 whitespace-nowrap"
+              title="Clique para ver o extrato detalhado do turno"
+            >
+              <Wallet size={15} className="text-emerald-400 shrink-0" />
+              <div className="text-left flex items-baseline gap-1.5">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Gaveta:</span>
+                <span className="text-xs font-black text-emerald-400 font-mono group-hover:text-emerald-300">
+                  {fmtMoeda(liveDrawerCash)}
+                </span>
+              </div>
+            </div>
+
+            {/* Botão de Histórico */}
+            <button
+              type="button"
+              onClick={() => setIsHistoryModalOpen(true)}
+              className="h-10 flex items-center gap-1.5 px-3 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 hover:border-indigo-400/50 rounded-xl text-xs font-black transition-all shadow-sm active:scale-95 whitespace-nowrap"
+              title="Consultar histórico detalhado de movimentações e reimprimir comprovantes"
+            >
+              <History size={14} className="text-indigo-400 shrink-0" />
+              <span>📜 Histórico</span>
+            </button>
+
+            {/* Suprimento */}
+            <button
+              type="button"
+              onClick={() => setCashModalState({ isOpen: true, type: 'SUPRIMENTO' })}
+              className="h-10 flex items-center gap-1.5 px-3 bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 hover:border-sky-400/50 rounded-xl text-xs font-black transition-all shadow-sm active:scale-95 whitespace-nowrap"
+              title="Inserir reforço de moedas ou cédulas de troco na gaveta"
+            >
+              <ArrowUpRight size={14} className="text-sky-400 shrink-0" />
+              <span>📥 Suprimento</span>
+            </button>
+
+            {/* Sangria */}
+            <button
+              type="button"
+              onClick={() => setCashModalState({ isOpen: true, type: 'SANGRIA' })}
+              className="h-10 flex items-center gap-1.5 px-3 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 hover:border-rose-400/50 rounded-xl text-xs font-black transition-all shadow-sm active:scale-95 whitespace-nowrap"
+              title="Realizar retirada de dinheiro da gaveta para cofre ou despesa"
+            >
+              <ArrowDownRight size={14} className="text-rose-400 shrink-0" />
+              <span>💸 Sangria</span>
+            </button>
+
+            {/* Extrato */}
+            <button
+              type="button"
+              onClick={() => setCashModalState({ isOpen: true, type: 'EXTRATO' })}
+              className="h-10 flex items-center gap-1.5 px-3 bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 hover:border-purple-400/50 rounded-xl text-xs font-black transition-all shadow-sm active:scale-95 whitespace-nowrap"
+              title="Exibir resumo financeiro e faturamento por forma de pagamento"
+            >
+              <FileText size={14} className="text-purple-400 shrink-0" />
+              <span>📊 Extrato</span>
+            </button>
+
+            {/* Botão Abrir / Fechar Caixa */}
+            {activeSession ? (
+              <button
+                type="button"
+                onClick={() => setCashModalState({ isOpen: true, type: 'FECHAMENTO' })}
+                className="h-10 flex items-center gap-1.5 px-3.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 hover:border-amber-400/50 rounded-xl text-xs font-black transition-all shadow-sm active:scale-95 whitespace-nowrap"
+                title="Fechar turno com conferência cega e relatório Z"
+              >
+                <Lock size={14} className="text-amber-400 shrink-0" />
+                <span>🔒 Fechar Caixa</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setCashModalState({ isOpen: true, type: 'ABERTURA' })}
+                className="h-10 flex items-center gap-2 px-5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black rounded-xl text-xs shadow-lg shadow-emerald-500/20 transition-all active:scale-95 whitespace-nowrap"
+                title="Abrir turno e lançar fundo inicial de troco"
+              >
+                <Unlock size={15} />
+                <span>🔓 Abrir Caixa</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Alerta Preventivo de Gaveta com Alto Valor em Espécie */}
+        {activeSession && liveDrawerCash >= 800 && (
+          <div className="bg-rose-500/10 border border-rose-500/30 rounded-2xl p-2.5 flex items-center justify-between gap-3 text-xs text-rose-300 animate-pulse">
+            <div className="flex items-center gap-2 font-bold">
+              <AlertTriangle size={16} className="text-rose-400 shrink-0" />
+              <span>
+                <strong>Atenção de Segurança:</strong> Gaveta física com <strong>{fmtMoeda(liveDrawerCash)}</strong> em dinheiro. Recomendado realizar sangria para o cofre!
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCashModalState({ isOpen: true, type: 'SANGRIA' })}
+              className="px-3 py-1 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-[11px] font-black shrink-0"
+            >
+              Fazer Sangria Agora
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ─── GRID PRINCIPAL DO CAIXA ──────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        {/* ─── COLUNA DA ESQUERDA: CLIENTE & ESTOQUE ERP (7 cols) ──── */}
+        <div className="lg:col-span-7 space-y-6">
+
+          {/* 1. SELEÇÃO DE CLIENTE */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                <User size={16} className="text-sky-400" />
+                1. Selecionar Cliente Cadastrado
+              </h2>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuickClientForm({
+                      nome: '',
+                      cpf: '',
+                      whatsapp: '',
+                      cidade: selectedPOSCity || currentUser?.city || 'Cajati',
+                      odEsf: '',
+                      oeEsf: '',
+                      medico: ''
+                    });
+                    setQuickClientError('');
+                    setIsQuickClientModalOpen(true);
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded-xl text-xs font-bold transition-all shadow-sm"
+                  title="Cadastrar cliente sem sair do PDV e sem perder o carrinho"
+                >
+                  <UserPlus size={14} /> + Cadastrar Novo Cliente
+                </button>
+              </div>
+            </div>
+
+            {selectedClient ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between p-4 bg-sky-500/10 border border-sky-500/30 rounded-2xl">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center font-black">
+                      {(selectedClient['Nome Completo'] || selectedClient['NOME'] || 'C')[0]}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-extrabold text-white text-sm">{selectedClient['Nome Completo'] || selectedClient['NOME']}</h3>
+                        {selectedClientFinancials?.isInadimplente ? (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full font-black bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                            INADIMPLENTE
+                          </span>
+                        ) : selectedClientFinancials?.totalAberto > 0 ? (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full font-black bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                            COM DÉBITO
+                          </span>
+                        ) : (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                            EM DIA
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        WhatsApp: {selectedClient['WhatsApp'] || '—'} | CPF: {selectedClient['CPF / CNPJ'] || '—'} | Loja: {selectedClient['Cidade'] || selectedClient['CIDADE'] || 'Cajati'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setSelectedClient(null)}
+                    className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-xl transition-all"
+                    title="Trocar Cliente"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                {/* ALERTA VISUAL DE INADIMPLÊNCIA / DÉBITO NO PDV */}
+                {selectedClientFinancials?.isInadimplente && (
+                  <div className="p-3.5 rounded-2xl bg-rose-950/60 border border-rose-500/50 text-rose-200 text-xs flex items-center justify-between gap-3 shadow-lg shadow-rose-950/30">
+                    <div className="flex items-center gap-2.5">
+                      <AlertOctagon size={18} className="text-rose-400 shrink-0 animate-pulse" />
+                      <div>
+                        <p className="font-black text-rose-300 uppercase tracking-wide text-[11px]">
+                          Atenção: Cliente Inadimplente com Débito Vencido
+                        </p>
+                        <p className="text-[11px] text-slate-300 mt-0.5">
+                          Valor vencido: <strong className="text-rose-300 font-mono font-bold">{fmtMoeda(selectedClientFinancials.totalVencido)}</strong> (de {fmtMoeda(selectedClientFinancials.totalAberto)} em aberto no ERP)
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-lg bg-rose-500/20 text-rose-200 text-[10px] font-black border border-rose-500/30 shrink-0 uppercase tracking-wider">
+                      Alerta Financeiro
+                    </span>
+                  </div>
+                )}
+                {!selectedClientFinancials?.isInadimplente && selectedClientFinancials?.totalAberto > 0 && (
+                  <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
+                    <AlertTriangle size={14} className="text-amber-400 shrink-0" />
+                    <span>Cliente possui <strong>{fmtMoeda(selectedClientFinancials.totalAberto)}</strong> em parcelas futuras a vencer (situação em dia).</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="relative">
+                <div className="relative">
+                  <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    id="pos-client-search-input"
+                    type="text"
+                    value={clientSearch}
+                    onChange={(e) => setClientSearch(e.target.value)}
+                    placeholder="Buscar por Nome, WhatsApp ou CPF do cliente..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-2xl py-3 pl-11 pr-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500/50"
+                  />
+                </div>
+
+                {filteredClients.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-2 bg-slate-950 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden z-30 max-h-56 overflow-y-auto">
+                    {filteredClients.map((c, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => {
+                          setSelectedClient(c);
+                          setClientSearch('');
+                        }}
+                        className="w-full text-left p-3 hover:bg-sky-500/10 border-b border-slate-900 flex justify-between items-center transition-all"
+                      >
+                        <div>
+                          <p className="text-sm font-bold text-white">{c['Nome Completo'] || c['NOME']}</p>
+                          <p className="text-xs text-slate-400">CPF: {c['CPF / CNPJ'] || '—'} | Zap: {c['WhatsApp'] || '—'}</p>
+                        </div>
+                        <span className="text-xs font-black text-sky-400 bg-sky-500/10 px-2.5 py-1 rounded-lg">Selecionar</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 2. CATÁLOGO DE ESTOQUE ERP */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                <Package size={16} className="text-amber-400" />
+                2. Produtos do Estoque ERP
+              </h2>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setProductCategory('mais_vendidos')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${productCategory === 'mais_vendidos' ? 'bg-amber-400 text-slate-950 font-black shadow-md shadow-amber-400/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                >
+                  <Star size={13} className={productCategory === 'mais_vendidos' ? 'text-slate-950 fill-slate-950' : 'text-amber-400'} />
+                  ⭐ Destaques / Populares
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProductCategory('armacoes')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${productCategory === 'armacoes' ? 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                >
+                  👓 Armações ({erpArmacoes.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProductCategory('lentes')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${productCategory === 'lentes' ? 'bg-indigo-500 text-white font-black shadow-lg shadow-indigo-500/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                >
+                  🔬 Lentes ({erpLentes.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProductCategory('todos')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${productCategory === 'todos' ? 'bg-sky-600 text-white font-black shadow-md shadow-sky-600/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                >
+                  📦 Todos ({erpArmacoes.length + erpLentes.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProductCategory('avulso')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${productCategory === 'avulso' ? 'bg-emerald-500 text-slate-950 font-black shadow-lg shadow-emerald-500/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                >
+                  ➕ Item Avulso
+                </button>
+              </div>
+            </div>
+
+            {productCategory !== 'avulso' ? (
+              <>
+                <div className="space-y-2">
+                  <div className="flex flex-wrap sm:flex-nowrap gap-2">
+                    <div className="relative flex-1">
+                      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        value={productSearch}
+                        onChange={(e) => setProductSearch(e.target.value)}
+                        placeholder="Buscar no ERP por marca, modelo, SKU, cor, material..."
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 pl-9 pr-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500/50"
+                      />
+                    </div>
+
+                    {isVendor ? (
+                      <div className="bg-slate-950 border border-emerald-500/30 rounded-xl px-3 py-2 text-xs text-emerald-400 font-bold shrink-0 flex items-center gap-1.5">
+                        <span>Estoque {selectedPOSCity}</span>
+                        <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.2 rounded font-bold">Unidade Fixa</span>
+                      </div>
+                    ) : (
+                      <select
+                        value={selectedCityStock}
+                        onChange={(e) => setSelectedCityStock(e.target.value)}
+                        className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none shrink-0"
+                      >
+                        <option value="TODAS">Todas as Lojas / Central</option>
+                        <option value="Cajati">Cajati</option>
+                        <option value="Registro">Registro</option>
+                        <option value="Jacupiranga">Jacupiranga</option>
+                        <option value="Venda Externa">Venda Externa</option>
+                      </select>
+                    )}
+                  </div>
+
+                  {/* Atalhos Rápidos de Marcas / Categorias Populares */}
+                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                    <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Filtro Rápido:</span>
+                    {['Ray-Ban', 'Oakley', 'Vogue', 'Armani', 'Crizal', 'Transitions', 'Varilux', 'Solar'].map(tag => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => setProductSearch(productSearch.toLowerCase() === tag.toLowerCase() ? '' : tag)}
+                        className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all border ${
+                          productSearch.toLowerCase() === tag.toLowerCase()
+                            ? 'bg-amber-500 text-slate-950 border-amber-400 font-black'
+                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-white'
+                        }`}
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                    {productSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setProductSearch('')}
+                        className="text-[10px] text-rose-400 hover:text-rose-300 font-bold ml-1 underline"
+                      >
+                        Limpar filtro
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div 
+                  className="grid grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto pr-2 erp-scroll"
+                  style={{ maxHeight: '520px' }}
+                >
+                  {filteredProducts.slice(0, 100).map((prod, idx) => {
+                    const isArmacao = productCategory === 'armacoes';
+                    const brand = prod['MARCA'] || prod['marca'] || '';
+                    const model = prod['MODELO'] || prod['modelo'] || prod['PRODUTO'] || prod['DESCRICAO'] || '';
+                    const sku = prod['REFERENCIA_SKU'] || prod['CODIGO'] || prod['SKU'] || '';
+                    const cor = prod['COR'] || '';
+                    const unit = prod['UNIDADE'] || prod['CIDADE'] || prod['LOJA'] || 'Central';
+                    const imagem = prod['IMAGEM'] || null;
+
+                    const title = `${brand} ${model}`.trim() || 'Item ERP';
+                    const price = cleanVal(prod['PRECO_VENDA'] || prod['preco_venda'] || prod['VALOR'] || prod['PRECO'] || 0);
+                    const stock = parseInt(prod['ESTOQUE'] || prod['estoque'] || prod['EM ESTOQUE'] || 0, 10);
+
+                    return (
+                      <div
+                        key={idx}
+                        className="bg-slate-950/90 border border-slate-800 hover:border-amber-500/40 p-3.5 rounded-2xl flex flex-col justify-between transition-all group shadow-sm"
+                      >
+                        <div className="flex items-start gap-3 mb-2">
+                          {imagem ? (
+                            <img src={imagem} alt={title} className="w-12 h-12 object-cover rounded-xl border border-white/10 shrink-0 bg-slate-900" />
+                          ) : (
+                            <div className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 shrink-0">
+                              {isArmacao ? <Glasses size={18} className="text-amber-400" /> : <Package size={18} className="text-indigo-400" />}
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="font-extrabold text-white text-xs truncate group-hover:text-amber-400 transition-colors">
+                              {title}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-1 mt-1">
+                              {sku && (
+                                <span className="text-[9px] font-bold text-slate-400 bg-slate-900 px-1.5 py-0.5 rounded">
+                                  Ref: {sku}
+                                </span>
+                              )}
+                              {cor && (
+                                <span className="text-[9px] font-bold text-slate-400 bg-slate-900 px-1.5 py-0.5 rounded">
+                                  {cor}
+                                </span>
+                              )}
+                              {unit && (
+                                <span className="text-[9px] font-extrabold text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded">
+                                  {unit}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-900 mt-auto">
+                          <div>
+                            <span className="text-amber-400 font-black text-sm">{fmtMoeda(price)}</span>
+                            <div className="mt-0.5">
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                                stock > 2 ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
+                                stock > 0 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm' :
+                                'bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse'
+                              }`}>
+                                {stock > 2 ? `Estoque: ${stock} un` : stock > 0 ? `⚠️ Ponto de Pedido: ${stock} un` : '🔴 Esgotado (0 un)'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => addToCart(prod, prod._type || productCategory)}
+                              className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 rounded-xl text-xs font-black transition-all shadow-md shadow-amber-500/10 active:scale-95"
+                            >
+                              + Adicionar
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {filteredProducts.length === 0 && (
+                    <div className="col-span-2 text-center py-8 text-xs text-slate-500">
+                      Nenhum produto do ERP encontrado com estes filtros.
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <form onSubmit={addCustomItemToCart} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Descrição do Item / Serviço</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Consulta Optométrica, Manutenção de Armação, Lente Especial..."
+                      value={customItem.nome}
+                      onChange={e => setCustomItem({ ...customItem, nome: e.target.value })}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/50"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">Valor (R$)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0,00"
+                      value={customItem.preco}
+                      onChange={e => setCustomItem({ ...customItem, preco: e.target.value })}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/50"
+                      required
+                    />
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs rounded-xl transition-all"
+                >
+                  + Adicionar ao Carrinho
+                </button>
+              </form>
+            )}
+          </div>
+
+        </div>
+
+
+        {/* ─── COLUNA DA DIREITA: CARRINHO & PAGAMENTO (5 cols) ────── */}
+        <div className="lg:col-span-5 space-y-6">
+
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <h2 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                <ShoppingCart size={16} className="text-emerald-400" />
+                Resumo do Pedido ({cart.reduce((a, b) => a + b.qtd, 0)})
+              </h2>
+              {cart.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCart([]);
+                    setPayments([]);
+                  }}
+                  className="text-[10px] text-rose-400 font-bold hover:underline"
+                >
+                  Limpar Tudo
+                </button>
+              )}
+            </div>
+
+            {/* LISTA DE ITENS DO CARRINHO */}
+            <div className="space-y-2.5 max-h-52 overflow-y-auto pr-1">
+              {cart.map((item) => (
+                <div key={item.id} className="p-3 bg-slate-950 rounded-2xl border border-slate-800/80 flex justify-between items-center">
+                  <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                    {item.imagem ? (
+                      <img src={item.imagem} alt={item.nome} className="w-8 h-8 object-cover rounded-lg border border-white/10 shrink-0" />
+                    ) : (
+                      <div className="w-7 h-7 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 shrink-0">
+                        <Package size={13} className="text-emerald-400" />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="font-extrabold text-white text-xs truncate">{item.nome}</p>
+                      <p className="text-[10px] text-amber-400 font-bold">{fmtMoeda(item.preco)} un</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center bg-slate-900 border border-slate-800 rounded-xl">
+                      <button
+                        type="button"
+                        onClick={() => updateCartQty(item.id, -1)}
+                        className="px-2 py-0.5 text-slate-400 hover:text-white font-bold text-xs"
+                      >
+                        -
+                      </button>
+                      <span className="px-2 text-xs font-black text-white">{item.qtd}</span>
+                      <button
+                        type="button"
+                        onClick={() => updateCartQty(item.id, 1)}
+                        className="px-2 py-0.5 text-slate-400 hover:text-white font-bold text-xs"
+                      >
+                        +
+                      </button>
+                    </div>
+                    <span className="text-xs font-black text-emerald-400 w-16 text-right">
+                      {fmtMoeda(item.preco * item.qtd)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeFromCart(item.id)}
+                      className="p-1 text-slate-500 hover:text-rose-400 transition-colors"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {cart.length === 0 && (
+                <div className="text-center py-6 text-slate-500 text-xs">
+                  Carrinho vazio. Selecione itens do catálogo ao lado.
+                </div>
+              )}
+            </div>
+
+            {/* SUBTOTAL, CUPOM E DESCONTO */}
+            <div className="space-y-2.5 border-t border-slate-800 pt-3 text-xs">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 font-bold">Subtotal:</span>
+                <span className="text-white font-black">{fmtMoeda(subtotal)}</span>
+              </div>
+
+              {/* CAMPO DE CUPOM / VOUCHER */}
+              <div className="pt-1 pb-1">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-slate-400 font-bold flex items-center gap-1.5">
+                    <Ticket size={13} className="text-emerald-400" />
+                    Cupom / Voucher:
+                  </span>
+                  {appliedVoucher && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveVoucher}
+                      className="text-[11px] text-rose-400 hover:text-rose-300 font-bold flex items-center gap-1 hover:underline transition-colors"
+                    >
+                      <X size={12} /> Remover cupom
+                    </button>
+                  )}
+                </div>
+
+                {appliedVoucher ? (
+                  <div className="p-2.5 bg-emerald-950/40 border border-emerald-500/40 rounded-xl flex items-center justify-between">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                        <Ticket size={14} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-black text-emerald-300 font-mono tracking-wider truncate">
+                          {appliedVoucher.CODIGO || appliedVoucher.codigo}
+                        </div>
+                        <div className="text-[10px] text-emerald-400/80 truncate">
+                          {(appliedVoucher.TIPO_DESCONTO || appliedVoucher.tipo_desconto) === 'PORCENTAGEM'
+                            ? `${appliedVoucher.VALOR_DESCONTO || appliedVoucher.valor_desconto}% de desconto`
+                            : appliedVoucher.NOME || appliedVoucher.nome || 'Voucher promocional'}
+                        </div>
+                      </div>
+                    </div>
+                    <span className="text-xs font-black text-emerald-400 shrink-0 ml-2">
+                      -{fmtMoeda(voucherDiscount)}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={voucherCodeInput}
+                        onChange={(e) => {
+                          setVoucherCodeInput(e.target.value.toUpperCase());
+                          setVoucherError('');
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleApplyVoucher();
+                          }
+                        }}
+                        placeholder="Ex: PROMO50, VERAO10"
+                        className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold uppercase text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleApplyVoucher()}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all active:scale-95 shadow-md shadow-emerald-950/40 shrink-0 flex items-center gap-1"
+                      >
+                        <Ticket size={12} />
+                        Aplicar
+                      </button>
+                    </div>
+                    {voucherError && (
+                      <div className="text-[11px] text-rose-400 font-medium flex items-center gap-1">
+                        <AlertTriangle size={11} className="shrink-0" />
+                        <span>{voucherError}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* DESCONTO MANUAL */}
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-400 font-bold">Desconto Extra (R$):</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={discountInput}
+                  onChange={(e) => setDiscountInput(e.target.value)}
+                  onBlur={(e) => {
+                    const v = cleanVal(e.target.value);
+                    setDiscountInput(v > 0 ? v.toFixed(2).replace('.', ',') : '');
+                  }}
+                  placeholder="0,00"
+                  className="w-24 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-right text-xs font-bold text-white focus:outline-none focus:border-emerald-500/50"
+                />
+              </div>
+
+              <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 flex justify-between items-center">
+                <span className="text-xs font-black uppercase text-slate-300">TOTAL DA COMPRA:</span>
+                <span className="text-lg font-black text-emerald-400">{fmtMoeda(totalFinal)}</span>
+              </div>
+            </div>
+
+            {/* ─── FORMA DE PAGAMENTO & FECHAMENTO ──────────────────── */}
+            <div className="space-y-3 border-t border-slate-800 pt-4">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-1.5">
+                  <CreditCard size={13} className="text-emerald-400" />
+                  Forma de Pagamento
+                </label>
+                {payments.length > 0 && (
+                  <span className="text-[10px] font-bold text-emerald-400">
+                    {payments.length} fracionamento(s)
+                  </span>
+                )}
+              </div>
+
+              {/* STATUS DE COBERTURA / RESTANTE SE HOUVER FRACIONAMENTO */}
+              {payments.length > 0 && (
+                <div className={`p-2.5 rounded-xl border flex items-center justify-between text-xs font-bold transition-all ${
+                  isFullyCovered
+                    ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                    : 'bg-amber-500/15 border-amber-500/30 text-amber-300'
+                }`}>
+                  <div className="flex items-center gap-1.5">
+                    {isFullyCovered ? <CheckCircle2 size={15} className="text-emerald-400" /> : <AlertTriangle size={15} className="text-amber-400" />}
+                    <span>{isFullyCovered ? 'Total Coberto!' : 'Falta Cobrir:'}</span>
+                  </div>
+                  <span className="font-black text-sm">
+                    {isFullyCovered ? 'R$ 0,00' : fmtMoeda(remaining)}
+                  </span>
+                </div>
+              )}
+
+              {/* SELEÇÃO DO MÉTODO DESTE LANÇAMENTO */}
+              <div className="grid grid-cols-3 gap-1.5">
+                {[
+                  { id: 'dinheiro', label: '💵 Dinheiro' },
+                  { id: 'pix', label: '⚡ PIX' },
+                  { id: 'debito', label: '💳 Débito' },
+                  { id: 'credito', label: '💳 Crédito' },
+                  { id: 'carne', label: '📄 Boleto' }
+                ].map(p => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setCurrentMethod(p.id)}
+                    className={`py-2 rounded-xl text-xs font-bold transition-all border ${
+                      currentMethod === p.id
+                        ? 'bg-emerald-500 text-slate-950 border-emerald-400 font-black shadow-lg shadow-emerald-500/20'
+                        : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* CAMPOS ESPECÍFICOS DO MÉTODO SELECIONADO */}
+              <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-slate-400 font-bold">Valor deste Pagamento:</span>
+                  <div className="relative flex-1 max-w-[140px]">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-bold">R$</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={paymentInputVal}
+                      onChange={e => setPaymentInputVal(e.target.value)}
+                      onBlur={e => {
+                        const v = cleanVal(e.target.value);
+                        if (v > 0) setPaymentInputVal(v.toFixed(2).replace('.', ','));
+                      }}
+                      placeholder={(remaining > 0 ? remaining : totalFinal).toFixed(2).replace('.', ',')}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl py-1.5 pl-8 pr-2.5 text-right text-xs text-white font-bold focus:outline-none focus:border-emerald-500/50"
+                    />
+                  </div>
+                </div>
+
+                {/* Se for Dinheiro */}
+                {currentMethod === 'dinheiro' && (
+                  <div className="space-y-2 pt-2 border-t border-slate-900">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs text-slate-400 font-bold">Valor Entregue pelo Cliente:</span>
+                      <div className="relative flex-1 max-w-[140px]">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-bold">R$</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={cashTendered}
+                          onChange={e => setCashTendered(e.target.value)}
+                          onBlur={e => {
+                            const v = cleanVal(e.target.value);
+                            if (v > 0) setCashTendered(v.toFixed(2).replace('.', ','));
+                          }}
+                          placeholder={(cleanVal(paymentInputVal) || (remaining > 0 ? remaining : totalFinal)).toFixed(2).replace('.', ',')}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl py-1.5 pl-8 pr-2.5 text-right text-xs text-white font-bold focus:outline-none focus:border-emerald-500/50"
+                        />
+                      </div>
+                    </div>
+                    {cleanVal(cashTendered) > (cleanVal(paymentInputVal) || (remaining > 0 ? remaining : totalFinal)) && (
+                      <div className="flex justify-between items-center text-xs font-black text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/20">
+                        <span>Troco a Devolver:</span>
+                        <span>{fmtMoeda(cleanVal(cashTendered) - (cleanVal(paymentInputVal) || (remaining > 0 ? remaining : totalFinal)))}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Se for Crédito ou Carnê */}
+                {['carne', 'credito'].includes(currentMethod) && (
+                  <div className="space-y-3 pt-2 border-t border-slate-900">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-400 font-bold">Parcelas:</span>
+                      <select
+                        value={payInstallments}
+                        onChange={e => {
+                          setPayInstallments(Number(e.target.value));
+                          setCustomDueDates({});
+                        }}
+                        className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white font-bold"
+                      >
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12].map(n => (
+                          <option key={n} value={n}>{n}x de {fmtMoeda((cleanVal(paymentInputVal) || (remaining > 0 ? remaining : totalFinal)) / n)}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Datas de vencimento das parcelas exibidas EXCLUSIVAMENTE para Boleto */}
+                    {currentMethod === 'carne' && (
+                      <>
+                        {selectedClientFinancials?.isInadimplente && (
+                          <div className="p-3.5 rounded-2xl bg-rose-950/70 border border-rose-500/50 text-rose-200 text-xs space-y-1.5 shadow-md shadow-rose-950/40">
+                            <div className="flex items-center gap-2 font-black text-rose-300 uppercase tracking-wide text-[11px]">
+                              <AlertOctagon size={16} className="text-rose-400 shrink-0 animate-pulse" />
+                              Risco de Inadimplência no Carnê
+                            </div>
+                            <p className="text-slate-300 text-[11px] leading-relaxed">
+                              O cliente possui parcelas vencidas no valor de <strong className="text-rose-400 font-bold">{fmtMoeda(selectedClientFinancials.totalVencido || selectedClientFinancials.totalAberto)}</strong>. Recomenda-se receber as pendências anteriores antes de emitir um novo carnê.
+                            </p>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-slate-400 font-bold">1º Vencimento:</span>
+                          <input
+                            type="date"
+                            value={payFirstDueDate}
+                            onChange={e => {
+                              setPayFirstDueDate(e.target.value);
+                              setCustomDueDates({});
+                            }}
+                            className="bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1 text-xs text-white font-bold"
+                          />
+                        </div>
+
+                        {/* TODAS AS DATAS DE VENCIMENTO DAS PARCELAS (BOLETO) */}
+                        {payInstallments > 1 && (
+                          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 space-y-2">
+                            <div className="flex items-center justify-between text-[11px] text-emerald-400 font-bold border-b border-slate-800 pb-1.5">
+                              <span className="flex items-center gap-1.5 uppercase tracking-wider font-black">
+                                <Calendar size={13} /> Todas as Datas ({payInstallments}x)
+                              </span>
+                              <span className="text-slate-400">
+                                {fmtMoeda((cleanVal(paymentInputVal) || (remaining > 0 ? remaining : totalFinal)) / payInstallments)} / parc
+                              </span>
+                            </div>
+                            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                              {Array.from({ length: payInstallments }, (_, i) => {
+                                const num = i + 1;
+                                const calculatedDate = getInstallmentDate(payFirstDueDate, i);
+                                const currentDateVal = customDueDates[num] || calculatedDate;
+                                const valPerParc = (cleanVal(paymentInputVal) || (remaining > 0 ? remaining : totalFinal)) / payInstallments;
+                                return (
+                                  <div key={num} className="bg-slate-950 px-2.5 py-1.5 rounded-lg border border-slate-800 flex items-center justify-between gap-2">
+                                    <span className="text-[11px] font-black text-slate-300">
+                                      {num}ª Parcela ({fmtMoeda(valPerParc)}):
+                                    </span>
+                                    <input
+                                      type="date"
+                                      value={currentDateVal}
+                                      onChange={e => setCustomDueDates(prev => ({ ...prev, [num]: e.target.value }))}
+                                      className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white font-mono font-bold focus:outline-none focus:border-emerald-500"
+                                    />
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* BOTÃO PARA DIVIDIR / FRACIONAR O PAGAMENTO */}
+                <button
+                  type="button"
+                  onClick={handleAddPayment}
+                  disabled={payments.length > 0 && isFullyCovered}
+                  className={`w-full py-2.5 rounded-xl border font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${
+                    payments.length > 0 && isFullyCovered
+                      ? 'bg-slate-900/50 text-slate-500 border-slate-800 cursor-not-allowed'
+                      : 'bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border-indigo-500/30'
+                  }`}
+                >
+                  {payments.length > 0 && isFullyCovered ? (
+                    <span>✅ Total da Venda já Coberto ({fmtMoeda(totalFinal)})</span>
+                  ) : (
+                    <>
+                      <Plus size={14} />
+                      <span>
+                        + Dividir / Adicionar Pagamento {
+                          (cleanVal(paymentInputVal) || (currentMethod === 'dinheiro' ? cleanVal(cashTendered) : 0)) > 0
+                            ? `de ${fmtMoeda(cleanVal(paymentInputVal) || cleanVal(cashTendered))}`
+                            : (remaining > 0 ? `de ${fmtMoeda(remaining)}` : '')
+                        }
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* LISTA DE PAGAMENTOS FRACIONADOS JÁ ADICIONADOS */}
+              {payments.length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-black uppercase text-slate-400">Pagamentos Lançados nesta Venda:</span>
+                    <button
+                      type="button"
+                      onClick={() => setPayments([])}
+                      className="text-[10px] font-bold text-rose-400 hover:underline"
+                    >
+                      Limpar Pagamentos
+                    </button>
+                  </div>
+                  {payments.map(p => (
+                    <div key={p.id} className="p-2.5 bg-slate-950 rounded-xl border border-slate-800 flex justify-between items-center text-xs">
+                      <div className="min-w-0 pr-2">
+                        <p className="font-bold text-white truncate">{p.texto}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="font-black text-emerald-400">{fmtMoeda(p.valor)}</span>
+                        <button
+                          type="button"
+                          onClick={() => removePayment(p.id)}
+                          className="text-slate-500 hover:text-rose-400 transition-colors p-1"
+                          title="Remover Pagamento"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* BOTÃO PRINCIPAL: FINALIZAR VENDA NO CAIXA */}
+              <button
+                type="button"
+                onClick={handleFinalizeSale}
+                disabled={cart.length === 0 || (payments.length > 0 && !isFullyCovered)}
+                className={`w-full py-4 rounded-2xl font-black text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-xl ${
+                  cart.length > 0 && (payments.length === 0 || isFullyCovered)
+                    ? selectedClient
+                      ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/30 active:scale-[0.98] cursor-pointer'
+                      : 'bg-sky-500/20 text-sky-300 border border-sky-500/40 hover:bg-sky-500/30 cursor-pointer shadow-lg shadow-sky-500/10'
+                    : payments.length > 0 && !isFullyCovered
+                      ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30 cursor-not-allowed'
+                      : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700/50'
+                }`}
+              >
+                {payments.length > 0 && !isFullyCovered ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
+                {cart.length === 0 
+                  ? 'Adicione Produtos ao Carrinho' 
+                  : !selectedClient 
+                    ? 'Clique para Selecionar o Cliente' 
+                    : payments.length > 0 && !isFullyCovered
+                      ? `Falta Cobrir ${fmtMoeda(remaining)} (Adicione o Restante)`
+                      : `Finalizar Venda no Caixa (${fmtMoeda(totalFinal)})`
+                }
+              </button>
+
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+      {/* ─── MODAL DE SUCESSO & IMPRESSÃO ─────────────────────────── */}
+      {completedSale && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-emerald-500/30 rounded-3xl p-8 max-w-md w-full shadow-2xl text-center space-y-6">
+            <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/20 animate-bounce">
+              <CheckCircle2 size={36} />
+            </div>
+
+            <div>
+              <h3 className="text-xl font-black text-white uppercase tracking-tight">Venda Concluída com Sucesso!</h3>
+              <p className="text-xs text-slate-400 font-bold mt-1">
+                Cliente: <span className="text-white">{completedSale.CLIENTE}</span>
+              </p>
+              <p className="text-2xl font-black text-emerald-400 mt-2">{fmtMoeda(completedSale.valorTotal)}</p>
+              <div className="mt-2 space-y-1 text-left bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs">
+                <span className="text-[10px] font-black uppercase text-slate-400 block mb-1">Pagamentos Efetuados:</span>
+                {completedSale.pagamentosLista && completedSale.pagamentosLista.map((p, idx) => (
+                  <p key={idx} className="text-slate-300">• {p.texto}</p>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-3 pt-2">
+              <button
+                type="button"
+                onClick={() => handlePrintReceipt(completedSale)}
+                className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-sm rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/25 active:scale-95"
+              >
+                <Receipt size={18} /> 🧾 Imprimir Comprovante de Venda
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsOSModalOpen(true)}
+                className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-black text-sm rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-sky-600/25 active:scale-95"
+              >
+                <ClipboardList size={18} /> 📋 Gerar e Imprimir Ordem de Serviço (OS)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setLabelModalData(completedSale)}
+                className="w-full py-3 bg-gradient-to-r from-amber-500/20 to-amber-600/20 hover:from-amber-500/30 hover:to-amber-600/30 border border-amber-500/40 text-amber-300 font-black text-xs rounded-2xl transition-all flex items-center justify-center gap-2 active:scale-95"
+              >
+                <Tag size={16} /> 🏷️ Imprimir Etiqueta Térmica (50x30mm)
+              </button>
+
+              <button
+                type="button"
+                onClick={handleResetForNewSale}
+                className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl transition-all"
+              >
+                ✨ Iniciar Nova Venda
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL OFICIAL DE GERAÇÃO DE OS (COM CÓDIGO POR CIDADE: CAJ, REG, JAC, EXT) */}
+      {isOSModalOpen && savedClientForOS && (
+        <OSGeneratorModal
+          isOpen={isOSModalOpen}
+          onClose={() => setIsOSModalOpen(false)}
+          clientData={savedClientForOS}
+          onSaveAndPrint={handleSaveOSFromModal}
+          lentesData={erpLentes}
+          armacoesData={erpArmacoes}
+          salesData={salesData}
+          currentUser={currentUser}
+        />
+      )}
+
+      {/* COMPONENTE DE IMPRESSÃO DO COMPROVANTE DE VENDA */}
+      {receiptPrintData && (
+        <PrintableReceipt
+          saleData={receiptPrintData}
+          clientData={savedClientForOS || { 'Nome Completo': receiptPrintData?.CLIENTE }}
+        />
+      )}
+
+      {/* COMPONENTE DE IMPRESSÃO DA ORDEM DE SERVIÇO OFICIAL */}
+      {osPrintData && (
+        <PrintableOS
+          osData={{ ...osPrintData, itens: osPrintData.itens || completedSale?.itens || cart }}
+          clientData={savedClientForOS || { 'Nome Completo': completedSale?.CLIENTE, itens: completedSale?.itens || cart }}
+        />
+      )}
+
+      {/* COMPONENTE DE IMPRESSÃO DE SANGRIA / SUPRIMENTO / FECHAMENTO */}
+      {cashVoucherPrintData && (
+        <PrintableCashVoucher
+          type={cashVoucherPrintData.type}
+          data={cashVoucherPrintData.data}
+          unit={selectedPOSCity}
+          operator={currentUser?.username || 'Caixa'}
+        />
+      )}
+
+      {/* MODAL DE CONTROLE DE CAIXA, TURNOS, SANGRIA & FECHAMENTO */}
+      <CashManagementModal
+        isOpen={cashModalState.isOpen}
+        modalType={cashModalState.type}
+        onClose={() => setCashModalState({ isOpen: false, type: 'ABERTURA' })}
+        activeSession={activeSession}
+        selectedCity={selectedPOSCity}
+        currentUser={currentUser}
+        cashMovements={cashMovements}
+        salesData={salesData}
+        onOpenCash={handleOpenCash}
+        onAddSangria={handleAddSangria}
+        onAddSuprimento={handleAddSuprimento}
+        onCloseCash={handleCloseCash}
+        onTriggerPrint={handleTriggerCashPrint}
+      />
+
+      {/* MODAL DE HISTÓRICO & AUDITORIA DE CAIXA */}
+      <CashHistoryModal
+        isOpen={isHistoryModalOpen}
+        onClose={() => setIsHistoryModalOpen(false)}
+        cashMovements={cashMovements}
+        salesData={salesData}
+        selectedCity={selectedPOSCity}
+        currentUser={currentUser}
+        onTriggerPrint={handleTriggerCashPrint}
+      />
+
+      {/* MODAL DE IMPRESSÃO DE ETIQUETAS TÉRMICAS (50x30mm) */}
+      <PrintableLabelModal
+        isOpen={Boolean(labelModalData)}
+        onClose={() => setLabelModalData(null)}
+        data={labelModalData}
+        defaultType={(labelModalData?.numeroOS || labelModalData?.OS || labelModalData?.['OS DA VENDA']) ? 'envelope_lab' : 'armacao'}
+      />
+
+      {/* ─── MODAL DE CADASTRO RÁPIDO DE CLIENTE (SEM PERDER O CARRINHO) ─── */}
+      {isQuickClientModalOpen && (
+        <div className="fixed inset-0 z-[9990] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+          <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            {/* Cabeçalho */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-sky-400 flex items-center justify-center font-bold">
+                  <UserPlus size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Cadastro Rápido de Cliente</h3>
+                  <p className="text-xs text-slate-400">Cadastre e vincule ao PDV sem perder os produtos do carrinho.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsQuickClientModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-800/60 hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition-all"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {quickClientError && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-bold flex items-center gap-2">
+                <AlertTriangle size={15} className="shrink-0" />
+                <span>{quickClientError}</span>
+              </div>
+            )}
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!quickClientForm.nome.trim()) {
+                  setQuickClientError('Por favor, informe o nome completo do cliente.');
+                  return;
+                }
+
+                setIsSavingQuickClient(true);
+                try {
+                  const newClient = {
+                    id: `cli_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+                    'Nome Completo': quickClientForm.nome.trim(),
+                    'NOME': quickClientForm.nome.trim(),
+                    'CPF / CNPJ': quickClientForm.cpf.trim(),
+                    'CPF': quickClientForm.cpf.trim(),
+                    'WhatsApp': quickClientForm.whatsapp.trim(),
+                    'TELEFONE': quickClientForm.whatsapp.trim(),
+                    'Cidade': quickClientForm.cidade || selectedPOSCity || currentUser?.city || 'Cajati',
+                    'CIDADE': quickClientForm.cidade || selectedPOSCity || currentUser?.city || 'Cajati',
+                    'OD_ESF': quickClientForm.odEsf.trim(),
+                    'OE_ESF': quickClientForm.oeEsf.trim(),
+                    'MEDICO': quickClientForm.medico.trim(),
+                    'Status de Pagamento': 'Em dia',
+                    'Valor Devido': '0,00',
+                    'Data de Cadastro': new Date().toLocaleDateString('pt-BR')
+                  };
+
+                  if (onAddClient) {
+                    await onAddClient(newClient);
+                  }
+
+                  setSelectedClient(newClient);
+                  setIsQuickClientModalOpen(false);
+                } catch (err) {
+                  console.error('Erro ao salvar cliente rápido:', err);
+                  setQuickClientError('Erro ao cadastrar cliente: ' + (err.message || err));
+                } finally {
+                  setIsSavingQuickClient(false);
+                }
+              }}
+              className="space-y-4"
+            >
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">
+                  Nome Completo <span className="text-rose-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: João da Silva"
+                  value={quickClientForm.nome}
+                  onChange={e => setQuickClientForm(prev => ({ ...prev, nome: e.target.value }))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-sky-500/50"
+                  autoFocus
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">CPF / CNPJ</label>
+                  <input
+                    type="text"
+                    placeholder="000.000.000-00"
+                    value={quickClientForm.cpf}
+                    onChange={e => {
+                      let v = e.target.value.replace(/\D/g, '');
+                      if (v.length <= 11) {
+                        v = v.replace(/(\d{3})(\d)/, '$1.$2');
+                        v = v.replace(/(\d{3})(\d)/, '$1.$2');
+                        v = v.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+                      }
+                      setQuickClientForm(prev => ({ ...prev, cpf: v.slice(0, 14) }));
+                    }}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-sky-500/50"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">WhatsApp / Celular</label>
+                  <input
+                    type="text"
+                    placeholder="(00) 00000-0000"
+                    value={quickClientForm.whatsapp}
+                    onChange={e => {
+                      let v = e.target.value.replace(/\D/g, '');
+                      if (v.length > 2) v = `(${v.slice(0, 2)}) ${v.slice(2)}`;
+                      if (v.length > 10) v = `${v.slice(0, 10)}-${v.slice(10, 14)}`;
+                      setQuickClientForm(prev => ({ ...prev, whatsapp: v.slice(0, 15) }));
+                    }}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-sky-500/50"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">Loja / Cidade</label>
+                <select
+                  value={quickClientForm.cidade || selectedPOSCity || 'Cajati'}
+                  onChange={e => setQuickClientForm(prev => ({ ...prev, cidade: e.target.value }))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-sky-500/50"
+                >
+                  <option value="Cajati">Cajati</option>
+                  <option value="Registro">Registro</option>
+                  <option value="Jacupiranga">Jacupiranga</option>
+                  <option value="Venda Externa">Venda Externa</option>
+                </select>
+              </div>
+
+              {/* Prescrição Rápida Opcional */}
+              <div className="p-3.5 bg-slate-950/70 border border-slate-800/80 rounded-2xl space-y-2.5">
+                <p className="text-[11px] font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Glasses size={13} /> Grau / Receita Médica (Opcional)
+                </p>
+                <div className="grid grid-cols-3 gap-2">
+                  <input
+                    type="text"
+                    placeholder="OD Esf (Ex: -1.50)"
+                    value={quickClientForm.odEsf}
+                    onChange={e => setQuickClientForm(prev => ({ ...prev, odEsf: e.target.value }))}
+                    className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                  />
+                  <input
+                    type="text"
+                    placeholder="OE Esf (Ex: -1.75)"
+                    value={quickClientForm.oeEsf}
+                    onChange={e => setQuickClientForm(prev => ({ ...prev, oeEsf: e.target.value }))}
+                    className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Médico Oftalmo"
+                    value={quickClientForm.medico}
+                    onChange={e => setQuickClientForm(prev => ({ ...prev, medico: e.target.value }))}
+                    className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-2">
+                {onNavigateToNewClient && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (cart.length > 0) {
+                        if (!window.confirm('Atenção: A tela de cadastro completo abrirá outra aba. Para não perder os itens do carrinho atual, recomendamos salvar pelo cadastro rápido. Deseja sair do PDV mesmo assim?')) {
+                          return;
+                        }
+                      }
+                      setIsQuickClientModalOpen(false);
+                      onNavigateToNewClient();
+                    }}
+                    className="text-xs text-slate-400 hover:text-sky-400 underline font-medium"
+                  >
+                    Abrir cadastro completo (com anexos)
+                  </button>
+                )}
+
+                <div className="flex items-center gap-2 ml-auto">
+                  <button
+                    type="button"
+                    onClick={() => setIsQuickClientModalOpen(false)}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingQuickClient}
+                    className="px-5 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-sky-600/20 flex items-center gap-1.5"
+                  >
+                    {isSavingQuickClient ? <RefreshCw size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                    <span>Salvar e Selecionar no PDV</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+};
+
+export default POSRegister;

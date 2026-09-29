@@ -33,24 +33,35 @@ const FileUploader = ({ onDataLoaded, onCancel }) => {
       try {
         if (ext === 'csv') {
           const parsed = Papa.parse(e.target.result, { header: true, dynamicTyping: true });
-          const sheetData = { 'Planilha': parsed.data.filter(r => Object.values(r).some(v => v)) };
+          const sheetData = { 'Planilha': parsed.data.filter(r => Object.values(r).some(v => v !== null && v !== undefined && String(v).trim() !== '')) };
           setTimeout(() => { setSheets(Object.keys(sheetData)); onDataLoaded(sheetData); setStatus('success'); }, 800);
         } else {
-          // XLSX: carrega todas as abas detectando cabeçalho real
-          const wb = XLSX.read(e.target.result, { type: 'binary', cellDates: true });
+          // XLSX: carrega todas as abas detectando cabeçalho real e preservando UTF-8/emojis
+          const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
           const sheetData = {};
           const parseSheet = (ws) => {
             const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
             if (!raw || raw.length === 0) return [];
             let headerIdx = 0;
-            for (let i = 0; i < Math.min(raw.length, 10); i++) {
-              const nonEmpty = raw[i].filter(c => c !== '' && c !== null && c !== undefined).length;
-              if (nonEmpty >= 3) { headerIdx = i; break; }
+            let maxNonEmpty = 0;
+            for (let i = 0; i < Math.min(raw.length, 15); i++) {
+              const count = raw[i].filter(c => c !== '' && c !== null && c !== undefined && String(c).trim() !== '').length;
+              if (count > maxNonEmpty) {
+                maxNonEmpty = count;
+                headerIdx = i;
+              }
             }
             const headers = raw[headerIdx].map((h, i) => (h !== '' && h !== null && h !== undefined ? String(h).trim() : `COL_${i}`));
             return raw.slice(headerIdx + 1)
               .map(row => { const obj = {}; headers.forEach((h, i) => { obj[h] = row[i] !== undefined ? row[i] : ''; }); return obj; })
-              .filter(r => Object.values(r).some(v => v !== '' && v !== null && v !== undefined));
+              .filter(r => {
+                if (!r || typeof r !== 'object') return false;
+                return Object.entries(r).some(([k, v]) => {
+                  if (v === null || v === undefined || v === '') return false;
+                  const s = String(v).trim();
+                  return s !== '' && s !== '—' && s !== '-' && s !== '#N/A' && s !== 'Sem Registro na Base Antiga';
+                });
+              });
           };
           wb.SheetNames.forEach(name => {
             const rows = parseSheet(wb.Sheets[name]);
@@ -64,8 +75,8 @@ const FileUploader = ({ onDataLoaded, onCancel }) => {
       }
     };
 
-    if (ext === 'csv') reader.readAsText(f);
-    else reader.readAsBinaryString(f);
+    if (ext === 'csv') reader.readAsText(f, 'UTF-8');
+    else reader.readAsArrayBuffer(f);
   };
 
   return (

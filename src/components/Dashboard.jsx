@@ -1,175 +1,165 @@
 import React, { useMemo, useState } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, BarChart, Bar, Cell, PieChart, Pie, Legend
+  ResponsiveContainer, BarChart, Bar, Cell, PieChart, Pie
 } from 'recharts';
 import {
-  DollarSign, CheckCircle, TrendingUp, Users, ShoppingBag,
-  MapPin, Sparkles, AlertCircle, Package, CreditCard,
-  MonitorSmartphone, Layers, Table2, BarChart2, PlusCircle
+  DollarSign, CheckCircle, Users, ShoppingBag,
+  MapPin, AlertCircle, Package, CreditCard,
+  Table2, BarChart2, PlusCircle, AlertTriangle,
+  FileSpreadsheet, Sparkles, Activity, Eye, TrendingUp,
+  Phone, Award, Layers, Trophy
 } from 'lucide-react';
-import StatsCard from './StatsCard';
 import FileUploader from './FileUploader';
 import { Upload as UploadIcon } from 'lucide-react';
 import DataTable from './DataTable';
-import { motion, AnimatePresence } from 'framer-motion';
+import VendorRanking from './VendorRanking';
 
-const COLORS = ['#38bdf8', '#818cf8', '#10b981', '#f59e0b', '#ef4444', '#a78bfa', '#fb7185', '#34d399'];
+const COLORS = ['#38bdf8', '#818cf8', '#10b981', '#f59e0b', '#f43f5e', '#a855f7', '#14b8a6', '#ec4899', '#64748b'];
 
-const SHEET_TABS = [
-  { key: 'MARKETING',               label: 'Marketing',          icon: Users,            color: 'sky'     },
-  { key: 'BD MARKETING',            label: 'BD Marketing',       icon: Users,            color: 'indigo'  },
-  { key: 'BD MARKETING ANTIGO',     label: 'Mktg. Antigo',       icon: Layers,           color: 'slate'   },
-  { key: 'Registro_Vendas',         label: 'Registro Vendas',    icon: ShoppingBag,      color: 'emerald' },
-  { key: 'Controle_Parcelas',       label: 'Parcelas',           icon: CreditCard,       color: 'amber'   },
-  { key: 'RELATÓRIO PARCELAS',      label: 'Rel. Parcelas',      icon: Table2,           color: 'orange'  },
-  { key: 'ORÇAMENTOS',              label: 'Orçamentos',         icon: ShoppingBag,      color: 'violet'  },
-  { key: 'Cópia de DADOS DIOPTRIA', label: 'Dioptria',           icon: Package,          color: 'teal'    },
-  { key: 'AnáliseInfluencer',       label: 'Influencers',        icon: MonitorSmartphone, color: 'pink'   },
-  { key: 'ESTOQUE ENTRADA SAÍDAS',  label: 'Estoque',            icon: BarChart2,        color: 'emerald' },
-];
-
-// Parseia valor monetário
 const cleanVal = (v) => {
   if (!v) return 0;
   if (typeof v === 'number') return v;
   return parseFloat(String(v).replace(/R\$\s?/,'').replace(/\./g,'').replace(',','.').trim()) || 0;
 };
 
-// Converte serial Excel para data
-const excelDate = (v) => {
-  if (!v) return null;
-  if (v instanceof Date) return v;
-  if (typeof v === 'number' && v > 30000 && v < 60000)
-    return new Date((v - 25569) * 86400 * 1000);
-  return null;
+const fmtMoeda = (v) => `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const isValid = (v) => {
+  if (v === null || v === undefined || v === '') return false;
+  const s = String(v).trim();
+  if (s === '') return false;
+  if (['#N/A','#VALUE!','#REF!','#NAME?','#NULL!','#NUM!','#DIV/0!'].includes(s)) return false;
+  if (s.toLowerCase().startsWith('sem registro')) return false;
+  return true;
 };
 
-// ─── OVERVIEW do BD MARKETING ────────────────────────────────────────────────
-const MarketingOverview = ({ rows }) => {
+// ─── 1. MARKETING HISTÓRICO ──────────────────────────────────────────────────
+const HistoricalMarketingView = ({ rows }) => {
   const stats = useMemo(() => {
-    const clientesMap = new Set();
-    const clienteFreq = {}; // conta quantas OS por nome
-    const produtosMap = {};
+    let faturamento = 0, custo = 0, lucro = 0;
     const cidadeMap = {};
-    const mesMap = {};
-    const statusMap = {};
-    let withPhone = 0, withInstagram = 0;
-    let tirouFoto = 0, lojaMarcou = 0;
-
-    // Retorna true apenas para valores reais (exclui vazio, erros Excel, "Sem Registro...")
-    const isValid = (v) => {
-      if (v === null || v === undefined || v === '') return false;
-      const s = String(v).trim();
-      if (s === '') return false;
-      if (['#N/A','#VALUE!','#REF!','#NAME?','#NULL!','#NUM!','#DIV/0!'].includes(s)) return false;
-      if (s.toLowerCase().startsWith('sem registro')) return false;
-      return true;
-    };
+    const formaPagMap = {};
+    const lentesMap = {};
 
     rows.forEach(r => {
-      // Nomes de coluna EXATOS da planilha
-      const nome      = isValid(r['NOME'])    ? String(r['NOME']).trim()    : '';
-      const prod      = isValid(r['PRODUTO']) ? String(r['PRODUTO']).trim() : null;
-      const cidade    = isValid(r['CIDADE'])  ? String(r['CIDADE']).trim()  : null;
-      const mes       = isValid(r['MÊS'])     ? String(r['MÊS']).trim()    : null;
-      const statusRaw = r['RESULTADO DA LIGAÇÃO/ MENSAGEM (30 DIAS)'];
-      const status    = isValid(statusRaw)    ? String(statusRaw).trim()    : null;
+      const vVenda = cleanVal(r['VALOR DA VENDA'] || r['VALOR'] || 0);
+      const vCompra = cleanVal(r['VALOR DA COMPRA'] || 0);
+      const vLucro = cleanVal(r['LUCRO'] || (vVenda - vCompra) || 0);
 
-      const nomeKey = nome.toUpperCase();
-      if (nomeKey) {
-        clientesMap.add(nomeKey);
-        clienteFreq[nomeKey] = (clienteFreq[nomeKey] || 0) + 1;
-      }
+      faturamento += vVenda;
+      custo += vCompra;
+      lucro += vLucro;
 
-      if (prod)   produtosMap[prod]   = (produtosMap[prod]   || 0) + 1;
+      const cid = String(r['CIDADE'] || r['Cidade'] || 'Central').trim();
+      if (isValid(cid)) cidadeMap[cid] = (cidadeMap[cid] || 0) + (vVenda > 0 ? vVenda : 1);
 
-      // Produto real: LENTE e ARMAÇÃO são colunas separadas na aba MARKETING
-      const lente  = isValid(r['LENTE'])   ? String(r['LENTE']).trim()   : null;
-      const armaca = isValid(r['ARMAÇÃO']) ? String(r['ARMAÇÃO']).trim() : null;
-      if (lente)  produtosMap['Lente: ' + lente]     = (produtosMap['Lente: ' + lente]     || 0) + 1;
-      if (armaca) produtosMap['Armação: ' + armaca] = (produtosMap['Armação: ' + armaca] || 0) + 1;
-      if (cidade) cidadeMap[cidade]   = (cidadeMap[cidade]   || 0) + 1;
-      if (mes)    mesMap[mes]         = (mesMap[mes]         || 0) + 1;
-      if (status) statusMap[status]   = (statusMap[status]   || 0) + 1;
+      const pag = String(r['FORMA DE PAGAMENTO'] || r['FORMA PAGAMENTO'] || '').trim();
+      if (isValid(pag)) formaPagMap[pag] = (formaPagMap[pag] || 0) + 1;
 
-      // WhatsApp: telefone real preenchido (aceita números e strings não-vazias)
-      const tel = r['TELEFONE CLIENTE'];
-      if (tel !== '' && tel !== null && tel !== undefined && !isNaN(Number(tel)) && Number(tel) > 0) withPhone++;
-
-      // Instagram: @ preenchido OU marcou no post
-      if (isValid(r['INSTAGRAM']) || isValid(r['REMARCOU INSTAGRAM']) || isValid(r['MARCOU NO INSTAGRAM'])) withInstagram++;
-
-      // Engajamento Social
-      if (isValid(r['TIROU FOTO?']) || isValid(r['TIROU FOTO ÓCULOS?'])) tirouFoto++;
-      if (isValid(r['LOJA MARCOU  CLIENTE?']) || isValid(r['LOJA MARCOU CLIENTE?']) || isValid(r['LOJA MARCOU CLIENTE ÓCULOS?'])) lojaMarcou++;
+      const lente = String(r['LENTE'] || '').trim();
+      if (isValid(lente)) lentesMap[lente] = (lentesMap[lente] || 0) + 1;
     });
 
-    // VIP = clientes com 2+ ordens de serviço (voltaram à loja)
-    const vip = Object.values(clienteFreq).filter(c => c >= 2).length;
-
     return {
-      totalClientes: clientesMap.size,
-      totalOS: rows.length,
-      withPhone, withInstagram, vip, tirouFoto, lojaMarcou,
-      topProducts: Object.entries(produtosMap)
-        .sort((a, b) => b[1] - a[1]).slice(0, 6)
-        .map(([name, count]) => ({ name: name.length > 22 ? name.slice(0, 22) + '…' : name, count })),
-      cidades: Object.entries(cidadeMap)
-        .sort((a, b) => b[1] - a[1]).slice(0, 8)
-        .map(([name, value]) => ({ name, value })),
-      followupStatus: Object.entries(statusMap)
-        .sort((a, b) => b[1] - a[1]).slice(0, 6)
-        .map(([name, value]) => ({ name, value })),
-      meses: Object.entries(mesMap).map(([name, value]) => ({ name, value })),
+      totalRegistros: rows.length,
+      faturamento,
+      custo,
+      lucro,
+      margem: faturamento > 0 ? ((lucro / faturamento) * 100) : 0,
+      cidades: Object.entries(cidadeMap).sort((a,b)=>b[1]-a[1]).slice(0, 6).map(([name, value]) => ({ name, value })),
+      formasPag: Object.entries(formaPagMap).sort((a,b)=>b[1]-a[1]).slice(0, 5).map(([name, value]) => ({ name, value })),
+      topLentes: Object.entries(lentesMap).sort((a,b)=>b[1]-a[1]).slice(0, 5).map(([name, count]) => ({ name, count })),
     };
   }, [rows]);
 
   return (
-    <div className="space-y-8">
-      {/* KPIs */}
-      <div className="flex flex-wrap gap-5">
-        <StatsCard title="Total de OS" value={stats.totalOS.toLocaleString()} icon={ShoppingBag} trend={10} color="sky" delay={0.1} />
-        <StatsCard title="Clientes Únicos" value={stats.totalClientes.toLocaleString()} icon={Users} trend={8} color="indigo" delay={0.2} />
-        <StatsCard title="Clientes VIP (2+)" value={stats.vip.toLocaleString()} icon={CheckCircle} trend={3} color="amber" delay={0.3} />
-        <StatsCard title="Com WhatsApp" value={stats.withPhone.toLocaleString()} icon={MonitorSmartphone} trend={5} color="emerald" delay={0.4} />
-        <StatsCard title="No Instagram" value={stats.withInstagram.toLocaleString()} icon={Sparkles} trend={12} color="violet" delay={0.5} />
-        <StatsCard title="Tirou Foto" value={stats.tirouFoto.toLocaleString()} icon={CheckCircle} trend={0} color="pink" delay={0.6} />
-        <StatsCard title="Loja Marcou" value={stats.lojaMarcou.toLocaleString()} icon={TrendingUp} trend={0} color="teal" delay={0.7} />
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Total de Registros</span>
+            <div className="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center">
+              <ShoppingBag size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-white">{stats.totalRegistros.toLocaleString()} OS</div>
+          <div className="text-[11px] text-slate-500 mt-1">Histórico da Planilha Marketing</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Faturamento</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+              <DollarSign size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-emerald-400">{fmtMoeda(stats.faturamento)}</div>
+          <div className="text-[11px] text-slate-500 mt-1">Soma total de vendas</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Custo de Produtos</span>
+            <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
+              <Layers size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-amber-400">{fmtMoeda(stats.custo)}</div>
+          <div className="text-[11px] text-slate-500 mt-1">Valor pago a fornecedores</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Lucro Bruto</span>
+            <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
+              <TrendingUp size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-sky-400">{fmtMoeda(stats.lucro)}</div>
+          <div className="text-[11px] text-emerald-400 font-bold mt-1">{stats.margem.toFixed(1)}% de margem</div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8">
-        {/* Top Produtos */}
-        <div className="glass-card p-8">
-          <h3 className="text-xl font-black mb-6 flex items-center gap-2"><Package className="text-sky-400" size={20}/>Top Produtos</h3>
-          <div className="h-[260px] w-full">
-            <ResponsiveContainer width="99%" height="100%">
-              <BarChart layout="vertical" data={stats.topProducts}>
-                <XAxis type="number" hide />
-                <YAxis dataKey="name" type="category" width={130} fontSize={10} fontWeight={700} stroke="#94a3b8"/>
-                <Tooltip contentStyle={{ backgroundColor:'#0f172a', border:'none', borderRadius:'8px' }}/>
-                <Bar dataKey="count" radius={[0,4,4,0]}>
-                  {stats.topProducts.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]}/>)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow">
+          <h3 className="text-base font-bold text-white mb-4 flex items-center gap-2">
+            <MapPin size={18} className="text-sky-400" />
+            Vendas por Loja / Cidade
+          </h3>
+          <div className="h-[250px] min-w-0 min-h-[250px] w-full">
+            {stats.cidades.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={250}>
+                <BarChart data={stats.cidades}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                  <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} />
+                  <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} />
+                  <Tooltip contentStyle={{ backgroundColor: '#020617', borderColor: '#334155', borderRadius: '8px' }} formatter={v => [fmtMoeda(v), 'Volume']} />
+                  <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={40}>
+                    {stats.cidades.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <div className="h-full flex items-center justify-center text-slate-500 text-xs font-bold">Sem dados</div>}
           </div>
         </div>
 
-        {/* Cidades */}
-        <div className="glass-card p-8">
-          <h3 className="text-xl font-black mb-6 flex items-center gap-2"><MapPin className="text-violet-400" size={20}/>Vendas por Cidade</h3>
-          <div className="h-[260px] w-full">
-            <ResponsiveContainer width="99%" height="100%">
-              <BarChart data={stats.cidades}>
-                <XAxis dataKey="name" stroke="#64748b" fontSize={10} fontWeight={700} tickLine={false} axisLine={false}/>
-                <YAxis stroke="#64748b" fontSize={10} fontWeight={700} tickLine={false} axisLine={false}/>
-                <Tooltip contentStyle={{ backgroundColor:'#0f172a', border:'none', borderRadius:'8px' }}/>
-                <Bar dataKey="value" radius={[6,6,0,0]}>
-                  {stats.cidades.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]}/>)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow">
+          <h3 className="text-base font-bold text-white mb-4 flex items-center gap-2">
+            <CreditCard size={18} className="text-emerald-400" />
+            Formas de Pagamento Mais Utilizadas
+          </h3>
+          <div className="h-[250px] min-w-0 min-h-[250px] w-full">
+            {stats.formasPag.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={250}>
+                <BarChart layout="vertical" data={stats.formasPag}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                  <XAxis type="number" stroke="#94a3b8" fontSize={12} />
+                  <YAxis dataKey="name" type="category" width={120} stroke="#94a3b8" fontSize={11} tickLine={false} />
+                  <Tooltip contentStyle={{ backgroundColor: '#020617', borderColor: '#334155', borderRadius: '8px' }} formatter={v => [v, 'Qtd. Vendas']} />
+                  <Bar dataKey="value" radius={[0, 6, 6, 0]} barSize={22}>
+                    {stats.formasPag.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <div className="h-full flex items-center justify-center text-slate-500 text-xs font-bold">Sem dados</div>}
           </div>
         </div>
       </div>
@@ -177,333 +167,1190 @@ const MarketingOverview = ({ rows }) => {
   );
 };
 
-// ─── OVERVIEW de PARCELAS ─────────────────────────────────────────────────────
-const ParcelasOverview = ({ rows }) => {
+// ─── 2. BD MARKETING & BD MARKETING ANTIGO ───────────────────────────────────
+const HistoricalBDMarketingView = ({ rows, title = 'BD Marketing' }) => {
   const stats = useMemo(() => {
-    let totalEmAberto = 0, totalPago = 0, totalGeral = 0;
-    let qtdPago = 0, qtdAberto = 0;
-    const lojaMap = {};
+    let withPhone = 0, withInstagram = 0, totalValor = 0;
     const clientesSet = new Set();
+    const cidadeMap = {};
+    const medicoMap = {};
+    const mesMap = {};
 
     rows.forEach(r => {
-      // Nomes exatos das colunas reais da planilha
-      const val  = cleanVal(r['Valor Parcela'] || r['VALOR PARCELA'] || r['VALOR TOTAL'] || 0);
-      // Moviment. = '—' ou vazio = pendente; qualquer outro valor = pago/acordo
-      const mov  = String(r['Moviment.'] || r['MOVIMENTAÇÃO'] || r['SITUAÇÃO'] || '—').trim();
-      const loja = String(r['Loja'] || r['LOJA'] || 'Outros').trim();
-      // Busca o nome do cliente em várias possíveis colunas
-      const nomeRaw = r['Nome'] || r['NOME'] || r['NOME CLIENTE'] || r['Cliente'] || r['CLIENTE'] || '';
-      const nome = String(nomeRaw).trim().toUpperCase();
+      const nome = String(r['NOME'] || '').trim().toUpperCase();
+      if (isValid(nome)) clientesSet.add(nome);
 
+      const tel = r['TELEFONE CLIENTE'] || r['TELEFONE'] || '';
+      if (isValid(tel) && String(tel).length >= 8) withPhone++;
+
+      const insta = r['INSTAGRAM'] || r['MARCOU NO INSTAGRAM'] || '';
+      if (isValid(insta)) withInstagram++;
+
+      const val = cleanVal(r['VALOR'] || r['VALOR TOTAL'] || 0);
+      totalValor += val;
+
+      const cid = String(r['CIDADE'] || 'Central').trim();
+      if (isValid(cid)) cidadeMap[cid] = (cidadeMap[cid] || 0) + 1;
+
+      const med = String(r['OFTALMOLOGISTA /OPTOMETRISTA'] || '').trim();
+      if (isValid(med) && med.length > 2) medicoMap[med] = (medicoMap[med] || 0) + 1;
+
+      const mes = String(r['MÊS'] || r['ANO'] || '').trim();
+      if (isValid(mes)) mesMap[mes] = (mesMap[mes] || 0) + 1;
+    });
+
+    return {
+      totalAtendimentos: rows.length,
+      totalClientes: clientesSet.size,
+      withPhone,
+      withInstagram,
+      totalValor,
+      cidades: Object.entries(cidadeMap).sort((a,b)=>b[1]-a[1]).slice(0, 6).map(([name, value]) => ({ name, value })),
+      medicos: Object.entries(medicoMap).sort((a,b)=>b[1]-a[1]).slice(0, 6).map(([name, value]) => ({ name, value })),
+    };
+  }, [rows]);
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Atendimentos</span>
+            <div className="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center">
+              <ShoppingBag size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-white">{stats.totalAtendimentos.toLocaleString()} OS</div>
+          <div className="text-[11px] text-slate-500 mt-1">Base histórica consolidada</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Clientes Únicos</span>
+            <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
+              <Users size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-indigo-400">{stats.totalClientes.toLocaleString()}</div>
+          <div className="text-[11px] text-slate-500 mt-1">Pessoas atendidas</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Com WhatsApp</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+              <Phone size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-emerald-400">{stats.withPhone.toLocaleString()}</div>
+          <div className="text-[11px] text-emerald-400 font-bold mt-1">
+            {stats.totalAtendimentos > 0 ? ((stats.withPhone / stats.totalAtendimentos) * 100).toFixed(0) : 0}% de contato
+          </div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Instagram</span>
+            <div className="w-8 h-8 rounded-lg bg-pink-500/10 text-pink-400 flex items-center justify-center">
+              <Sparkles size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-pink-400">{stats.withInstagram.toLocaleString()}</div>
+          <div className="text-[11px] text-slate-500 mt-1">Engajamento em redes</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Volume Total</span>
+            <div className="w-8 h-8 rounded-lg bg-teal-500/10 text-teal-400 flex items-center justify-center">
+              <Layers size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-sky-400">{stats.totalValor > 0 ? fmtMoeda(stats.totalValor) : stats.totalAtendimentos.toLocaleString() + ' reg'}</div>
+          <div className="text-[11px] text-slate-500 mt-1">Registros na base</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow">
+          <h3 className="text-base font-bold text-white mb-4 flex items-center gap-2">
+            <MapPin size={18} className="text-indigo-400" />
+            Atendimentos por Unidade / Cidade
+          </h3>
+          <div className="h-[250px] min-w-0 min-h-[250px] w-full">
+            {stats.cidades.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={250}>
+                <BarChart data={stats.cidades}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                  <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} />
+                  <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} />
+                  <Tooltip contentStyle={{ backgroundColor: '#020617', borderColor: '#334155', borderRadius: '8px' }} />
+                  <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={40}>
+                    {stats.cidades.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <div className="h-full flex items-center justify-center text-slate-500 text-xs font-bold">Sem dados</div>}
+          </div>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow">
+          <h3 className="text-base font-bold text-white mb-4 flex items-center gap-2">
+            <Award size={18} className="text-amber-400" />
+            Principais Oftalmologistas / Optometristas
+          </h3>
+          <div className="h-[250px] min-w-0 min-h-[250px] w-full">
+            {stats.medicos.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={250}>
+                <BarChart layout="vertical" data={stats.medicos}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                  <XAxis type="number" stroke="#94a3b8" fontSize={12} />
+                  <YAxis dataKey="name" type="category" width={130} stroke="#94a3b8" fontSize={11} tickLine={false} />
+                  <Tooltip contentStyle={{ backgroundColor: '#020617', borderColor: '#334155', borderRadius: '8px' }} formatter={v => [v, 'Receitas']} />
+                  <Bar dataKey="value" radius={[0, 6, 6, 0]} barSize={22}>
+                    {stats.medicos.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <div className="h-full flex items-center justify-center text-slate-500 text-xs font-bold">Sem médicos identificados</div>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── 3. PARCELAS HISTÓRICO ───────────────────────────────────────────────────
+const HistoricalParcelasView = ({ rows }) => {
+  const stats = useMemo(() => {
+    let totalGeral = 0, totalPago = 0, totalAberto = 0;
+    let qtdPago = 0, qtdAberto = 0;
+    const lojaMap = {};
+
+    rows.forEach(r => {
+      const val = cleanVal(r['VALOR PARCELA'] || r['VALOR TOTAL'] || r['Valor Parcela'] || 0);
+      const status = String(r['STATUS'] || r['MOVIMENTAÇÃO'] || r['Moviment.'] || '').trim().toLowerCase();
+      
       totalGeral += val;
 
-      const isPago = mov !== '—' && mov !== '' && !mov.toLowerCase().includes('pendente');
-      if (isPago) {
+      if (status.includes('pago') || (status !== '—' && status !== 'pendente' && status !== '')) {
         totalPago += val;
         qtdPago++;
       } else {
-        totalEmAberto += val;
+        totalAberto += val;
         qtdAberto++;
       }
 
-      if (loja && loja !== 'Outros') lojaMap[loja] = (lojaMap[loja] || 0) + val;
-      if (nome) clientesSet.add(nome);
+      const loja = String(r['LOJA'] || r['Loja'] || 'Central').trim();
+      if (isValid(loja)) lojaMap[loja] = (lojaMap[loja] || 0) + val;
     });
 
     return {
-      totalGeral, totalPago, totalEmAberto,
-      qtdPago, qtdAberto,
-      totalClientes: clientesSet.size,
-      lojas: Object.entries(lojaMap)
-        .sort((a, b) => b[1] - a[1]).slice(0, 6)
-        .map(([name, value]) => ({ name, value })),
+      totalRegistros: rows.length,
+      totalGeral,
+      totalPago,
+      totalAberto,
+      qtdPago,
+      qtdAberto,
+      lojas: Object.entries(lojaMap).sort((a,b)=>b[1]-a[1]).slice(0, 6).map(([name, value]) => ({ name, value })),
     };
   }, [rows]);
 
-  const fmt = (v) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
   return (
-    <div className="space-y-8">
-      <div className="flex flex-wrap gap-5">
-        <StatsCard title="Total em Carteira"  value={fmt(stats.totalGeral)}      icon={CreditCard}  trend={0}  color="sky"     delay={0.1}/>
-        <StatsCard title="Valor Quitado"      value={fmt(stats.totalPago)}       icon={CheckCircle} trend={5}  color="emerald" delay={0.2}/>
-        <StatsCard title="Em Aberto"          value={fmt(stats.totalEmAberto)}   icon={AlertCircle} trend={-3} color="rose"    delay={0.3}/>
-        <StatsCard title="Parcelas Pagas"     value={stats.qtdPago.toLocaleString()}    icon={CheckCircle} trend={0}  color="teal"    delay={0.4}/>
-        <StatsCard title="Parcelas Pendentes" value={stats.qtdAberto.toLocaleString()}  icon={AlertCircle} trend={0}  color="amber"   delay={0.5}/>
-        <StatsCard title="Clientes"           value={stats.totalClientes.toLocaleString()} icon={Users}   trend={0}  color="indigo"  delay={0.6}/>
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Total em Carteira</span>
+            <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
+              <CreditCard size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-white">{fmtMoeda(stats.totalGeral)}</div>
+          <div className="text-[11px] text-slate-500 mt-1">{stats.totalRegistros.toLocaleString()} parcelas geradas</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Parcelas Pagas</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+              <CheckCircle size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-emerald-400">{fmtMoeda(stats.totalPago)}</div>
+          <div className="text-[11px] text-emerald-400 font-bold mt-1">{stats.qtdPago.toLocaleString()} títulos liquidados</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Em Aberto</span>
+            <div className="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center">
+              <AlertTriangle size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-rose-400">{fmtMoeda(stats.totalAberto)}</div>
+          <div className="text-[11px] text-rose-400 font-bold mt-1">{stats.qtdAberto.toLocaleString()} títulos a receber</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Recuperação</span>
+            <div className="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center">
+              <TrendingUp size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-sky-400">
+            {stats.totalGeral > 0 ? ((stats.totalPago / stats.totalGeral) * 100).toFixed(1) : 0}%
+          </div>
+          <div className="text-[11px] text-slate-500 mt-1">Taxa de recebimento geral</div>
+        </div>
       </div>
-      <div className="glass-card p-8 mt-8">
-        <h3 className="text-xl font-black mb-6">Carteira por Loja</h3>
-        <div className="h-[240px] w-full">
-          <ResponsiveContainer width="99%" height="100%">
-            <BarChart data={stats.lojas}>
-              <XAxis dataKey="name" stroke="#64748b" fontSize={10} fontWeight={700} tickLine={false} axisLine={false}/>
-              <YAxis stroke="#64748b" fontSize={10} fontWeight={700} tickLine={false} axisLine={false} tickFormatter={v=>`R$${(v/1000).toFixed(0)}k`}/>
-              <Tooltip contentStyle={{ backgroundColor:'#0f172a', border:'none', borderRadius:'8px' }} formatter={v=>fmt(v)}/>
-              <Bar dataKey="value" radius={[6,6,0,0]}>
-                {stats.lojas.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]}/>)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow">
+        <h3 className="text-base font-bold text-white mb-4 flex items-center gap-2">
+          <MapPin size={18} className="text-amber-400" />
+          Carteira de Parcelas por Loja
+        </h3>
+        <div className="h-[250px] min-w-0 min-h-[250px] w-full">
+          {stats.lojas.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={250}>
+              <BarChart data={stats.lojas}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} />
+                <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} />
+                <Tooltip contentStyle={{ backgroundColor: '#020617', borderColor: '#334155', borderRadius: '8px' }} formatter={v => [fmtMoeda(v), 'Total em Parcelas']} />
+                <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={44}>
+                  {stats.lojas.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : <div className="h-full flex items-center justify-center text-slate-500 text-xs font-bold">Sem dados</div>}
         </div>
       </div>
     </div>
   );
 };
 
-// ─── OVERVIEW de ORÇAMENTOS ───────────────────────────────────────────────────
-const OrcamentosOverview = ({ rows }) => {
+// ─── 4. ORÇAMENTOS HISTÓRICO ─────────────────────────────────────────────────
+const HistoricalOrcamentosView = ({ rows }) => {
   const stats = useMemo(() => {
-    let totalVal = 0; let convertidos = 0;
+    let totalVal = 0, convertidos = 0;
     const lojaMap = {};
+
     rows.forEach(r => {
-      const val = cleanVal(r['VALOR DO ORÇAMENTO']);
+      const val = cleanVal(r['VALOR DO ORÇAMENTO'] || 0);
       totalVal += val;
       const res = String(r['RESULTADO DA MENSAGEM'] || '').toUpperCase();
       if (res.includes('VENDA')) convertidos++;
-      const loja = r['LOJA'] || 'Outros';
-      lojaMap[loja] = (lojaMap[loja] || 0) + 1;
+      const loja = String(r['LOJA'] || 'Central').trim();
+      lojaMap[loja] = (lojaMap[loja] || 0) + val;
     });
+
     return {
-      totalOrcamentos: rows.length, totalVal, convertidos,
-      taxaConversao: rows.length ? (convertidos/rows.length*100) : 0,
-      lojas: Object.entries(lojaMap).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([name,value])=>({name,value})),
+      totalOrcamentos: rows.length,
+      totalVal,
+      convertidos,
+      taxaConversao: rows.length ? ((convertidos / rows.length) * 100) : 0,
+      lojas: Object.entries(lojaMap).sort((a,b)=>b[1]-a[1]).slice(0, 5).map(([name, value]) => ({ name, value })),
     };
   }, [rows]);
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-wrap gap-5">
-        <StatsCard title="Total Orçamentos" value={stats.totalOrcamentos.toLocaleString()} icon={ShoppingBag} trend={0} color="violet" delay={0.1}/>
-        <StatsCard title="Valor Total" value={`R$ ${stats.totalVal.toLocaleString('pt-BR',{minimumFractionDigits:2})}`} icon={DollarSign} trend={5} color="sky" delay={0.2}/>
-        <StatsCard title="Convertidos" value={stats.convertidos.toLocaleString()} icon={CheckCircle} trend={10} color="emerald" delay={0.3}/>
-        <StatsCard title="Taxa Conversão" value={`${stats.taxaConversao.toFixed(1)}%`} icon={TrendingUp} trend={stats.taxaConversao>50?5:-3} color={stats.taxaConversao>50?'emerald':'rose'} delay={0.4}/>
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Orçamentos</span>
+            <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
+              <FileSpreadsheet size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-white">{stats.totalOrcamentos.toLocaleString()}</div>
+          <div className="text-[11px] text-slate-500 mt-1">Cotações geradas</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Volume Total</span>
+            <div className="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center">
+              <DollarSign size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-sky-400">{fmtMoeda(stats.totalVal)}</div>
+          <div className="text-[11px] text-slate-500 mt-1">Valor orçado</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Convertidos</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+              <CheckCircle size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-emerald-400">{stats.convertidos.toLocaleString()}</div>
+          <div className="text-[11px] text-emerald-400 font-bold mt-1">Fechados em venda</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Conversão</span>
+            <div className="w-8 h-8 rounded-lg bg-violet-500/10 text-violet-400 flex items-center justify-center">
+              <TrendingUp size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-violet-400">{stats.taxaConversao.toFixed(1)}%</div>
+          <div className="text-[11px] text-slate-500 mt-1">Taxa de sucesso</div>
+        </div>
       </div>
+
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow">
+        <h3 className="text-base font-bold text-white mb-4 flex items-center gap-2">
+          <ShoppingBag size={18} className="text-violet-400" />
+          Volume de Orçamentos por Loja
+        </h3>
+        <div className="h-[250px] min-w-0 min-h-[250px] w-full">
+          {stats.lojas.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={250}>
+              <BarChart data={stats.lojas}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} />
+                <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} />
+                <Tooltip contentStyle={{ backgroundColor: '#020617', borderColor: '#334155', borderRadius: '8px' }} formatter={v => [fmtMoeda(v), 'Orçamentos']} />
+                <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={40}>
+                  {stats.lojas.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : <div className="h-full flex items-center justify-center text-slate-500 text-xs font-bold">Sem dados</div>}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── 5. DIOPTRIA HISTÓRICO ───────────────────────────────────────────────────
+const HistoricalDioptriaView = ({ rows }) => {
+  const stats = useMemo(() => {
+    const lojaMap = {};
+    const lentesMap = {};
+
+    rows.forEach(r => {
+      const loja = String(r['QUAL LOJA'] || r['CIDADE'] || 'Central').trim();
+      if (isValid(loja)) lojaMap[loja] = (lojaMap[loja] || 0) + 1;
+
+      const lente = String(r['LENTE'] || '').trim();
+      if (isValid(lente)) lentesMap[lente] = (lentesMap[lente] || 0) + 1;
+    });
+
+    return {
+      totalDioptrias: rows.length,
+      lojas: Object.entries(lojaMap).sort((a,b)=>b[1]-a[1]).slice(0, 6).map(([name, value]) => ({ name, value })),
+      lentes: Object.entries(lentesMap).sort((a,b)=>b[1]-a[1]).slice(0, 5).map(([name, value]) => ({ name, value })),
+    };
+  }, [rows]);
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <span className="text-xs font-bold uppercase text-slate-400">Total de Registros de Dioptria / Graus</span>
+          <div className="text-2xl font-extrabold text-white mt-1">{stats.totalDioptrias.toLocaleString()}</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">Histórico completo de dioptrias</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow">
+          <h3 className="text-base font-bold text-white mb-4 flex items-center gap-2">
+            <MapPin size={18} className="text-teal-400" />
+            Lançamentos de Dioptria por Loja
+          </h3>
+          <div className="h-[250px] min-w-0 min-h-[250px] w-full">
+            {stats.lojas.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={250}>
+                <BarChart data={stats.lojas}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                  <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} />
+                  <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} />
+                  <Tooltip contentStyle={{ backgroundColor: '#020617', borderColor: '#334155', borderRadius: '8px' }} />
+                  <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={40}>
+                    {stats.lojas.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <div className="h-full flex items-center justify-center text-slate-500 text-xs font-bold">Sem dados</div>}
+          </div>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow">
+          <h3 className="text-base font-bold text-white mb-4 flex items-center gap-2">
+            <Package size={18} className="text-sky-400" />
+            Tipos de Lentes Mais Usadas
+          </h3>
+          <div className="h-[250px] min-w-0 min-h-[250px] w-full">
+            {stats.lentes.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={250}>
+                <BarChart layout="vertical" data={stats.lentes}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                  <XAxis type="number" stroke="#94a3b8" fontSize={12} />
+                  <YAxis dataKey="name" type="category" width={100} stroke="#94a3b8" fontSize={11} tickLine={false} />
+                  <Tooltip contentStyle={{ backgroundColor: '#020617', borderColor: '#334155', borderRadius: '8px' }} />
+                  <Bar dataKey="value" radius={[0, 6, 6, 0]} barSize={22}>
+                    {stats.lentes.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <div className="h-full flex items-center justify-center text-slate-500 text-xs font-bold">Sem dados</div>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── 6. ESTOQUE HISTÓRICO (ESTOQUE & ENTRADA SAÍDAS) ─────────────────────────
+const HistoricalEstoqueView = ({ rows }) => {
+  const stats = useMemo(() => {
+    let totalEntradas = 0, totalSaidas = 0, totalSaldo = 0;
+    const tiposMap = {};
+
+    rows.forEach(r => {
+      const ent = cleanVal(r['ENTRADAS (PAR)'] || r['ENTRADAS'] || r['QTD (PAR)'] || 0);
+      const sai = cleanVal(r['SAÍDAS (PAR)'] || r['SAÍDAS'] || 0);
+      const est = cleanVal(r['EM ESTOQUE'] || (ent - sai) || 0);
+
+      totalEntradas += ent;
+      totalSaidas += sai;
+      totalSaldo += est;
+
+      const tipo = String(r['LENTE'] || r['TIPO PRODUTO'] || r['LAB'] || 'Geral').trim();
+      if (isValid(tipo)) tiposMap[tipo] = (tiposMap[tipo] || 0) + (est > 0 ? est : 1);
+    });
+
+    return {
+      totalItens: rows.length,
+      totalEntradas,
+      totalSaidas,
+      totalSaldo,
+      tipos: Object.entries(tiposMap).sort((a,b)=>b[1]-a[1]).slice(0, 6).map(([name, value]) => ({ name, value })),
+    };
+  }, [rows]);
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <span className="text-xs font-bold uppercase text-slate-400">Total de Lentes Catalogadas</span>
+          <div className="text-2xl font-extrabold text-white mt-1">{stats.totalItens.toLocaleString()}</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">Modelos e dioptrias</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <span className="text-xs font-bold uppercase text-slate-400">Saldo Total em Estoque</span>
+          <div className="text-2xl font-extrabold text-emerald-400 mt-1">{stats.totalSaldo.toLocaleString()} pares</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">Disponível em estoque</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <span className="text-xs font-bold uppercase text-slate-400">Total de Entradas</span>
+          <div className="text-2xl font-extrabold text-sky-400 mt-1">{stats.totalEntradas.toLocaleString()} pares</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <span className="text-xs font-bold uppercase text-slate-400">Total de Saídas</span>
+          <div className="text-2xl font-extrabold text-amber-400 mt-1">{stats.totalSaidas.toLocaleString()} pares</div>
+        </div>
+      </div>
+
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow">
+        <h3 className="text-base font-bold text-white mb-4 flex items-center gap-2">
+          <Package size={18} className="text-teal-400" />
+          Estoque por Tipo de Lente
+        </h3>
+        <div className="h-[250px] min-w-0 min-h-[250px] w-full">
+          {stats.tipos.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={250}>
+              <BarChart data={stats.tipos}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} />
+                <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} />
+                <Tooltip contentStyle={{ backgroundColor: '#020617', borderColor: '#334155', borderRadius: '8px' }} />
+                <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={40}>
+                  {stats.tipos.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : <div className="h-full flex items-center justify-center text-slate-500 text-xs font-bold">Sem dados</div>}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── 7. INFLUENCERS HISTÓRICO ─────────────────────────────────────────────────
+const HistoricalInfluencerView = ({ rows }) => {
+  const stats = useMemo(() => {
+    let faturamento = 0, custo = 0;
+    const inflMap = {};
+
+    rows.forEach(r => {
+      const vVenda = cleanVal(r['VALOR DE VENDA'] || r['VALOR'] || 0);
+      const vCusto = cleanVal(r['CUSTO PRODUTO'] || 0);
+
+      faturamento += vVenda;
+      custo += vCusto;
+
+      const infl = String(r['INLFUENCER'] || r['INFLUENCER'] || 'Parcerias').trim();
+      if (isValid(infl)) inflMap[infl] = (inflMap[infl] || 0) + (vVenda > 0 ? vVenda : 1);
+    });
+
+    return {
+      totalAcoes: rows.length,
+      faturamento,
+      custo,
+      lucro: faturamento - custo,
+      influencers: Object.entries(inflMap).map(([name, value]) => ({ name, value })),
+    };
+  }, [rows]);
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <span className="text-xs font-bold uppercase text-slate-400">Total de Ações / Vendas</span>
+          <div className="text-2xl font-extrabold text-white mt-1">{stats.totalAcoes.toLocaleString()}</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <span className="text-xs font-bold uppercase text-slate-400">Faturamento Gerado</span>
+          <div className="text-2xl font-extrabold text-emerald-400 mt-1">{fmtMoeda(stats.faturamento)}</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <span className="text-xs font-bold uppercase text-slate-400">Custo do Produto</span>
+          <div className="text-2xl font-extrabold text-amber-400 mt-1">{fmtMoeda(stats.custo)}</div>
+        </div>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <span className="text-xs font-bold uppercase text-slate-400">Retorno Líquido</span>
+          <div className="text-2xl font-extrabold text-sky-400 mt-1">{fmtMoeda(stats.lucro)}</div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── 8. ANALISADOR GENÉRICO INTELIGENTE PARA QUALQUER OUTRA ABA ───────────────
+const GenericHistoricalView = ({ rows, tabName }) => {
+  const stats = useMemo(() => {
+    let totalSoma = 0;
+    let hasValues = false;
+    const catMap = {};
+
+    rows.forEach(r => {
+      // Procura qualquer coluna de valor ou número
+      Object.keys(r).forEach(k => {
+        const keyLower = k.toLowerCase();
+        if (keyLower.includes('valor') || keyLower.includes('total') || keyLower.includes('preco') || keyLower.includes('saldo')) {
+          const v = cleanVal(r[k]);
+          if (v > 0) {
+            totalSoma += v;
+            hasValues = true;
+          }
+        }
+      });
+
+      // Procura primeira coluna categórica ou cidade
+      const catKey = Object.keys(r).find(k => {
+        const kl = k.toLowerCase();
+        return kl.includes('cidade') || kl.includes('loja') || kl.includes('unidade') || kl.includes('tipo') || kl.includes('status') || kl.includes('categoria');
+      });
+
+      if (catKey && isValid(r[catKey])) {
+        const c = String(r[catKey]).trim();
+        catMap[c] = (catMap[c] || 0) + 1;
+      }
+    });
+
+    return {
+      totalLinhas: rows.length,
+      totalSoma,
+      hasValues,
+      categorias: Object.entries(catMap).sort((a,b)=>b[1]-a[1]).slice(0, 6).map(([name, value]) => ({ name, value }))
+    };
+  }, [rows]);
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <span className="text-xs font-bold uppercase text-slate-400">Total de Linhas / Registros</span>
+          <div className="text-2xl font-extrabold text-white mt-1">{stats.totalLinhas.toLocaleString()}</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">Aba {tabName}</div>
+        </div>
+        {stats.hasValues && (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+            <span className="text-xs font-bold uppercase text-slate-400">Volume Total Somado</span>
+            <div className="text-2xl font-extrabold text-emerald-400 mt-1">{fmtMoeda(stats.totalSoma)}</div>
+            <div className="text-[11px] text-slate-500 mt-0.5">Soma de valores detectados</div>
+          </div>
+        )}
+      </div>
+
+      {stats.categorias.length > 0 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow">
+          <h3 className="text-base font-bold text-white mb-4 flex items-center gap-2">
+            <BarChart2 size={18} className="text-sky-400" />
+            Distribuição dos Dados ({tabName})
+          </h3>
+          <div className="h-[250px] min-w-0 min-h-[250px] w-full">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={250}>
+              <BarChart data={stats.categorias}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} />
+                <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} />
+                <Tooltip contentStyle={{ backgroundColor: '#020617', borderColor: '#334155', borderRadius: '8px' }} />
+                <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={40}>
+                  {stats.categorias.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 // ─── DASHBOARD PRINCIPAL ──────────────────────────────────────────────────────
-const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick, onDataLoaded }) => {
-  const [showUpload, setShowUpload] = useState(false);
-  const [activeTab, setActiveTab] = useState(null);
-  const [viewMode, setViewMode] = useState('overview'); // 'overview' | 'table'
+const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick, onDataLoaded, onOpenOSManagement, onOpenPOS }) => {
+  const [activeModule, setActiveModule] = useState('resumo'); // 'resumo', 'vendas', 'clientes', 'estoque', 'financeiro', 'excel'
+  const [selectedCity, setSelectedCity] = useState('ALL');
+  const [excelSubTab, setExcelSubTab] = useState('MARKETING');
 
-  // data pode ser objeto {sheetName: rows[]} ou array direto (legado CSV)
   const sheets = useMemo(() => {
     if (!data) return {};
     if (Array.isArray(data)) return { 'Planilha': data };
     return data;
   }, [data]);
 
-  const availableTabs = useMemo(() => {
-    // Guias pré-configuradas (com ícones/cores específicas)
-    const predefined = SHEET_TABS.filter(t => sheets[t.key] && sheets[t.key].length > 0);
-    const predefinedKeys = new Set(SHEET_TABS.map(t => t.key));
-    
-    // Guias extras (qualquer outra aba do Excel que tenha dados)
-    const extraTabs = Object.keys(sheets)
-      .filter(key => !predefinedKeys.has(key) && sheets[key].length > 0)
-      .map((key, index) => ({
-        key,
-        label: key, // Usando o nome original
-        icon: Table2,
-        color: ['slate', 'sky', 'emerald', 'amber', 'rose', 'fuchsia'][index % 6]
-      }));
+  // Filtragem por cidade
+  const filterByCity = (rows) => {
+    if (!rows || !Array.isArray(rows)) return [];
+    if (selectedCity === 'ALL') return rows;
+    return rows.filter(r => {
+      const cid = String(r['CIDADE'] || r['Cidade'] || r['Unidade'] || r['UNIDADE'] || r['Loja'] || r['QUAL LOJA'] || r['Responsável Cidade'] || '').trim().toLowerCase();
+      const target = selectedCity.toLowerCase();
+      return cid.includes(target) || target.includes(cid);
+    });
+  };
 
-    return [...predefined, ...extraTabs];
+  // Dados filtrados das coleções em tempo real
+  const vendasRows = useMemo(() => filterByCity(sheets['Registro_Vendas'] || sheets['BD MARKETING'] || []), [sheets, selectedCity]);
+  const clientesRows = useMemo(() => filterByCity(sheets['CLIENTES_CADASTRADOS'] || []), [sheets, selectedCity]);
+  const armacoesRows = useMemo(() => filterByCity(sheets['CAD_ARMACOES'] || []), [sheets, selectedCity]);
+  const lentesRows = useMemo(() => filterByCity(sheets['CAD_LENTES'] || []), [sheets, selectedCity]);
+  const receberRows = useMemo(() => filterByCity(sheets['CONTAS_RECEBER'] || []), [sheets, selectedCity]);
+  const pagarRows = useMemo(() => filterByCity(sheets['CONTAS_PAGAR'] || []), [sheets, selectedCity]);
+
+  // KPIs Globais Consolidados (Nuvem + Vendas)
+  const globalStats = useMemo(() => {
+    let faturamento = 0;
+    vendasRows.forEach(r => {
+      faturamento += cleanVal(r['VALOR TOTAL'] || r['VALOR DO ORÇAMENTO'] || r['VALOR DA VENDA'] || r['VALOR'] || 0);
+    });
+
+    let aReceber = 0;
+    receberRows.forEach(r => {
+      const status = String(r['STATUS'] || r['status'] || 'Pendente').toLowerCase();
+      if (!status.includes('pago') && !status.includes('recebido')) {
+        aReceber += cleanVal(r['VALOR'] || r['valor'] || 0);
+      }
+    });
+
+    let totalPecasEstoque = 0;
+    [...armacoesRows, ...lentesRows].forEach(r => {
+      totalPecasEstoque += parseInt(r['ESTOQUE'] || r['estoque'] || 1, 10) || 0;
+    });
+
+    let estoqueBaixo = 0;
+    [...armacoesRows, ...lentesRows].forEach(r => {
+      const q = parseInt(r['ESTOQUE'] || r['estoque'] || 0, 10);
+      if (q <= 2) estoqueBaixo++;
+    });
+
+    return {
+      faturamento,
+      totalVendas: vendasRows.length,
+      totalClientes: clientesRows.length,
+      aReceber,
+      totalPecasEstoque,
+      estoqueBaixo
+    };
+  }, [vendasRows, clientesRows, receberRows, armacoesRows, lentesRows]);
+
+  // Vendas por Cidade para gráfico
+  const chartVendasCidade = useMemo(() => {
+    const map = {};
+    (sheets['Registro_Vendas'] || sheets['BD MARKETING'] || []).forEach(r => {
+      const cid = String(r['CIDADE'] || r['Cidade'] || r['Unidade'] || r['UNIDADE'] || 'Central').trim();
+      const val = cleanVal(r['VALOR TOTAL'] || r['VALOR'] || 0);
+      map[cid] = (map[cid] || 0) + val;
+    });
+    return Object.entries(map).map(([name, value]) => ({ name, value }));
   }, [sheets]);
 
-  const currentTab = activeTab || availableTabs[0]?.key;
-  const currentRows = sheets[currentTab] || [];
-  const currentConfig = SHEET_TABS.find(t => t.key === currentTab);
+  // Top Produtos
+  const chartTopProdutos = useMemo(() => {
+    const map = {};
+    vendasRows.forEach(r => {
+      const prod = String(r['PRODUTO'] || r['Produto'] || r['ARMAÇÃO'] || r['LENTE'] || '').trim();
+      if (prod && isValid(prod)) map[prod] = (map[prod] || 0) + 1;
+    });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, count]) => ({ name, count }));
+  }, [vendasRows]);
 
-  const container = { hidden:{opacity:0}, show:{opacity:1,transition:{staggerChildren:0.08}} };
+  // Todas as abas do Excel disponíveis (com filtro de segurança para não exibir usuários ou senhas)
+  const excelTabs = useMemo(() => {
+    const knownKeys = new Set([
+      'Registro_Vendas', 'CLIENTES_CADASTRADOS', 'CAD_ARMACOES', 'CAD_LENTES', 
+      'CONTAS_RECEBER', 'CONTAS_PAGAR', 'USUARIOS', 'usuarios', 'users', 'Users', 
+      'DELETED_ITEMS', 'Planilha', 'senhas', 'passwords', 'credenciais'
+    ]);
+    return Object.keys(sheets).filter(k => {
+      const lower = k.toLowerCase().trim();
+      if (knownKeys.has(k) || lower.includes('usuario') || lower.includes('user') || lower.includes('senha') || lower.includes('pass')) return false;
+      return sheets[k] && sheets[k].length > 0;
+    });
+  }, [sheets]);
+
+  // Dados da sub-aba selecionada do Excel (com filtro de cidade)
+  const currentExcelRows = useMemo(() => {
+    return filterByCity(sheets[excelSubTab] || []);
+  }, [sheets, excelSubTab, selectedCity]);
 
   return (
-    <motion.div variants={container} initial="hidden" animate="show" className="flex flex-col lg:flex-row gap-8 pb-20">
+    <div className="space-y-6 pb-20 font-sans text-slate-100">
       
-      {/* ─── SIDEBAR MENU ─── */}
-      <div className="w-full lg:w-64 flex-shrink-0 flex flex-col gap-4">
-        {/* Badge sincronizado */}
-        {isSynced && (
-          <motion.div variants={{ hidden:{opacity:0}, show:{opacity:1} }}
-            className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-black uppercase tracking-widest w-full">
-            <CheckCircle size={14}/> Sincronizado
-          </motion.div>
-        )}
+      {/* ─── BARRA SUPERIOR: CONTROLE E FILTROS CLAROS ─── */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2.5">
+            <BarChart2 className="text-sky-400" size={26} />
+            Painel Gerencial
+          </h1>
+          <p className="text-xs text-slate-400 mt-0.5">Visão consolidada da operação, clientes, estoque e histórico completo.</p>
+        </div>
 
-        <div className="glass-card p-3 flex flex-col gap-1.5 sticky top-24 backdrop-blur-2xl border-white/10 shadow-2xl relative overflow-hidden">
-          {/* Efeito de luz sutil no topo do menu */}
-          <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
-          
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3 mt-1 px-3 flex items-center gap-2">
-            <Layers size={12} className="text-slate-400" /> Tabelas Disponíveis
-          </h3>
-          
-          <div className="relative flex flex-col gap-1.5 z-10">
-            {availableTabs.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = currentTab === tab.key;
-              const count = (sheets[tab.key] || []).length;
-              return (
+        {/* Filtro por Loja */}
+        <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800 self-stretch md:self-auto justify-between md:justify-start">
+          <span className="text-xs font-semibold text-slate-400 px-2 flex items-center gap-1">
+            <MapPin size={14} className="text-sky-400" /> Loja:
+          </span>
+          {[
+            { id: 'ALL', label: 'Todas' },
+            { id: 'Cajati', label: 'Cajati' },
+            { id: 'Registro', label: 'Registro' },
+            { id: 'Jacupiranga', label: 'Jacupiranga' },
+            { id: 'Venda Externa', label: 'Venda Externa' },
+          ].map(c => (
+            <button
+              key={c.id}
+              onClick={() => setSelectedCity(c.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                selectedCity === c.id
+                  ? 'bg-sky-500 text-white shadow'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ─── CARDS DE ESTATÍSTICAS PRINCIPAIS (ALTA LEGIBILIDADE) ─── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        
+        {/* Card 1: Faturamento */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Faturamento</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+              <DollarSign size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-white">{fmtMoeda(globalStats.faturamento)}</div>
+          <div className="text-[11px] text-slate-500 mt-1">Total de vendas emitidas</div>
+        </div>
+
+        {/* Card 2: Vendas / OS */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Ordens de Serviço</span>
+            <div className="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center">
+              <ShoppingBag size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-white">{globalStats.totalVendas.toLocaleString()} OS</div>
+          <div className="text-[11px] text-slate-500 mt-1">Vendas e atendimentos</div>
+        </div>
+
+        {/* Card 3: Clientes */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Clientes Cadastrados</span>
+            <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
+              <Users size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-white">{globalStats.totalClientes.toLocaleString()}</div>
+          <div className="text-[11px] text-slate-500 mt-1">Base de clientes ativa</div>
+        </div>
+
+        {/* Card 4: A Receber */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Pendente a Receber</span>
+            <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
+              <CreditCard size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-amber-400">{fmtMoeda(globalStats.aReceber)}</div>
+          <div className="text-[11px] text-slate-500 mt-1">Saldos devedores / carnês</div>
+        </div>
+
+        {/* Card 5: Estoque */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow">
+          <div className="flex items-center justify-between text-slate-400 mb-2">
+            <span className="text-xs font-bold uppercase tracking-wider">Itens em Estoque</span>
+            <div className="w-8 h-8 rounded-lg bg-teal-500/10 text-teal-400 flex items-center justify-center">
+              <Package size={18} />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-white">{globalStats.totalPecasEstoque.toLocaleString()} un</div>
+          <div className="text-[11px] text-rose-400 mt-1">{globalStats.estoqueBaixo} modelos com estoque baixo</div>
+        </div>
+
+      </div>
+
+      {/* ─── NAVEGAÇÃO DE ABAS PRINCIPAIS (SIMPLES E INTUITIVA) ─── */}
+      <div className="bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-2xl p-3 shadow-lg flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {[
+            { id: 'resumo', label: '📊 Resumo Geral', count: null },
+            { id: 'ranking', label: '🏆 Ranking de Vendedores', count: 'TOP 10', isHighlight: true },
+            { id: 'pos_caixa', label: '🛒 Caixa (PDV)', count: null, isAction: true },
+            { id: 'os_gestao', label: '📋 Gestão de OS (Semáforo)', count: null, isAction: true },
+            { id: 'vendas', label: '🛒 Vendas & OS (Nuvem)', count: vendasRows.length },
+            { id: 'clientes', label: '👥 Clientes (Nuvem)', count: clientesRows.length },
+            { id: 'estoque', label: '👓 Estoque (Armações & Lentes)', count: armacoesRows.length + lentesRows.length },
+            { id: 'financeiro', label: '💰 Financeiro', count: receberRows.length + pagarRows.length },
+            ...(excelTabs.length > 0 ? [{ id: 'excel', label: '📁 Gráficos da Planilha Histórica', count: excelTabs.length }] : [])
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => {
+                if (tab.id === 'pos_caixa' && onOpenPOS) {
+                  onOpenPOS();
+                } else if (tab.id === 'os_gestao' && onOpenOSManagement) {
+                  onOpenOSManagement();
+                } else {
+                  setActiveModule(tab.id);
+                }
+              }}
+              className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
+                tab.id === 'ranking'
+                  ? activeModule === 'ranking'
+                    ? 'bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-black shadow-lg shadow-amber-500/20'
+                    : 'bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20'
+                  : tab.id === 'pos_caixa'
+                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20'
+                    : tab.id === 'os_gestao'
+                      ? 'bg-pink-500/10 text-pink-400 border border-pink-500/30 hover:bg-pink-500/20'
+                      : activeModule === tab.id
+                        ? 'bg-slate-800 text-sky-400 border border-sky-500/30 shadow'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-900 border border-transparent'
+              }`}
+            >
+              <span>{tab.label}</span>
+              {tab.count !== null && (
+                <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold ${
+                  tab.id === 'ranking'
+                    ? activeModule === 'ranking' ? 'bg-slate-950 text-amber-300' : 'bg-amber-500/20 text-amber-300'
+                    : activeModule === tab.id ? 'bg-sky-500/20 text-sky-300' : 'bg-slate-800 text-slate-400'
+                }`}>
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ─── CONTEÚDO DA ABA SELECIONADA ─── */}
+
+      {/* 1. ABA RESUMO & GRÁFICOS */}
+      {activeModule === 'resumo' && (
+        <div className="space-y-6">
+          {/* Banner Chamada para o Ranking de Vendedores */}
+          <div className="bg-gradient-to-r from-amber-500/15 via-slate-900 to-indigo-950/40 border border-amber-500/30 rounded-2xl p-5 shadow-lg flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center font-black shadow-lg shadow-amber-500/30 shrink-0">
+                <Trophy size={26} />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-white flex items-center gap-2">
+                  Ranking de Vendedores e Pódio dos Campeões
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-400 text-slate-950 font-black">TOP 10</span>
+                </h3>
+                <p className="text-xs text-slate-300 mt-0.5">
+                  Acompanhe os líderes de faturamento, quantidade de vendas e metas comerciais por loja.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setActiveModule('ranking')}
+              className="px-4 py-2 bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-slate-950 font-black text-xs rounded-xl shadow-md flex items-center gap-1.5 whitespace-nowrap"
+            >
+              <Trophy size={14} /> Ver Ranking Completo
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            {/* Gráfico 1: Vendas por Unidade */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow">
+              <h3 className="text-base font-bold text-white mb-4 flex items-center gap-2">
+                <MapPin size={18} className="text-sky-400" />
+                Faturamento por Loja (Unidade)
+              </h3>
+              <div className="h-[250px] min-w-0 min-h-[250px] w-full">
+                {chartVendasCidade.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={250}>
+                    <BarChart data={chartVendasCidade}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                      <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} />
+                      <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#020617', borderColor: '#334155', borderRadius: '8px' }}
+                        formatter={v => [fmtMoeda(v), 'Faturamento']}
+                      />
+                      <Bar dataKey="value" radius={[6, 6, 0, 0]} barSize={40}>
+                        {chartVendasCidade.map((_, i) => (
+                          <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-slate-500 text-xs font-bold">Nenhum dado por loja</div>
+                )}
+              </div>
+            </div>
+
+            {/* Gráfico 2: Top Produtos */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow">
+              <h3 className="text-base font-bold text-white mb-4 flex items-center gap-2">
+                <ShoppingBag size={18} className="text-emerald-400" />
+                Produtos / Armações Mais Vendidas
+              </h3>
+              <div className="h-[250px] min-w-0 min-h-[250px] w-full">
+                {chartTopProdutos.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={250}>
+                    <BarChart layout="vertical" data={chartTopProdutos}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                      <XAxis type="number" stroke="#94a3b8" fontSize={12} />
+                      <YAxis dataKey="name" type="category" width={140} stroke="#94a3b8" fontSize={11} tickLine={false} />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#020617', borderColor: '#334155', borderRadius: '8px' }}
+                        formatter={v => [v, 'Qtd. Vendida']}
+                      />
+                      <Bar dataKey="count" radius={[0, 6, 6, 0]} barSize={22}>
+                        {chartTopProdutos.map((_, i) => (
+                          <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-slate-500 text-xs font-bold">Nenhum produto registrado</div>
+                )}
+              </div>
+            </div>
+
+          </div>
+
+          {/* Tabela Resumida das Últimas Vendas */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Table2 size={18} className="text-indigo-400" />
+                Últimas Ordens de Serviço / Vendas (Nuvem)
+              </h3>
+              <button onClick={() => setActiveModule('vendas')} className="text-xs text-sky-400 hover:underline font-bold">
+                Ver Todas as Vendas &rarr;
+              </button>
+            </div>
+            <DataTable sheetName="Registro_Vendas" rows={vendasRows.slice(0, 10)} onRowUpdate={onRowUpdate} allowEdit={false} />
+          </div>
+        </div>
+      )}
+
+      {/* 2. ABA RANKING DE VENDEDORES (TOP 10 + PÓDIO) */}
+      {activeModule === 'ranking' && (
+        <VendorRanking data={sheets} selectedCity={selectedCity} />
+      )}
+
+      {/* 3. ABA VENDAS & OS */}
+      {activeModule === 'vendas' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-bold text-white">Todas as Ordens de Serviço e Vendas</h3>
+              <p className="text-xs text-slate-400">{vendasRows.length} registros encontrados para esta seleção.</p>
+            </div>
+            {onAddClick && (
+              <button
+                onClick={() => onAddClick('Registro_Vendas', {})}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1.5"
+              >
+                <PlusCircle size={15} /> Nova Venda
+              </button>
+            )}
+          </div>
+          <DataTable sheetName="Registro_Vendas" rows={vendasRows} onRowUpdate={onRowUpdate} />
+        </div>
+      )}
+
+      {/* 3. ABA CLIENTES */}
+      {activeModule === 'clientes' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-bold text-white">Cadastro Completo de Clientes</h3>
+              <p className="text-xs text-slate-400">{clientesRows.length} clientes na base.</p>
+            </div>
+            {onAddClick && (
+              <button
+                onClick={() => onAddClick('CLIENTES_CADASTRADOS', {})}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl flex items-center gap-1.5"
+              >
+                <PlusCircle size={15} /> Novo Cliente
+              </button>
+            )}
+          </div>
+          <DataTable sheetName="CLIENTES_CADASTRADOS" rows={clientesRows} onRowUpdate={onRowUpdate} />
+        </div>
+      )}
+
+      {/* 4. ABA ESTOQUE */}
+      {activeModule === 'estoque' && (
+        <div className="space-y-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow space-y-4">
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <Package className="text-sky-400" size={20} />
+              Estoque de Armações ({armacoesRows.length} modelos)
+            </h3>
+            <DataTable sheetName="CAD_ARMACOES" rows={armacoesRows} onRowUpdate={onRowUpdate} />
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow space-y-4">
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <Package className="text-teal-400" size={20} />
+              Estoque de Lentes ({lentesRows.length} tipos)
+            </h3>
+            <DataTable sheetName="CAD_LENTES" rows={lentesRows} onRowUpdate={onRowUpdate} />
+          </div>
+        </div>
+      )}
+
+      {/* 5. ABA FINANCEIRO */}
+      {activeModule === 'financeiro' && (
+        <div className="space-y-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow space-y-4">
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <CreditCard className="text-amber-400" size={20} />
+              Contas a Receber ({receberRows.length} lançamentos)
+            </h3>
+            <DataTable sheetName="CONTAS_RECEBER" rows={receberRows} onRowUpdate={onRowUpdate} />
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow space-y-4">
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <AlertCircle className="text-rose-400" size={20} />
+              Contas a Pagar ({pagarRows.length} lançamentos)
+            </h3>
+            <DataTable sheetName="CONTAS_PAGAR" rows={pagarRows} onRowUpdate={onRowUpdate} />
+          </div>
+        </div>
+      )}
+
+      {/* 6. ABA PLANILHA HISTÓRICA DO EXCEL (COM INDICADORES E GRÁFICOS EM TODAS AS ABAS) */}
+      {activeModule === 'excel' && (
+        <div className="space-y-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow space-y-4">
+            <div>
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <FileSpreadsheet className="text-indigo-400" size={22} />
+                Histórico & Indicadores da Planilha Original
+              </h3>
+              <p className="text-xs text-slate-400">Selecione qualquer uma das abas abaixo para ver seus indicadores, estatísticas e gráficos reais correspondentes:</p>
+            </div>
+
+            {/* Sub-abas do Excel */}
+            <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3">
+              {excelTabs.map(tab => (
                 <button
-                  key={tab.key}
-                  onClick={() => { setActiveTab(tab.key); setViewMode('overview'); }}
-                  className={`relative flex items-center justify-between w-full px-4 py-3 rounded-xl text-sm font-bold transition-all duration-300 group ${
-                    isActive
-                      ? `text-${tab.color}-300`
-                      : 'text-slate-400 hover:text-slate-200'
+                  key={tab}
+                  onClick={() => setExcelSubTab(tab)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    excelSubTab === tab
+                      ? 'bg-sky-500 text-white shadow'
+                      : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
                   }`}
                 >
-                  {/* Hover effect para itens inativos */}
-                  {!isActive && (
-                    <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 rounded-xl transition-opacity duration-300" />
-                  )}
-
-                  {/* Fundo ativo animado (Framer Motion) */}
-                  {isActive && (
-                    <motion.div
-                      layoutId="active-tab-bg"
-                      className={`absolute inset-0 bg-${tab.color}-500/10 border border-${tab.color}-500/20 rounded-xl`}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                    />
-                  )}
-                  {/* Borda lateral iluminada se ativo */}
-                  {isActive && (
-                    <motion.div
-                      layoutId="active-tab-indicator"
-                      className={`absolute left-0 top-1/2 -translate-y-1/2 h-1/2 w-[3px] bg-${tab.color}-400 rounded-r-full shadow-[0_0_12px_currentColor]`}
-                      transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                    />
-                  )}
-
-                  <div className="relative z-10 flex items-center gap-3">
-                    <div className={`p-1.5 rounded-lg transition-all duration-300 ${
-                      isActive 
-                        ? `bg-${tab.color}-500/20 text-${tab.color}-300 shadow-inner shadow-white/10` 
-                        : 'bg-transparent text-slate-500 group-hover:text-slate-300 group-hover:scale-110'
-                    }`}>
-                      <Icon size={16} strokeWidth={isActive ? 2.5 : 2} />
-                    </div>
-                    <span className="text-left tracking-wide leading-tight truncate max-w-[110px]" title={tab.label}>{tab.label}</span>
-                  </div>
-                  
-                  <span className={`relative z-10 px-2 py-0.5 rounded-md text-[10px] font-black transition-all duration-300 ${
-                    isActive 
-                      ? `bg-${tab.color}-500/20 text-${tab.color}-300 border border-${tab.color}-500/30 shadow-[0_0_10px_rgba(0,0,0,0.2)]` 
-                      : 'bg-black/20 border border-white/5 text-slate-500 group-hover:text-slate-400 group-hover:bg-black/40'
-                  }`}>
-                    {count.toLocaleString()}
+                  <span>{tab}</span>
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold ${excelSubTab === tab ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                    {(sheets[tab] || []).length}
                   </span>
                 </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* ─── MAIN CONTENT ─── */}
-      <div className="flex-1 min-w-0 flex flex-col gap-6">
-        
-        {/* ─── VIEW MODE TOGGLE & ACTIONS ─── */}
-        <div className="flex flex-wrap items-center gap-2 justify-between w-full glass-card p-3 rounded-2xl">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setViewMode('overview')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${
-                viewMode === 'overview' ? 'bg-sky-500/20 text-sky-400 border border-sky-500/20 shadow-[0_0_15px_rgba(56,189,248,0.15)]' : 'text-slate-500 hover:text-slate-300 bg-transparent border border-transparent'
-              }`}
-            >
-              <BarChart2 size={14}/> Visão Geral
-            </button>
-            <button
-              onClick={() => setViewMode('table')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${
-                viewMode === 'table' ? 'bg-sky-500/20 text-sky-400 border border-sky-500/20 shadow-[0_0_15px_rgba(56,189,248,0.15)]' : 'text-slate-500 hover:text-slate-300 bg-transparent border border-transparent'
-              }`}
-            >
-              <Table2 size={14}/> Ver Tabela Completa
-            </button>
-
-            <button
-              onClick={() => setShowUpload(!showUpload)}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black bg-amber-500/20 text-amber-400 border border-amber-500/20 hover:bg-amber-500/30 transition-all shadow-[0_0_15px_rgba(245,158,11,0.15)]"
-            >
-              <UploadIcon size={14}/> Carregar Planilha
-            </button>
+              ))}
+            </div>
           </div>
 
-          {/* Botão Adicionar Informações */}
-          {onAddClick && currentRows && (
-            <button
-              onClick={() => {
-                const emptyRow = {};
-                if (currentRows.length > 0) {
-                  Object.keys(currentRows[0]).forEach(k => emptyRow[k] = '');
-                }
-                onAddClick(currentTab, emptyRow);
-              }}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/30 transition-all ml-auto shadow-[0_0_15px_rgba(16,185,129,0.15)]"
-            >
-              <PlusCircle size={14}/> Adicionar Registro
-            </button>
+          {/* Renderizador de Indicadores e Gráficos por Tipo de Aba Histórica */}
+          {excelSubTab === 'MARKETING' && (
+            <HistoricalMarketingView rows={currentExcelRows} />
           )}
+
+          {(excelSubTab === 'BD MARKETING' || excelSubTab === 'BD MARKETING ANTIGO') && (
+            <HistoricalBDMarketingView rows={currentExcelRows} title={excelSubTab} />
+          )}
+
+          {(excelSubTab === 'Controle_Parcelas' || excelSubTab === 'RELATÓRIO PARCELAS') && (
+            <HistoricalParcelasView rows={currentExcelRows} />
+          )}
+
+          {excelSubTab === 'ORÇAMENTOS' && (
+            <HistoricalOrcamentosView rows={currentExcelRows} />
+          )}
+
+          {excelSubTab === 'Cópia de DADOS DIOPTRIA' && (
+            <HistoricalDioptriaView rows={currentExcelRows} />
+          )}
+
+          {(excelSubTab === 'ESTOQUE' || excelSubTab === 'ESTOQUE ENTRADA SAÍDAS') && (
+            <HistoricalEstoqueView rows={currentExcelRows} />
+          )}
+
+          {excelSubTab === 'AnáliseInfluencer' && (
+            <HistoricalInfluencerView rows={currentExcelRows} />
+          )}
+
+          {/* Analisador dinâmico de indicadores para qualquer outra aba do Excel */}
+          {!['MARKETING', 'BD MARKETING', 'BD MARKETING ANTIGO', 'Controle_Parcelas', 'RELATÓRIO PARCELAS', 'ORÇAMENTOS', 'Cópia de DADOS DIOPTRIA', 'ESTOQUE', 'ESTOQUE ENTRADA SAÍDAS', 'AnáliseInfluencer'].includes(excelSubTab) && (
+            <GenericHistoricalView rows={currentExcelRows} tabName={excelSubTab} />
+          )}
+
+          {/* Tabela de Dados Detalhados */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                <Table2 size={16} className="text-slate-400" />
+                Registros Detalhados de {excelSubTab} ({currentExcelRows.length} linhas)
+              </h4>
+            </div>
+            <DataTable sheetName={excelSubTab} rows={currentExcelRows} onRowUpdate={onRowUpdate} />
+          </div>
         </div>
+      )}
 
-
-        {/* ─── UPLOAD AREA ─── */}
-        <AnimatePresence>
-          {showUpload && (
-            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mb-6">
-              <FileUploader 
-                onDataLoaded={(loadedData) => {
-                  setShowUpload(false);
-                  if (onDataLoaded) onDataLoaded(loadedData);
-                }} 
-                onCancel={() => setShowUpload(false)}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
-        
-        {/* ─── CONTENT AREA ─── */}
-
-        <AnimatePresence mode="wait">
-          <motion.div key={`${currentTab}-${viewMode}`} initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0 }}>
-
-            {viewMode === 'table' ? (
-              <div className="glass-card p-6">
-                <DataTable sheetName={currentTab} rows={currentRows} onRowUpdate={onRowUpdate} />
-              </div>
-            ) : (
-              <>
-                {(['MARKETING', 'BD MARKETING', 'BD MARKETING ANTIGO', 'Registro_Vendas'].includes(currentTab)) && (
-                  <MarketingOverview rows={currentRows} />
-                )}
-                {(currentTab === 'Controle_Parcelas' || currentTab === 'RELATÓRIO PARCELAS') && (
-                  <ParcelasOverview rows={currentRows} />
-                )}
-                {currentTab === 'ORÇAMENTOS' && (
-                  <OrcamentosOverview rows={currentRows} />
-                )}
-                {/* Outros sheets mostram diretamente a tabela */}
-                {!['MARKETING','BD MARKETING','BD MARKETING ANTIGO','Registro_Vendas','Controle_Parcelas','RELATÓRIO PARCELAS','ORÇAMENTOS'].includes(currentTab) && (
-                  <div className="glass-card p-6">
-                    <p className="text-slate-400 text-xs font-black uppercase tracking-widest mb-4">
-                      {currentConfig?.label || currentTab} · {currentRows.length.toLocaleString()} registros
-                    </p>
-                    <DataTable sheetName={currentTab} rows={currentRows} onRowUpdate={onRowUpdate} />
-                  </div>
-                )}
-              </>
-            )}
-          </motion.div>
-        </AnimatePresence>
-
-      </div>
-    </motion.div>
+    </div>
   );
 };
 

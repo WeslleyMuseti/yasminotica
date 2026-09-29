@@ -1,9 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, FileText, Edit2 } from 'lucide-react';
+import { X, FileText, Edit2, Printer } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import PrintableOS from './PrintableOS';
 
 const RowDetailsModal = ({ isOpen, onClose, data, onEditClick }) => {
+  const [printOSData, setPrintOSData] = useState(null);
+  const [printClientData, setPrintClientData] = useState(null);
+
+  const row = data?.row || {};
+  const osNum = row['OS'] || row['OS DA VENDA'] || row['OS da COMPRA'] || row['VENDA_OS'];
   const modalContent = (
     <AnimatePresence>
       {isOpen && data && (
@@ -77,6 +83,48 @@ const RowDetailsModal = ({ isOpen, onClose, data, onEditClick }) => {
               >
                 Fechar
               </button>
+              {osNum && (
+                <button
+                  onClick={() => {
+                    setPrintOSData({
+                      numeroOS: osNum,
+                      selectedCity: row['CIDADE'] || row['LOJA'] || row['UNIDADE'] || 'Central',
+                      unidade: row['CIDADE'] || row['LOJA'] || row['UNIDADE'] || 'Central',
+                      medico: row['MEDICO'] || '',
+                      lente: row['LENTE'] || row['PRODUTO'] || '',
+                      armacao: row['ARMAÇÃO'] || '',
+                      valorTotal: row['VALOR TOTAL'] || row['VALOR'] || '0,00',
+                      valorEntrada: row['VALOR ENTRADA'] || '0,00',
+                      restante: row['RESTANTE'] || '0,00',
+                      dataEntrega: row['DATA ENTREGA ÓCULOS'] || row['DATA_ENTREGA'] || '',
+                      formasPagamento: row['FORMAS_PAGAMENTO'] || row['MEIO_PAGAMENTO'] || '',
+                      observacoes: row['OBSERVACOES'] || '',
+                      odEsf: row['OD_ESF'] || '',
+                      odCil: row['OD_CIL'] || '',
+                      odEixo: row['OD_EIXO'] || '',
+                      odDnp: row['OD_DNP'] || '',
+                      odAlt: row['OD_ALT'] || '',
+                      oeEsf: row['OE_ESF'] || '',
+                      oeCil: row['OE_CIL'] || '',
+                      oeEixo: row['OE_EIXO'] || '',
+                      oeDnp: row['OE_DNP'] || '',
+                      oeAlt: row['OE_ALT'] || '',
+                      adicao: row['ADICAO'] || ''
+                    });
+                    setPrintClientData({
+                      ...row,
+                      'Nome Completo': row['Nome Completo'] || row['NOME'] || row['NOME DO CLIENTE'] || row['CLIENTE'] || 'Cliente',
+                      'CPF / CNPJ': row['CPF / CNPJ'] || row['CPF'] || '',
+                      'WhatsApp': row['WhatsApp'] || row['TELEFONE'] || row['TELEFONE CLIENTE'] || '',
+                      'Cidade': row['CIDADE'] || row['Cidade'] || 'Central'
+                    });
+                    setTimeout(() => window.print(), 300);
+                  }}
+                  className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-black bg-indigo-500 hover:bg-indigo-400 text-white transition-all shadow-lg shadow-indigo-500/20"
+                >
+                  <Printer size={16} /> Reimprimir OS
+                </button>
+              )}
               {onEditClick && (
                 <button
                   onClick={onEditClick}
@@ -94,7 +142,14 @@ const RowDetailsModal = ({ isOpen, onClose, data, onEditClick }) => {
   );
 
   if (typeof document !== 'undefined') {
-    return createPortal(modalContent, document.body);
+    return (
+      <>
+        {createPortal(modalContent, document.body)}
+        {printOSData && printClientData && (
+          <PrintableOS clientData={printClientData} osData={printOSData} />
+        )}
+      </>
+    );
   }
   return null;
 };

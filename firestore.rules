@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper: verifica se a requisição é autenticada
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper: verifica se o usuário possui cargo administrativo
+    function isAdmin() {
+      return isAuthenticated() && 
+        (request.auth.token.role == 'admin' || 
+         request.auth.token.role == 'administrativo' ||
+         request.auth.uid == 'wmusete');
+    }
+
+    // 1. Coleção USUÁRIOS: leitura apenas pelo próprio usuário ou admin; escrita apenas por admin
+    match /USUARIOS/{username} {
+      allow read: if isAuthenticated() && (request.auth.uid == username || isAdmin());
+      allow create, update, delete: if isAdmin() || (isAuthenticated() && request.auth.uid == username);
+    }
+
+    // 2. Coleções Operacionais de Estoque e Catálogo (Armações, Lentes, Transferências)
+    match /CAD_ARMACOES/{itemId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    match /CAD_LENTES/{itemId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    match /TRANSFERENCIAS_ESTOQUE/{transferId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+      allow delete: if isAdmin();
+    }
+
+    // 3. Vendas e Clientes (LGPD - Apenas funcionários autenticados)
+    match /CLIENTES_CADASTRADOS/{clientId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /Registro_Vendas/{saleId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /VOUCHERS/{voucherId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // 4. Financeiro e Fluxo de Caixa (Contas a Pagar, Receber, Caixa)
+    match /CONTAS_RECEBER/{billId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    match /CONTAS_PAGAR/{billId} {
+      allow read, write: if isAdmin();
+    }
+    match /FLUXO_CAIXA/{entryId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // 5. Histórico de exclusões
+    match /DELETED_ITEMS/{deletedId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Bloqueia qualquer outro documento não especificado por padrão
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
