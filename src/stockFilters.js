@@ -309,7 +309,7 @@ export function extractStockFacets(items = []) {
     const s = (item.UNIDADE || item.CIDADE || item.LOJA || item.unidade || 'Central').trim();
     if (s) stores.add(s);
 
-    const b = (item.MARCA || item.marca || '').trim();
+    const b = (item.MARCA || item.marca || item.CATEGORIA || item.categoria || '').trim();
     if (b) brands.add(b);
 
     const m = (item.MATERIAL || item.material || '').trim();

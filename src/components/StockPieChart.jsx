@@ -80,8 +80,11 @@ function StockPieChart({
     } else if (metric === 'loja') {
       const storeMap = {};
       const storeUnits = {};
+      const standardStores = ['Central', 'Cajati', 'Registro', 'Jacupiranga', 'Venda Externa'];
       items.forEach(item => {
-        const store = (item.UNIDADE || item.CIDADE || item.LOJA || item.unidade || 'Central').trim() || 'Central';
+        const rawStore = (item.UNIDADE || item.CIDADE || item.LOJA || item.unidade || 'Central').trim() || 'Central';
+        const matched = standardStores.find(s => s.toLowerCase() === rawStore.toLowerCase());
+        const store = matched || rawStore;
         const q = parseInt(item.ESTOQUE || item.estoque || item._qtdEstoque || 0, 10) || 0;
         storeMap[store] = (storeMap[store] || 0) + 1;
         storeUnits[store] = (storeUnits[store] || 0) + q;
@@ -94,11 +97,11 @@ function StockPieChart({
         color: PALETTE[idx % PALETTE.length]
       }));
     } else {
-      // 'marca'
+      // 'marca' (ou categoria se for brinde)
       const brandMap = {};
       const brandUnits = {};
       items.forEach(item => {
-        const brand = (item.MARCA || item.marca || 'Sem Marca').trim() || 'Sem Marca';
+        const brand = (item.MARCA || item.marca || item.CATEGORIA || item.categoria || 'Sem Marca/Categoria').trim() || 'Sem Marca/Categoria';
         const q = parseInt(item.ESTOQUE || item.estoque || item._qtdEstoque || 0, 10) || 0;
         brandMap[brand] = (brandMap[brand] || 0) + 1;
         brandUnits[brand] = (brandUnits[brand] || 0) + q;

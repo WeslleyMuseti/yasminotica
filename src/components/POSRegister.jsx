@@ -1682,7 +1682,10 @@ const POSRegister = ({
                   {/* Atalhos Rápidos de Marcas / Categorias Populares */}
                   <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                     <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Filtro Rápido:</span>
-                    {['Ray-Ban', 'Oakley', 'Vogue', 'Armani', 'Crizal', 'Transitions', 'Varilux', 'Solar'].map(tag => (
+                    {(productCategory === 'brindes'
+                      ? ['Estojo', 'Flanela', 'Limpa-Lentes', 'Cordão', 'Kit', 'Spray']
+                      : ['Ray-Ban', 'Oakley', 'Vogue', 'Armani', 'Crizal', 'Transitions', 'Varilux', 'Solar']
+                    ).map(tag => (
                       <button
                         key={tag}
                         type="button"

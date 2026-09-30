@@ -374,11 +374,26 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
     if (sheetName === 'CAD_LENTES') {
       ['MARCA', 'MODELO', 'ESFERICO', 'CILINDRICO', 'DIAMETRO', 'EIXO', 'ADICAO', 'MATERIAL', 'INDICE_REFRACAO', 'TRATAMENTO', 'ESFERICO_MIN', 'ESFERICO_MAX', 'CILINDRICO_MIN', 'CILINDRICO_MAX', 'ESTOQUE', 'PRECO_COMPRA', 'PRECO_VENDA', 'UNIDADE', 'OBSERVACOES'].forEach(col => keys.add(col));
     }
+    if (sheetName === 'CAD_BRINDES') {
+      ['IMAGEM', 'NOME', 'CATEGORIA', 'REFERENCIA_SKU', 'COR', 'ESTOQUE', 'PRECO_VENDA', 'PRECO_COMPRA', 'UNIDADE', 'OBSERVACOES'].forEach(col => keys.add(col));
+    }
 
     const colsList = [...keys].filter(k => k && k !== '' && !k.startsWith('_'));
 
     // Dicionário de prioridade de colunas para cada módulo/catálogo do ERP
     const priorityMaps = {
+      CAD_BRINDES: [
+        'IMAGEM', 'imagem',
+        'NOME', 'nome', 'DESCRICAO', 'descricao',
+        'CATEGORIA', 'categoria',
+        'REFERENCIA_SKU', 'referencia_sku', 'SKU', 'CODIGO',
+        'COR', 'cor',
+        'ESTOQUE', 'estoque',
+        'PRECO_VENDA', 'preco_venda', 'PREÇO',
+        'PRECO_COMPRA', 'preco_compra', 'CUSTO',
+        'UNIDADE', 'unidade', 'CIDADE', 'cidade', 'LOJA',
+        'OBSERVACOES', 'observacoes'
+      ],
       CAD_ARMACOES: [
         'IMAGEM', 'imagem',
         'MARCA', 'marca',
@@ -555,7 +570,7 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
     // Se o usuário for vendedor, isola seu estoque e não permite ver produtos da Central
     if (currentUser?.role === 'vendedor') {
       const userCity = (currentUser.city || currentUser.assignedStore || 'Cajati').toUpperCase();
-      if (['CAD_ARMACOES', 'CAD_LENTES', 'ESTOQUE', 'ESTOQUE ENTRADA SAÍDAS'].includes(sheetName)) {
+      if (['CAD_ARMACOES', 'CAD_LENTES', 'CAD_BRINDES', 'ESTOQUE', 'ESTOQUE ENTRADA SAÍDAS'].includes(sheetName)) {
         validRows = validRows.filter(r => {
           const u = String(r['UNIDADE'] || r['CIDADE'] || r['LOJA'] || r['Unidade'] || '').trim().toUpperCase();
           return u && u !== 'CENTRAL' && u.includes(userCity);
@@ -863,6 +878,27 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
                       <td key={col} className="px-4 py-3 whitespace-nowrap text-xs font-black">
                         <span className={num > 0 ? 'text-rose-400' : 'text-slate-400'}>
                           R$ {formatMoney(val)}
+                        </span>
+                      </td>
+                    );
+                  }
+
+                  if (col === 'UNIDADE' || col === 'CIDADE' || col === 'LOJA' || col === 'unidade' || col === 'cidade') {
+                    const uStr = String(val || '').trim();
+                    if (!uStr) {
+                      return <td key={col} className="px-4 py-3 whitespace-nowrap text-xs text-slate-500">—</td>;
+                    }
+                    let badgeClass = 'bg-slate-800 text-slate-300 border-slate-700';
+                    const lowerU = uStr.toLowerCase();
+                    if (lowerU.includes('cajati')) badgeClass = 'bg-sky-500/15 text-sky-300 border-sky-500/30';
+                    else if (lowerU.includes('registro')) badgeClass = 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30';
+                    else if (lowerU.includes('jacupiranga')) badgeClass = 'bg-teal-500/15 text-teal-300 border-teal-500/30';
+                    else if (lowerU.includes('central')) badgeClass = 'bg-amber-500/15 text-amber-300 border-amber-500/30';
+                    else if (lowerU.includes('externa')) badgeClass = 'bg-fuchsia-500/15 text-fuchsia-300 border-fuchsia-500/30';
+                    return (
+                      <td key={col} className="px-4 py-3 whitespace-nowrap text-xs">
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${badgeClass}`}>
+                          📍 {uStr}
                         </span>
                       </td>
                     );

@@ -8,7 +8,7 @@ import {
   MapPin, AlertCircle, Package, CreditCard,
   Table2, BarChart2, PlusCircle, AlertTriangle,
   FileSpreadsheet, Sparkles, Activity, Eye, TrendingUp,
-  Phone, Award, Layers, Trophy
+  Phone, Award, Layers, Trophy, Gift
 } from 'lucide-react';
 import FileUploader from './FileUploader';
 import { Upload as UploadIcon } from 'lucide-react';
@@ -834,6 +834,7 @@ const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick, onDataLoaded, onOp
   const clientesRows = useMemo(() => filterByCity(sheets['CLIENTES_CADASTRADOS'] || []), [sheets, selectedCity]);
   const armacoesRows = useMemo(() => filterByCity(sheets['CAD_ARMACOES'] || []), [sheets, selectedCity]);
   const lentesRows = useMemo(() => filterByCity(sheets['CAD_LENTES'] || []), [sheets, selectedCity]);
+  const brindesRows = useMemo(() => filterByCity(sheets['CAD_BRINDES'] || []), [sheets, selectedCity]);
   const receberRows = useMemo(() => filterByCity(sheets['CONTAS_RECEBER'] || []), [sheets, selectedCity]);
   const pagarRows = useMemo(() => filterByCity(sheets['CONTAS_PAGAR'] || []), [sheets, selectedCity]);
 
@@ -853,12 +854,12 @@ const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick, onDataLoaded, onOp
     });
 
     let totalPecasEstoque = 0;
-    [...armacoesRows, ...lentesRows].forEach(r => {
+    [...armacoesRows, ...lentesRows, ...brindesRows].forEach(r => {
       totalPecasEstoque += parseInt(r['ESTOQUE'] || r['estoque'] || 1, 10) || 0;
     });
 
     let estoqueBaixo = 0;
-    [...armacoesRows, ...lentesRows].forEach(r => {
+    [...armacoesRows, ...lentesRows, ...brindesRows].forEach(r => {
       const q = parseInt(r['ESTOQUE'] || r['estoque'] || 0, 10);
       if (q <= 2) estoqueBaixo++;
     });
@@ -871,7 +872,7 @@ const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick, onDataLoaded, onOp
       totalPecasEstoque,
       estoqueBaixo
     };
-  }, [vendasRows, clientesRows, receberRows, armacoesRows, lentesRows]);
+  }, [vendasRows, clientesRows, receberRows, armacoesRows, lentesRows, brindesRows]);
 
   // Vendas por Cidade para gráfico
   const chartVendasCidade = useMemo(() => {
@@ -1028,7 +1029,7 @@ const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick, onDataLoaded, onOp
             { id: 'os_gestao', label: '📋 Gestão de OS (Semáforo)', count: null, isAction: true },
             { id: 'vendas', label: '🛒 Vendas & OS (Nuvem)', count: vendasRows.length },
             { id: 'clientes', label: '👥 Clientes (Nuvem)', count: clientesRows.length },
-            { id: 'estoque', label: '👓 Estoque (Armações & Lentes)', count: armacoesRows.length + lentesRows.length },
+            { id: 'estoque', label: '👓 Estoque (Armações, Lentes & Brindes)', count: armacoesRows.length + lentesRows.length + brindesRows.length },
             { id: 'financeiro', label: '💰 Financeiro', count: receberRows.length + pagarRows.length },
             ...(excelTabs.length > 0 ? [{ id: 'excel', label: '📁 Gráficos da Planilha Histórica', count: excelTabs.length }] : [])
           ].map(tab => (
@@ -1245,6 +1246,14 @@ const Dashboard = ({ data, isSynced, onRowUpdate, onAddClick, onDataLoaded, onOp
               Estoque de Lentes ({lentesRows.length} tipos)
             </h3>
             <DataTable sheetName="CAD_LENTES" rows={lentesRows} onRowUpdate={onRowUpdate} />
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow space-y-4">
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <Gift className="text-pink-400" size={20} />
+              Estoque de Brindes &amp; Cortesias ({brindesRows.length} modelos)
+            </h3>
+            <DataTable sheetName="CAD_BRINDES" rows={brindesRows} onRowUpdate={onRowUpdate} />
           </div>
         </div>
       )}

@@ -6,7 +6,7 @@ import {
   TrendingUp, TrendingDown, Clock, Search, Download, Trash2, Edit2,
   History, Wallet, ArrowLeftRight, Truck, Ticket, Percent, Gift,
   Sparkles, CheckCircle2, AlertCircle, Copy, Check, Plus, X,
-  Filter, PieChart as PieChartIcon, ChevronDown
+  Filter, PieChart as PieChartIcon, ChevronDown, Building2, MapPin, Store
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import DataTable from './DataTable';
@@ -119,6 +119,7 @@ const ErpOptica = ({
   const [appliedStockFilters, setAppliedStockFilters] = useState({ armacoes: null, lentes: null, brindes: null });
   const appliedStockFilter = (activeTab === 'armacoes' || activeTab === 'lentes' || activeTab === 'brindes') ? (appliedStockFilters[activeTab] || null) : null;
   const [showStockChartHeader, setShowStockChartHeader] = useState(true);
+  const [selectedStockCity, setSelectedStockCity] = useState('ALL');
   const [labelModalItem, setLabelModalItem] = useState(null);
 
   const salesData = useMemo(() => {
@@ -273,48 +274,103 @@ const ErpOptica = ({
     return { total: vouchersData.length, ativos, esgotados, totalUsos };
   }, [vouchersData]);
 
-  // Estatísticas Rápidas
+  // Estatísticas Rápidas (isoladas por cidade selecionada se aplicável)
   const lentesStats = useMemo(() => {
     let totalPares = 0;
     let valorEstoque = 0;
     let criticos = 0;
-    lentesData.forEach(item => {
+    const list = (selectedStockCity && selectedStockCity !== 'ALL')
+      ? lentesData.filter(item => {
+          const u = String(item.UNIDADE || item.CIDADE || item.LOJA || item.unidade || 'Central').trim().toLowerCase();
+          return u === selectedStockCity.toLowerCase() || u.includes(selectedStockCity.toLowerCase());
+        })
+      : lentesData;
+    list.forEach(item => {
       const qtd = parseInt(item.ESTOQUE || item.estoque || 0, 10) || 0;
       const preco = parseCurrency(item.PRECO_COMPRA || item.preco_compra || 0);
       totalPares += qtd;
       valorEstoque += qtd * preco;
       if (qtd <= 2) criticos++;
     });
-    return { total: lentesData.length, totalPares, valorEstoque, criticos };
-  }, [lentesData]);
+    return { total: list.length, totalPares, valorEstoque, criticos };
+  }, [lentesData, selectedStockCity]);
 
   const armacoesStats = useMemo(() => {
     let totalPecs = 0;
     let valorEstoque = 0;
     let criticos = 0;
-    armacoesData.forEach(item => {
+    const list = (selectedStockCity && selectedStockCity !== 'ALL')
+      ? armacoesData.filter(item => {
+          const u = String(item.UNIDADE || item.CIDADE || item.LOJA || item.unidade || 'Central').trim().toLowerCase();
+          return u === selectedStockCity.toLowerCase() || u.includes(selectedStockCity.toLowerCase());
+        })
+      : armacoesData;
+    list.forEach(item => {
       const qtd = parseInt(item.ESTOQUE || item.estoque || 0, 10) || 0;
       const preco = parseCurrency(item.PRECO_COMPRA || item.preco_compra || 0);
       totalPecs += qtd;
       valorEstoque += qtd * preco;
       if (qtd <= 2) criticos++;
     });
-    return { total: armacoesData.length, totalPecs, valorEstoque, criticos };
-  }, [armacoesData]);
+    return { total: list.length, totalPecs, valorEstoque, criticos };
+  }, [armacoesData, selectedStockCity]);
 
   const brindesStats = useMemo(() => {
     let totalPecs = 0;
     let valorEstoque = 0;
     let criticos = 0;
-    brindesData.forEach(item => {
+    const list = (selectedStockCity && selectedStockCity !== 'ALL')
+      ? brindesData.filter(item => {
+          const u = String(item.UNIDADE || item.CIDADE || item.LOJA || item.unidade || 'Central').trim().toLowerCase();
+          return u === selectedStockCity.toLowerCase() || u.includes(selectedStockCity.toLowerCase());
+        })
+      : brindesData;
+    list.forEach(item => {
       const qtd = parseInt(item.ESTOQUE || item.estoque || 0, 10) || 0;
       const preco = parseCurrency(item.PRECO_COMPRA || item.preco_compra || 0);
       totalPecs += qtd;
       valorEstoque += qtd * preco;
       if (qtd <= 5) criticos++;
     });
-    return { total: brindesData.length, totalPecs, valorEstoque, criticos };
-  }, [brindesData]);
+    return { total: list.length, totalPecs, valorEstoque, criticos };
+  }, [brindesData, selectedStockCity]);
+
+  // Distribuição completa do estoque por cidade/filial para a aba ativa
+  const stockDistributionByCity = useMemo(() => {
+    let source = [];
+    if (activeTab === 'lentes') source = lentesData;
+    else if (activeTab === 'armacoes') source = armacoesData;
+    else if (activeTab === 'brindes') source = brindesData;
+    else return null;
+
+    const stores = ['Central', 'Cajati', 'Registro', 'Jacupiranga', 'Venda Externa'];
+    const map = {};
+    stores.forEach(s => {
+      map[s] = { items: 0, units: 0 };
+    });
+
+    let totalItems = 0;
+    let totalUnits = 0;
+
+    source.forEach(item => {
+      const u = String(item.UNIDADE || item.CIDADE || item.LOJA || item.unidade || 'Central').trim();
+      const matchedStore = stores.find(s => s.toLowerCase() === u.toLowerCase()) || (u || 'Central');
+      if (!map[matchedStore]) {
+        map[matchedStore] = { items: 0, units: 0 };
+      }
+      const q = parseInt(item.ESTOQUE || item.estoque || 0, 10) || 0;
+      map[matchedStore].items++;
+      map[matchedStore].units += q;
+      totalItems++;
+      totalUnits += q;
+    });
+
+    return {
+      stores: map,
+      totalItems,
+      totalUnits
+    };
+  }, [activeTab, lentesData, armacoesData, brindesData]);
 
   const pagarStats = useMemo(() => {
     let pendente = 0;
@@ -861,6 +917,12 @@ const ErpOptica = ({
       default: rows = []; break;
     }
     if (activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes') {
+      if (selectedStockCity && selectedStockCity !== 'ALL') {
+        rows = rows.filter(item => {
+          const u = String(item.UNIDADE || item.CIDADE || item.LOJA || item.unidade || 'Central').trim().toLowerCase();
+          return u === selectedStockCity.toLowerCase() || u.includes(selectedStockCity.toLowerCase());
+        });
+      }
       if (appliedStockFilter) {
         return filterAndSortStock(rows, salesData, appliedStockFilter);
       }
@@ -872,7 +934,7 @@ const ErpOptica = ({
       }
     }
     return rows;
-  }, [activeTab, lentesData, armacoesData, brindesData, pagarData, receberData, transferenciasData, vouchersData, appliedStockFilter, filterCriticalStock, salesData]);
+  }, [activeTab, lentesData, armacoesData, brindesData, pagarData, receberData, transferenciasData, vouchersData, appliedStockFilter, filterCriticalStock, salesData, selectedStockCity]);
 
   const handleExportStockExcel = (type) => {
     try {
@@ -1341,6 +1403,88 @@ const ErpOptica = ({
                   />
                 </div>
               )}
+            </div>
+          )}
+
+          {/* BARRA DE DISTRIBUIÇÃO POR CIDADE / FILIAL (Para Armações, Lentes e Brindes) */}
+          {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes') && stockDistributionByCity && (
+            <div className="glass-card p-4 rounded-3xl border border-white/10 bg-slate-900/70 shadow-xl space-y-3">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-white/5 pb-2.5">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-sky-500/20 text-sky-400">
+                    <Building2 size={18} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+                      Distribuição de Estoque por Cidade / Filial
+                      {selectedStockCity !== 'ALL' && (
+                        <span className="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-[10px] font-black border border-sky-500/30">
+                          Filtrando {selectedStockCity}
+                        </span>
+                      )}
+                    </h4>
+                    <p className="text-[11px] text-slate-400 font-semibold">
+                      Saldo físico e variedade de {activeTab === 'armacoes' ? 'armações' : activeTab === 'brindes' ? 'brindes' : 'lentes'} isolados por loja
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsTransferModalOpen(true)}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 hover:text-white text-xs font-bold transition-all shadow-sm"
+                    title="Transferir produtos entre lojas"
+                  >
+                    <ArrowLeftRight size={13} />
+                    <span>Transferir entre Lojas</span>
+                  </button>
+                  {selectedStockCity !== 'ALL' && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedStockCity('ALL')}
+                      className="text-[11px] font-bold text-sky-400 hover:text-white flex items-center gap-1 hover:underline ml-1"
+                    >
+                      <span>Mostrar Todas</span>
+                      <span>✕</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Botões / Pills de cada Cidade / Filial */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-0.5">
+                {[
+                  { id: 'ALL', label: 'Todas as Lojas', badge: `${stockDistributionByCity.totalItems} mod · ${stockDistributionByCity.totalUnits} un` },
+                  { id: 'Central', label: 'Central (Todas)', badge: `${stockDistributionByCity.stores['Central']?.items || 0} mod · ${stockDistributionByCity.stores['Central']?.units || 0} un` },
+                  { id: 'Cajati', label: 'Cajati', badge: `${stockDistributionByCity.stores['Cajati']?.items || 0} mod · ${stockDistributionByCity.stores['Cajati']?.units || 0} un` },
+                  { id: 'Registro', label: 'Registro', badge: `${stockDistributionByCity.stores['Registro']?.items || 0} mod · ${stockDistributionByCity.stores['Registro']?.units || 0} un` },
+                  { id: 'Jacupiranga', label: 'Jacupiranga', badge: `${stockDistributionByCity.stores['Jacupiranga']?.items || 0} mod · ${stockDistributionByCity.stores['Jacupiranga']?.units || 0} un` },
+                  { id: 'Venda Externa', label: 'Venda Externa', badge: `${stockDistributionByCity.stores['Venda Externa']?.items || 0} mod · ${stockDistributionByCity.stores['Venda Externa']?.units || 0} un` },
+                ].map(store => {
+                  const isSelected = selectedStockCity === store.id;
+                  return (
+                    <button
+                      key={store.id}
+                      type="button"
+                      onClick={() => setSelectedStockCity(store.id)}
+                      className={`flex flex-col text-left p-2.5 rounded-xl border transition-all ${
+                        isSelected
+                          ? 'bg-sky-500/20 border-sky-400 text-white shadow-md shadow-sky-500/10 ring-1 ring-sky-400/50'
+                          : 'bg-white/[0.03] hover:bg-white/[0.08] text-slate-300 border-white/5 hover:border-white/15'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <span className="text-xs font-black truncate">{store.label}</span>
+                        {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />}
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-bold font-mono">
+                        {store.badge}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
 

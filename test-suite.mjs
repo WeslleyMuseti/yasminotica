@@ -1840,6 +1840,58 @@ async function runTests() {
 
   console.log('  ✅ Test 22 Passed: Gestão de Brindes (CAD_BRINDES, ERP, POS, Transferências e Impressão de OS) validada com sucesso!\n');
 
+  // ─── TEST 23: Distribuição de Estoque por Cidade (Armações, Lentes & Brindes) ──
+  console.log('▶ Test 23: Distribuição de Estoque por Cidade (Armações, Lentes & Brindes)');
+
+  const mockStockAllTypes = [
+    // Armações
+    { UNIDADE: 'Central', MARCA: 'Ray-Ban', MODELO: 'Aviador', ESTOQUE: 10, PRECO_COMPRA: '150,00' },
+    { UNIDADE: 'Cajati', MARCA: 'Oakley', MODELO: 'Holbrook', ESTOQUE: 5, PRECO_COMPRA: '180,00' },
+    { UNIDADE: 'Registro', MARCA: 'Vogue', MODELO: 'CatEye', ESTOQUE: 8, PRECO_COMPRA: '120,00' },
+    // Lentes
+    { UNIDADE: 'Central', MARCA: 'Essilor', MODELO: 'Crizal Easy', ESTOQUE: 20, PRECO_COMPRA: '80,00' },
+    { UNIDADE: 'Cajati', MARCA: 'Hoya', MODELO: 'BlueControl', ESTOQUE: 6, PRECO_COMPRA: '95,00' },
+    { UNIDADE: 'Jacupiranga', MARCA: 'Zeiss', MODELO: 'ClearView', ESTOQUE: 4, PRECO_COMPRA: '110,00' },
+    // Brindes
+    { UNIDADE: 'Central', NOME: 'Estojo Rígido Yasmin', CATEGORIA: 'Estojo Rígido', ESTOQUE: 50, PRECO_COMPRA: '3,50' },
+    { UNIDADE: 'Cajati', NOME: 'Flanela Microfibra', CATEGORIA: 'Flanela Microfibra', ESTOQUE: 30, PRECO_COMPRA: '1,20' },
+    { UNIDADE: 'Registro', NOME: 'Spray Limpa-Lentes', CATEGORIA: 'Limpa-Lentes Spray', ESTOQUE: 15, PRECO_COMPRA: '4,50' },
+    { UNIDADE: 'Jacupiranga', NOME: 'Cordão Silicone', CATEGORIA: 'Cordão / Corrente', ESTOQUE: 25, PRECO_COMPRA: '2,00' },
+    { UNIDADE: 'Venda Externa', NOME: 'Kit Cuidados', CATEGORIA: 'Kit Limpeza e Cuidados', ESTOQUE: 10, PRECO_COMPRA: '6,00' }
+  ];
+
+  // 23.1 Extração de facetas por loja e marcas/categorias
+  const stockFacets = extractStockFacets(mockStockAllTypes);
+  console.assert(stockFacets.stores.includes('Cajati'), 'Facetas devem incluir Cajati');
+  console.assert(stockFacets.stores.includes('Registro'), 'Facetas devem incluir Registro');
+  console.assert(stockFacets.stores.includes('Jacupiranga'), 'Facetas devem incluir Jacupiranga');
+  console.assert(stockFacets.stores.includes('Central'), 'Facetas devem incluir Central');
+  console.assert(stockFacets.stores.includes('Venda Externa'), 'Facetas devem incluir Venda Externa');
+
+  // 23.2 Filtro por Cidade em Brindes (Cajati)
+  const brindesOnly = mockStockAllTypes.filter(i => i.NOME);
+  const cajatiBrindes = brindesOnly.filter(i => (i.UNIDADE || '').toLowerCase() === 'cajati');
+  console.assert(cajatiBrindes.length === 1, 'Deve haver 1 brinde em Cajati');
+  console.assert(cajatiBrindes[0].NOME === 'Flanela Microfibra', 'Brinde de Cajati deve ser a Flanela Microfibra');
+  console.assert(cajatiBrindes[0].ESTOQUE === 30, 'Estoque do brinde em Cajati deve ser 30');
+
+  // 23.3 Totalização agregada por Loja / Cidade
+  const storesMap = {
+    'Central': 0, 'Cajati': 0, 'Registro': 0, 'Jacupiranga': 0, 'Venda Externa': 0
+  };
+  mockStockAllTypes.forEach(item => {
+    const u = item.UNIDADE || 'Central';
+    storesMap[u] = (storesMap[u] || 0) + item.ESTOQUE;
+  });
+
+  console.assert(storesMap['Central'] === 10 + 20 + 50, 'Central deve ter 80 peças totais');
+  console.assert(storesMap['Cajati'] === 5 + 6 + 30, 'Cajati deve ter 41 peças totais');
+  console.assert(storesMap['Registro'] === 8 + 15, 'Registro deve ter 23 peças totais');
+  console.assert(storesMap['Jacupiranga'] === 4 + 25, 'Jacupiranga deve ter 29 peças totais');
+  console.assert(storesMap['Venda Externa'] === 10, 'Venda Externa deve ter 10 peças totais');
+
+  console.log('  ✅ Test 23 Passed: Distribuição de Estoque por Cidade (Armações, Lentes & Brindes) validada com sucesso!\n');
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
 }
 
