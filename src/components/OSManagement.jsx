@@ -145,6 +145,23 @@ const getDeadlineInfo = (dtEntrega, status) => {
   }
 };
 
+export const isMatchingOS = (inv, targetOs) => {
+  if (!inv || !targetOs) return false;
+  const target = String(targetOs).trim().toLowerCase();
+  if (!target || target === '—') return false;
+  const targetPure = target.replace(/^os-?/i, '');
+  const vOS = String(inv.VENDA_OS || inv.venda_os || inv.OS || inv.os || '').trim().toLowerCase();
+  if (vOS) {
+    if (vOS === target || vOS.replace(/^os-?/i, '') === targetPure) return true;
+  }
+  const doc = String(inv.DOCUMENTO || inv.documento || '').toLowerCase();
+  const desc = String(inv.DESCRICAO || inv.descricao || '').toLowerCase();
+  if (targetPure && (doc.includes(`os #${targetPure}`) || doc.includes(`os ${targetPure}`) || doc.includes(`os-${targetPure}`) || desc.includes(`os #${targetPure}`) || desc.includes(`os ${targetPure}`) || desc.includes(`os-${targetPure}`))) {
+    return true;
+  }
+  return doc.includes(target) || desc.includes(target);
+};
+
 const OSManagement = ({ 
   data = {}, 
   salesData = [], 
@@ -157,6 +174,7 @@ const OSManagement = ({
   onBack 
 }) => {
   const isAdmin = ["admin", "administrativo"].includes(currentUser?.role);
+  const isVendedor = currentUser?.role === 'vendedor';
 
   const [selectedUnit, setSelectedUnit] = useState(() => currentUser?.city || "ALL");
   const [selectedStatusFilter, setSelectedStatusFilter] = useState("ALL");
@@ -361,6 +379,7 @@ const OSManagement = ({
         laboratorio,
         deadlineInfo,
         clientData: matchedClient,
+        matchedClient: matchedClient,
         parcelasJson: sale["PARCELAS_JSON"],
         duplicatasGeradas: sale["DUPLICATAS_GERADAS"] === true,
         pagamentoConferido: sale["PAGAMENTO_CONFERIDO"] === true || sale["PAGAMENTO_CONFERIDO"] === "Sim"
@@ -431,7 +450,7 @@ const OSManagement = ({
 
   // Confirmar Pagamento da OS, Gerar Duplicatas no Financeiro (CONTAS_RECEBER) e Liberar Montagem
   const handleConfirmApproval = async (order) => {
-    if (!order || isApproving) return;
+    if (!order || isApproving || isVendedor) return;
     setIsApproving(true);
 
     try {
@@ -475,86 +494,117 @@ const OSManagement = ({
         }
       }
 
-      // 2. Gerar duplicatas em CONTAS_RECEBER (apenas se ainda não geradas e sem duplicidade)
+      // 2. Limpeza preventiva de quaisquer duplicatas pendentes pré-existentes desta OS (evita duplicidades após edição)
       const clientId = order.clientData?.id || order.raw?.CLIENTE_ID || '';
       const clientCpf = order.clientCPF || order.raw?.CLIENTE_CPF || '';
       const clientName = order.clientName || order.raw?.CLIENTE || 'Cliente';
 
       const existingReceber = data?.['CONTAS_RECEBER'] || [];
-      const alreadyHasDuplicatas = existingReceber.some(r => {
-        const docStr = String(r.DOCUMENTO || r.documento || '').toUpperCase();
-        const descStr = String(r.DESCRICAO || r.descricao || '').toUpperCase();
-        const osStr = String(r.VENDA_OS || r.OS || '').trim();
-        const targetOs = String(order.osNumber).trim();
-        return (osStr && osStr === targetOs) || 
-               docStr.includes(`OS ${targetOs}`) || 
-               docStr.includes(`OS #${targetOs}`) ||
-               descStr.includes(`OS #${targetOs}`);
+      const targetOs = String(order.osNumber).trim().toLowerCase();
+
+      const stalePending = existingReceber.filter(r => {
+        return isMatchingOS(r, targetOs) && r.STATUS !== 'Recebido' && r.STATUS !== 'Pago';
       });
 
-      if (onAddRow && !order.raw?.DUPLICATAS_GERADAS && !alreadyHasDuplicatas) {
+      if (onDeleteRow && stalePending.length > 0) {
+        for (const stale of stalePending) {
+          await onDeleteRow('CONTAS_RECEBER', stale);
+        }
+      }
+
+      const remainingReceber = existingReceber.filter(r => !stalePending.includes(r));
+      
+      // Checar se já existem duplicatas pendentes ativas (evita geração duplicada se clicado múltiplas vezes)
+      const alreadyHasPendingDuplicatas = remainingReceber.some(r => {
+        return isMatchingOS(r, targetOs) && r.STATUS !== 'Recebido' && r.STATUS !== 'Pago';
+      });
+
+      // Identificar parcelas que já foram recebidas/pagas anteriormente para não duplicá-las
+      const paidInvoices = remainingReceber.filter(r => {
+        return isMatchingOS(r, targetOs) && (r.STATUS === 'Recebido' || r.STATUS === 'Pago');
+      });
+
+      let newlyCreatedPendingSum = 0;
+
+      if (onAddRow && !alreadyHasPendingDuplicatas) {
         if (parcelas && parcelas.length > 0) {
-          // GERA EXCLUSIVAMENTE AS PARCELAS DO CARNÊ/BOLETO (NUNCA SOMA COM VALOR CHEIO)
+          // GERA EXCLUSIVAMENTE AS PARCELAS DO CARNÊ/BOLETO QUE AINDA NÃO FORAM PAGAS
           for (const p of parcelas) {
+            const numP = p.numero || 1;
+            const totP = p.totalParcelas || parcelas.length;
+            // Verificar se esta parcela específica já foi paga anteriormente
+            const isAlreadyPaid = paidInvoices.some(paid => {
+              const doc = String(paid.DOCUMENTO || '').toLowerCase();
+              const desc = String(paid.DESCRICAO || '').toLowerCase();
+              return doc.includes(`${numP}/${totP}`) || desc.includes(`parcela ${numP}/${totP}`) || doc.includes(`parcela ${numP}`) || doc.includes(`${numP}ª`);
+            });
+
+            if (!isAlreadyPaid) {
+              const valP = typeof p.valor === 'number' ? formatMoney(p.valor) : String(p.valor || '0,00');
+              newlyCreatedPendingSum += parseCurrency(valP);
+              await onAddRow('CONTAS_RECEBER', {
+                CLIENTE_ID: clientId,
+                CLIENTE_CPF: clientCpf,
+                CPF: clientCpf,
+                DESCRICAO: `OS #${order.osNumber} - Parcela ${numP}/${totP} (${order.product || 'Óculos Completo'})`,
+                CLIENTE: clientName,
+                'NOME CLIENTE': clientName,
+                VENDA_OS: order.osNumber,
+                DOCUMENTO: `BOLETO/CARNÊ ${numP}/${totP} - OS ${order.osNumber}`,
+                VALOR: valP,
+                DATA_VENCIMENTO: p.vencimento || todayIso,
+                'DATA VENCIMENTO': p.vencimento || todayIso,
+                STATUS: 'Pendente',
+                CIDADE: order.unit,
+                MEIO_PAGAMENTO: 'Boleto Bancário / Carnê',
+                OBSERVACOES: `Duplicata gerada após aprovação financeira da OS #${order.osNumber}`
+              });
+            }
+          }
+        } else if (restVal > 0) {
+          // GERA LANÇAMENTO ÚNICO APENAS SE NÃO FOR PARCELAMENTO
+          const paidTotal = paidInvoices.reduce((sum, inv) => sum + parseCurrency(inv.VALOR), 0);
+          const effectiveRest = Math.max(0, restVal - paidTotal);
+          if (effectiveRest > 0) {
+            newlyCreatedPendingSum = effectiveRest;
             await onAddRow('CONTAS_RECEBER', {
               CLIENTE_ID: clientId,
               CLIENTE_CPF: clientCpf,
               CPF: clientCpf,
-              DESCRICAO: `OS #${order.osNumber} - Parcela ${p.numero}/${p.totalParcelas} (${order.product || 'Óculos Completo'})`,
+              DESCRICAO: `Venda OS #${order.osNumber} - ${order.product || 'Óculos Completo'}`,
               CLIENTE: clientName,
               'NOME CLIENTE': clientName,
               VENDA_OS: order.osNumber,
-              DOCUMENTO: `BOLETO/CARNÊ ${p.numero}/${p.totalParcelas} - OS ${order.osNumber}`,
-              VALOR: typeof p.valor === 'number' ? formatMoney(p.valor) : String(p.valor || '0,00'),
-              DATA_VENCIMENTO: p.vencimento || todayIso,
-              'DATA VENCIMENTO': p.vencimento || todayIso,
+              DOCUMENTO: `OS #${order.osNumber} - Saldo a Receber`,
+              VALOR: formatMoney(effectiveRest),
+              DATA_VENCIMENTO: order.dtEntrega && /^\d{4}-\d{2}-\d{2}$/.test(order.dtEntrega) ? order.dtEntrega : todayIso,
+              'DATA VENCIMENTO': order.dtEntrega && /^\d{4}-\d{2}-\d{2}$/.test(order.dtEntrega) ? order.dtEntrega : todayIso,
               STATUS: 'Pendente',
               CIDADE: order.unit,
-              MEIO_PAGAMENTO: 'Boleto Bancário / Carnê',
-              OBSERVACOES: `Duplicata gerada após aprovação financeira da OS #${order.osNumber}`
+              MEIO_PAGAMENTO: order.formasPagamento ? order.formasPagamento.split('\n')[0].slice(0, 30) : 'A Prazo',
+              OBSERVACOES: `Duplicata gerada após aprovação financeira da OS #${order.osNumber}. Total: R$ ${order.valorTotal}, Sinal: R$ ${order.valorEntrada}`
             });
           }
-        } else if (restVal > 0) {
-          // GERA LANÇAMENTO ÚNICO APENAS SE NÃO FOR PARCELAMENTO
-          await onAddRow('CONTAS_RECEBER', {
-            CLIENTE_ID: clientId,
-            CLIENTE_CPF: clientCpf,
-            CPF: clientCpf,
-            DESCRICAO: `Venda OS #${order.osNumber} - ${order.product || 'Óculos Completo'}`,
-            CLIENTE: clientName,
-            'NOME CLIENTE': clientName,
-            VENDA_OS: order.osNumber,
-            DOCUMENTO: `OS #${order.osNumber} - Saldo a Receber`,
-            VALOR: formatMoney(restVal),
-            DATA_VENCIMENTO: order.dtEntrega && /^\d{4}-\d{2}-\d{2}$/.test(order.dtEntrega) ? order.dtEntrega : todayIso,
-            'DATA VENCIMENTO': order.dtEntrega && /^\d{4}-\d{2}-\d{2}$/.test(order.dtEntrega) ? order.dtEntrega : todayIso,
-            STATUS: 'Pendente',
-            CIDADE: order.unit,
-            MEIO_PAGAMENTO: order.formasPagamento ? order.formasPagamento.split('\n')[0].slice(0, 30) : 'A Prazo',
-            OBSERVACOES: `Duplicata gerada após aprovação financeira da OS #${order.osNumber}. Total: R$ ${order.valorTotal}, Sinal: R$ ${order.valorEntrada}`
-          });
         }
       }
 
       // 3. Atualizar débito na ficha do cliente em CLIENTES_CADASTRADOS
-      const matchedClient = order.clientData || clientsData.find(c => isSameClient(c, order.raw || {}));
+      const matchedClient = clientsData.find(c => isSameClient(c, order.raw || {})) || order.clientData || order.matchedClient;
       if (matchedClient && onUpdateRow && !order.raw?.DUPLICATAS_GERADAS) {
-        if (restVal > 0) {
-          const curDebt = parseCurrency(matchedClient['Valor Devido']);
-          const newDebt = (curDebt + restVal).toFixed(2).replace('.', ',');
+        const curDebt = parseCurrency(matchedClient['Valor Devido']);
+        const amountToAdd = newlyCreatedPendingSum > 0 ? newlyCreatedPendingSum : restVal;
+        if (amountToAdd > 0) {
+          const newDebt = (curDebt + amountToAdd).toFixed(2).replace('.', ',');
           await onUpdateRow('CLIENTES_CADASTRADOS', matchedClient, {
             ...matchedClient,
             'Valor Devido': newDebt,
             'Status de Pagamento': 'Inadimplente'
           });
-        } else {
-          const curDebt = parseCurrency(matchedClient['Valor Devido']);
-          if (curDebt <= 0) {
-            await onUpdateRow('CLIENTES_CADASTRADOS', matchedClient, {
-              ...matchedClient,
-              'Status de Pagamento': 'Em dia'
-            });
-          }
+        } else if (curDebt <= 0) {
+          await onUpdateRow('CLIENTES_CADASTRADOS', matchedClient, {
+            ...matchedClient,
+            'Status de Pagamento': 'Em dia'
+          });
         }
       }
 
@@ -585,21 +635,13 @@ const OSManagement = ({
 
   // Exclusão Segura e Inteligente em Cascata da OS (com limpeza de duplicatas no Contas a Receber e recálculo do Cliente)
   const handleDeleteOS = async (order) => {
-    if (!order || !onDeleteRow) return;
+    if (!order || !onDeleteRow || isVendedor || !isAdmin) return;
 
     // Localizar duplicatas vinculadas no CONTAS_RECEBER
     const contasReceberList = data?.['CONTAS_RECEBER'] || [];
     const targetOS = String(order.osNumber || '').trim().toLowerCase();
     
-    const matchingInvoices = contasReceberList.filter(inv => {
-      const vOS = String(inv.VENDA_OS || inv.venda_os || inv.OS || inv.os || '').trim().toLowerCase();
-      if (vOS && (vOS === targetOS || vOS.replace(/^os-?/i, '') === targetOS.replace(/^os-?/i, ''))) {
-        return true;
-      }
-      const doc = String(inv.DOCUMENTO || '').toLowerCase();
-      const desc = String(inv.DESCRICAO || inv.descricao || '').toLowerCase();
-      return doc.includes(targetOS) || desc.includes(targetOS);
-    });
+    const matchingInvoices = contasReceberList.filter(inv => isMatchingOS(inv, targetOS));
 
     const pendingInvoices = matchingInvoices.filter(inv => inv.STATUS !== 'Recebido' && inv.STATUS !== 'Pago');
     const paidInvoices = matchingInvoices.filter(inv => inv.STATUS === 'Recebido' || inv.STATUS === 'Pago');
@@ -634,17 +676,17 @@ const OSManagement = ({
     try {
       // 1. Excluir duplicatas pendentes do CONTAS_RECEBER
       for (const inv of pendingInvoices) {
-        onDeleteRow('CONTAS_RECEBER', inv);
+        await onDeleteRow('CONTAS_RECEBER', inv);
       }
 
       // Se estornou, excluir também duplicatas quitadas e lançar saída no caixa
       if (shouldRefundCash) {
         for (const inv of paidInvoices) {
-          onDeleteRow('CONTAS_RECEBER', inv);
+          await onDeleteRow('CONTAS_RECEBER', inv);
         }
 
         if (onAddRow) {
-          onAddRow('FLUXO_CAIXA', {
+          await onAddRow('FLUXO_CAIXA', {
             id: `mov_estorno_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
             tipo: 'SAÍDA',
             dataHora: new Date().toISOString(),
@@ -655,7 +697,7 @@ const OSManagement = ({
             formaPagamento: 'ESTORNO / DEVOLUÇÃO',
             motivo: `Estorno por Exclusão da OS #${order.osNumber} - ${order.clientName}`,
             detalhes: `OS #${order.osNumber} excluída permanentemente.`,
-            CLIENTE_ID: order.matchedClient?.id || '',
+            CLIENTE_ID: order.clientData?.id || order.matchedClient?.id || '',
             CLIENTE_CPF: order.clientCPF,
             CPF: order.clientCPF
           });
@@ -663,14 +705,14 @@ const OSManagement = ({
       }
 
       // 2. Abater débito na ficha do cliente (CLIENTES_CADASTRADOS)
-      if (order.matchedClient && onUpdateRow) {
-        const client = order.matchedClient;
+      const client = clientsData.find(c => isSameClient(c, order.raw || {})) || order.clientData || order.matchedClient;
+      if (client && onUpdateRow) {
         const currentDebt = parseCurrency(client['Valor Devido'] || client['VALOR DEVIDO']);
         const pendingTotal = pendingInvoices.reduce((sum, inv) => sum + parseCurrency(inv.VALOR), 0);
         const newDebt = Math.max(0, currentDebt - pendingTotal);
         const newStatus = newDebt === 0 ? 'Em dia' : client['Status de Pagamento'];
 
-        onUpdateRow('CLIENTES_CADASTRADOS', client, {
+        await onUpdateRow('CLIENTES_CADASTRADOS', client, {
           ...client,
           'Valor Devido': newDebt.toFixed(2).replace('.', ','),
           'Status de Pagamento': newStatus
@@ -687,7 +729,7 @@ const OSManagement = ({
         });
         if (matchedArmacao && onUpdateRow) {
           const currStock = parseInt(matchedArmacao['ESTOQUE'] || matchedArmacao['QTD'] || '0', 10);
-          onUpdateRow('CAD_ARMACOES', matchedArmacao, {
+          await onUpdateRow('CAD_ARMACOES', matchedArmacao, {
             ...matchedArmacao,
             ESTOQUE: String(currStock + 1)
           });
@@ -695,7 +737,7 @@ const OSManagement = ({
       }
 
       // 4. Excluir a OS da tabela Registro_Vendas
-      onDeleteRow('Registro_Vendas', order.raw);
+      await onDeleteRow('Registro_Vendas', order.raw);
 
       setSuccessToast(`✅ OS #${order.osNumber} excluída com sucesso! ${pendingInvoices.length > 0 ? `${pendingInvoices.length} duplicata(s) pendente(s) cancelada(s) no Financeiro.` : ''}`);
       setTimeout(() => setSuccessToast(''), 5000);
@@ -707,7 +749,7 @@ const OSManagement = ({
 
   // Recusar / Cancelar OS (remove duplicatas pendentes e limpa débito do cliente)
   const handleRejectOS = async (order) => {
-    if (!order) return;
+    if (!order || isVendedor) return;
     const confirmReject = window.confirm(
       `Deseja realmente RECUSAR e CANCELAR a OS #${order.osNumber} (${order.clientName})?\n\nNenhuma duplicata continuará no Financeiro e nenhum débito será cobrado do cliente.`
     );
@@ -718,29 +760,24 @@ const OSManagement = ({
       const contasReceberList = data?.['CONTAS_RECEBER'] || [];
       const targetOS = String(order.osNumber || '').trim().toLowerCase();
       const pendingInvoices = contasReceberList.filter(inv => {
-        const vOS = String(inv.VENDA_OS || inv.venda_os || inv.OS || inv.os || '').trim().toLowerCase();
-        const matchesOS = vOS && (vOS === targetOS || vOS.replace(/^os-?/i, '') === targetOS.replace(/^os-?/i, ''));
-        const doc = String(inv.DOCUMENTO || '').toLowerCase();
-        const desc = String(inv.DESCRICAO || inv.descricao || '').toLowerCase();
-        const isMatch = matchesOS || doc.includes(targetOS) || desc.includes(targetOS);
-        return isMatch && inv.STATUS !== 'Recebido' && inv.STATUS !== 'Pago';
+        return isMatchingOS(inv, targetOS) && inv.STATUS !== 'Recebido' && inv.STATUS !== 'Pago';
       });
 
       if (onDeleteRow) {
         for (const inv of pendingInvoices) {
-          onDeleteRow('CONTAS_RECEBER', inv);
+          await onDeleteRow('CONTAS_RECEBER', inv);
         }
       }
 
       // Abater débito do cliente se necessário
-      if (order.matchedClient && onUpdateRow && pendingInvoices.length > 0) {
-        const client = order.matchedClient;
+      const client = clientsData.find(c => isSameClient(c, order.raw || {})) || order.clientData || order.matchedClient;
+      if (client && onUpdateRow && pendingInvoices.length > 0) {
         const currentDebt = parseCurrency(client['Valor Devido'] || client['VALOR DEVIDO']);
         const pendingTotal = pendingInvoices.reduce((sum, inv) => sum + parseCurrency(inv.VALOR), 0);
         const newDebt = Math.max(0, currentDebt - pendingTotal);
         const newStatus = newDebt === 0 ? 'Em dia' : client['Status de Pagamento'];
 
-        onUpdateRow('CLIENTES_CADASTRADOS', client, {
+        await onUpdateRow('CLIENTES_CADASTRADOS', client, {
           ...client,
           'Valor Devido': newDebt.toFixed(2).replace('.', ','),
           'Status de Pagamento': newStatus
@@ -771,6 +808,8 @@ const OSManagement = ({
 
   // Atualizar Status da OS
   const handleUpdateStatus = (order, newStatus) => {
+    if (isVendedor) return;
+
     if (order.status === "Aguardando Confirmação" && newStatus !== "Aguardando Confirmação") {
       if (newStatus === "Cancelada") {
         handleRejectOS(order);
@@ -807,7 +846,7 @@ const OSManagement = ({
   };
 
   const handleTogglePgtoConferido = (order) => {
-    if (!onUpdateRow) return;
+    if (!onUpdateRow || isVendedor) return;
     const isConferido = order.raw['PAGAMENTO_CONFERIDO'] === true || order.raw['PAGAMENTO_CONFERIDO'] === 'Sim';
     const updatedRow = {
       ...order.raw,
@@ -819,7 +858,7 @@ const OSManagement = ({
   // Confirmar Baixa com Data Efetiva de Entrega
   const handleConfirmDelivery = (e) => {
     e.preventDefault();
-    if (!deliveryModalOrder || !onUpdateRow) return;
+    if (!deliveryModalOrder || !onUpdateRow || isVendedor) return;
 
     const chosenDate = deliveryDateInput || new Date().toISOString().split('T')[0];
 
@@ -936,7 +975,7 @@ const OSManagement = ({
       ...labFormData
     };
     
-    if (onUpdateRow) {
+    if (onUpdateRow && !isVendedor) {
       onUpdateRow("Registro_Vendas", order.raw, updatedRaw);
     }
     
@@ -1345,53 +1384,80 @@ const OSManagement = ({
                       
                       {/* Seletor de Status (Semáforo) */}
                       <div className="flex items-center gap-1.5">
-                        <select
-                          value={order.status}
-                          onChange={(e) => handleUpdateStatus(order, e.target.value)}
-                          className={`text-xs font-black uppercase tracking-wider rounded-xl px-3 py-2 border cursor-pointer focus:outline-none transition-all ${statusConf.badgeClass}`}
-                        >
-                          <option value="Aguardando Confirmação" className="bg-slate-900 text-sky-300 font-bold">
-                            🔵 Aguardando Confirmação (Azul)
-                          </option>
-                          <option value="No Laboratório" className="bg-slate-900 text-rose-300 font-bold">
-                            🔴 No Laboratório (Vermelho)
-                          </option>
-                          <option value="Aguardando Lente" className="bg-slate-900 text-rose-300 font-bold">
-                            🔴 Aguardando Lente (Vermelho)
-                          </option>
-                          <option value="Em Produção" className="bg-slate-900 text-amber-300 font-bold">
-                            🟡 Em Produção / Montagem (Amarelo)
-                          </option>
-                          <option value="Pronto para Retirada" className="bg-slate-900 text-yellow-300 font-bold">
-                            🟡 Pronto para Retirada (Amarelo)
-                          </option>
-                          <option value="Entregue" className="bg-slate-900 text-emerald-300 font-bold">
-                            🟢 Entregue ao Cliente (Verde)
-                          </option>
-                          <option value="Cancelada" className="bg-slate-900 text-slate-400 font-bold">
-                            ⚫ Cancelada
-                          </option>
-                        </select>
+                        {isVendedor ? (
+                          <span 
+                            className={`inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-wider rounded-xl px-3 py-2 border cursor-default select-none ${statusConf.badgeClass}`}
+                            title="Vendedor: Somente visualização. Alterações de status são restritas à administração."
+                          >
+                            <span className={`w-2 h-2 rounded-full ${statusConf.dotClass}`} />
+                            <span>{statusConf.icon} {statusConf.label}</span>
+                          </span>
+                        ) : (
+                          <select
+                            value={order.status}
+                            onChange={(e) => handleUpdateStatus(order, e.target.value)}
+                            className={`text-xs font-black uppercase tracking-wider rounded-xl px-3 py-2 border cursor-pointer focus:outline-none transition-all ${statusConf.badgeClass}`}
+                          >
+                            <option value="Aguardando Confirmação" className="bg-slate-900 text-sky-300 font-bold">
+                              🔵 Aguardando Confirmação (Azul)
+                            </option>
+                            <option value="No Laboratório" className="bg-slate-900 text-rose-300 font-bold">
+                              🔴 No Laboratório (Vermelho)
+                            </option>
+                            <option value="Aguardando Lente" className="bg-slate-900 text-rose-300 font-bold">
+                              🔴 Aguardando Lente (Vermelho)
+                            </option>
+                            <option value="Em Produção" className="bg-slate-900 text-amber-300 font-bold">
+                              🟡 Em Produção / Montagem (Amarelo)
+                            </option>
+                            <option value="Pronto para Retirada" className="bg-slate-900 text-yellow-300 font-bold">
+                              🟡 Pronto para Retirada (Amarelo)
+                            </option>
+                            <option value="Entregue" className="bg-slate-900 text-emerald-300 font-bold">
+                              🟢 Entregue ao Cliente (Verde)
+                            </option>
+                            <option value="Cancelada" className="bg-slate-900 text-slate-400 font-bold">
+                              ⚫ Cancelada
+                            </option>
+                          </select>
+                        )}
                         
                         {order.status !== "Aguardando Confirmação" && (
-                          <button 
-                            type="button"
-                            onClick={() => handleTogglePgtoConferido(order)}
-                            className={`flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-xl border transition-all w-full justify-center ${
-                              (order.raw['PAGAMENTO_CONFERIDO'] === true || order.raw['PAGAMENTO_CONFERIDO'] === 'Sim') 
-                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20' 
-                                : 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20'
-                            }`}
-                          >
-                            {(order.raw['PAGAMENTO_CONFERIDO'] === true || order.raw['PAGAMENTO_CONFERIDO'] === 'Sim') ? (
-                              <><CheckCircle2 size={14}/> Liberação Financeira OK</>
-                            ) : (
-                              <><DollarSign size={14}/> Pendente Financeiro</>
-                            )}
-                          </button>
+                          isVendedor ? (
+                            <div 
+                              className={`flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-xl border transition-all w-full justify-center select-none cursor-default ${
+                                (order.raw['PAGAMENTO_CONFERIDO'] === true || order.raw['PAGAMENTO_CONFERIDO'] === 'Sim') 
+                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
+                                  : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                              }`}
+                              title="Conferência Financeira (Apenas visualização para vendedores)"
+                            >
+                              {(order.raw['PAGAMENTO_CONFERIDO'] === true || order.raw['PAGAMENTO_CONFERIDO'] === 'Sim') ? (
+                                <><CheckCircle2 size={14}/> Liberação Financeira OK</>
+                              ) : (
+                                <><DollarSign size={14}/> Pendente Financeiro</>
+                              )}
+                            </div>
+                          ) : (
+                            <button 
+                              type="button"
+                              onClick={() => handleTogglePgtoConferido(order)}
+                              className={`flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-xl border transition-all w-full justify-center ${
+                                (order.raw['PAGAMENTO_CONFERIDO'] === true || order.raw['PAGAMENTO_CONFERIDO'] === 'Sim') 
+                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20' 
+                                  : 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20'
+                              }`}
+                            >
+                              {(order.raw['PAGAMENTO_CONFERIDO'] === true || order.raw['PAGAMENTO_CONFERIDO'] === 'Sim') ? (
+                                <><CheckCircle2 size={14}/> Liberação Financeira OK</>
+                              ) : (
+                                <><DollarSign size={14}/> Pendente Financeiro</>
+                              )}
+                            </button>
+                          )
                         )}
 
-                        {order.status === "Entregue" && (
+                        {order.status === "Entregue" && !isVendedor && (
                           <button
                             type="button"
                             onClick={() => {
@@ -1482,32 +1548,43 @@ const OSManagement = ({
                             </span>
                           </div>
                           <p className="text-xs text-slate-300 mt-0.5">
-                            O financeiro deve conferir o pagamento para gerar as duplicatas no sistema e liberar a montagem dos óculos.
+                            {isVendedor
+                              ? "Esta OS está sob análise do setor financeiro. A montagem será liberada após a conferência."
+                              : "O financeiro deve conferir o pagamento para gerar as duplicatas no sistema e liberar a montagem dos óculos."}
                           </p>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 self-stretch md:self-auto justify-end">
-                        <button
-                          type="button"
-                          onClick={() => handleRejectOS(order)}
-                          className="px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 font-bold text-xs transition-all flex items-center gap-1.5"
-                          title="Recusar e cancelar OS (não gera duplicatas)"
-                        >
-                          <XCircle size={15} />
-                          <span>Recusar OS</span>
-                        </button>
+                      {!isVendedor ? (
+                        <div className="flex items-center gap-2 self-stretch md:self-auto justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleRejectOS(order)}
+                            className="px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 font-bold text-xs transition-all flex items-center gap-1.5"
+                            title="Recusar e cancelar OS (não gera duplicatas)"
+                          >
+                            <XCircle size={15} />
+                            <span>Recusar OS</span>
+                          </button>
 
-                        <button
-                          type="button"
-                          onClick={() => setApprovalModalOrder(order)}
-                          className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-sky-500 hover:from-emerald-400 hover:to-sky-400 text-white font-black text-xs shadow-lg shadow-emerald-500/20 transition-all flex items-center gap-1.5 active:scale-95"
-                          title="Conferir pagamento, gerar duplicatas no financeiro e liberar montagem"
-                        >
-                          <ShieldCheck size={16} />
-                          <span>Confirmar Pagamento & Liberar Montagem</span>
-                        </button>
-                      </div>
+                          <button
+                            type="button"
+                            onClick={() => setApprovalModalOrder(order)}
+                            className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-sky-500 hover:from-emerald-400 hover:to-sky-400 text-white font-black text-xs shadow-lg shadow-emerald-500/20 transition-all flex items-center gap-1.5 active:scale-95"
+                            title="Conferir pagamento, gerar duplicatas no financeiro e liberar montagem"
+                          >
+                            <ShieldCheck size={16} />
+                            <span>Confirmar Pagamento & Liberar Montagem</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 self-stretch md:self-auto justify-end">
+                          <span className="px-3 py-1.5 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-300 text-xs font-bold flex items-center gap-1.5">
+                            <Clock size={14} className="text-sky-400" />
+                            Aguardando liberação do Financeiro
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1857,64 +1934,98 @@ const OSManagement = ({
                           {/* Seletor de Status (Semáforo Verde, Amarela e Vermelha) */}
                           <td className="px-5 py-4 whitespace-nowrap">
                             <div className="flex flex-col gap-1.5">
-                              <select
-                                value={order.status}
-                                onChange={(e) => handleUpdateStatus(order, e.target.value)}
-                                className={"text-xs font-black uppercase tracking-wider rounded-xl px-3 py-2 border cursor-pointer focus:outline-none transition-all " + statusConf.badgeClass}
-                              >
-                                <option value="Aguardando Confirmação" className="bg-slate-900 text-sky-300 font-bold">
-                                  🔵 Aguardando Confirmação (Azul)
-                                </option>
-                                <option value="No Laboratório" className="bg-slate-900 text-rose-300 font-bold">
-                                  🔴 No Laboratório (Vermelho)
-                                </option>
-                                <option value="Aguardando Lente" className="bg-slate-900 text-rose-300 font-bold">
-                                  🔴 Aguardando Lente (Vermelho)
-                                </option>
-                                <option value="Em Produção" className="bg-slate-900 text-amber-300 font-bold">
-                                  🟡 Em Produção / Montagem (Amarelo)
-                                </option>
-                                <option value="Pronto para Retirada" className="bg-slate-900 text-yellow-300 font-bold">
-                                  🟡 Pronto para Retirada (Amarelo)
-                                </option>
-                                <option value="Entregue" className="bg-slate-900 text-emerald-300 font-bold">
-                                  🟢 Entregue ao Cliente (Verde)
-                                </option>
-                                <option value="Cancelada" className="bg-slate-900 text-slate-400 font-bold">
-                                  ⚫ Cancelada
-                                </option>
-                              </select>
-
-                              {order.status === "Aguardando Confirmação" ? (
-                                <button
-                                  type="button"
-                                  onClick={() => setApprovalModalOrder(order)}
-                                  className="flex items-center justify-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border border-sky-500/40 bg-sky-500/20 text-sky-200 hover:bg-sky-500/30 transition-all shadow-md shadow-sky-500/10 active:scale-95"
-                                  title="Conferir pagamento e liberar montagem"
+                              {isVendedor ? (
+                                <span 
+                                  className={"inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-wider rounded-xl px-3 py-2 border cursor-default select-none " + statusConf.badgeClass}
+                                  title="Vendedor: Somente visualização."
                                 >
-                                  <ShieldCheck size={12} className="text-sky-400" />
-                                  <span>Conferir Pgto</span>
-                                </button>
+                                  <span className={`w-2 h-2 rounded-full ${statusConf.dotClass}`} />
+                                  <span>{statusConf.icon} {statusConf.label}</span>
+                                </span>
                               ) : (
-                                <button 
-                                  type="button"
-                                  onClick={() => handleTogglePgtoConferido(order)}
-                                  className={`flex items-center justify-between gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border transition-all ${
-                                    (order.raw['PAGAMENTO_CONFERIDO'] === true || order.raw['PAGAMENTO_CONFERIDO'] === 'Sim') 
-                                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20' 
-                                      : 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20'
-                                  }`}
-                                  title="Conferência Financeira (Liberação para Produção)"
+                                <select
+                                  value={order.status}
+                                  onChange={(e) => handleUpdateStatus(order, e.target.value)}
+                                  className={"text-xs font-black uppercase tracking-wider rounded-xl px-3 py-2 border cursor-pointer focus:outline-none transition-all " + statusConf.badgeClass}
                                 >
-                                  {(order.raw['PAGAMENTO_CONFERIDO'] === true || order.raw['PAGAMENTO_CONFERIDO'] === 'Sim') ? (
-                                    <><CheckCircle2 size={12}/> Financeiro Liberado</>
-                                  ) : (
-                                    <><DollarSign size={12}/> Pendente Financeiro</>
-                                  )}
-                                </button>
+                                  <option value="Aguardando Confirmação" className="bg-slate-900 text-sky-300 font-bold">
+                                    🔵 Aguardando Confirmação (Azul)
+                                  </option>
+                                  <option value="No Laboratório" className="bg-slate-900 text-rose-300 font-bold">
+                                    🔴 No Laboratório (Vermelho)
+                                  </option>
+                                  <option value="Aguardando Lente" className="bg-slate-900 text-rose-300 font-bold">
+                                    🔴 Aguardando Lente (Vermelho)
+                                  </option>
+                                  <option value="Em Produção" className="bg-slate-900 text-amber-300 font-bold">
+                                    🟡 Em Produção / Montagem (Amarelo)
+                                  </option>
+                                  <option value="Pronto para Retirada" className="bg-slate-900 text-yellow-300 font-bold">
+                                    🟡 Pronto para Retirada (Amarelo)
+                                  </option>
+                                  <option value="Entregue" className="bg-slate-900 text-emerald-300 font-bold">
+                                    🟢 Entregue ao Cliente (Verde)
+                                  </option>
+                                  <option value="Cancelada" className="bg-slate-900 text-slate-400 font-bold">
+                                    ⚫ Cancelada
+                                  </option>
+                                </select>
                               )}
 
-                              {order.status === "Entregue" && (
+                              {order.status === "Aguardando Confirmação" ? (
+                                isVendedor ? (
+                                  <span className="flex items-center justify-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border border-sky-500/30 bg-sky-500/10 text-sky-300 select-none cursor-default">
+                                    <Clock size={11} className="text-sky-400" />
+                                    <span>Aguardando Fin.</span>
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setApprovalModalOrder(order)}
+                                    className="flex items-center justify-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border border-sky-500/40 bg-sky-500/20 text-sky-200 hover:bg-sky-500/30 transition-all shadow-md shadow-sky-500/10 active:scale-95"
+                                    title="Conferir pagamento e liberar montagem"
+                                  >
+                                    <ShieldCheck size={12} className="text-sky-400" />
+                                    <span>Conferir Pgto</span>
+                                  </button>
+                                )
+                              ) : (
+                                isVendedor ? (
+                                  <div 
+                                    className={`flex items-center justify-between gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border select-none cursor-default ${
+                                      (order.raw['PAGAMENTO_CONFERIDO'] === true || order.raw['PAGAMENTO_CONFERIDO'] === 'Sim') 
+                                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
+                                        : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                                    }`}
+                                    title="Conferência Financeira (Apenas visualização para vendedores)"
+                                  >
+                                    {(order.raw['PAGAMENTO_CONFERIDO'] === true || order.raw['PAGAMENTO_CONFERIDO'] === 'Sim') ? (
+                                      <><CheckCircle2 size={12}/> Financeiro Liberado</>
+                                    ) : (
+                                      <><DollarSign size={12}/> Pendente Fin.</>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <button 
+                                    type="button"
+                                    onClick={() => handleTogglePgtoConferido(order)}
+                                    className={`flex items-center justify-between gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border transition-all ${
+                                      (order.raw['PAGAMENTO_CONFERIDO'] === true || order.raw['PAGAMENTO_CONFERIDO'] === 'Sim') 
+                                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20' 
+                                        : 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20'
+                                    }`}
+                                    title="Conferência Financeira (Liberação para Produção)"
+                                  >
+                                    {(order.raw['PAGAMENTO_CONFERIDO'] === true || order.raw['PAGAMENTO_CONFERIDO'] === 'Sim') ? (
+                                      <><CheckCircle2 size={12}/> Financeiro Liberado</>
+                                    ) : (
+                                      <><DollarSign size={12}/> Pendente Financeiro</>
+                                    )}
+                                  </button>
+                                )
+                              )}
+
+                              {order.status === "Entregue" && !isVendedor && (
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -2438,10 +2549,17 @@ const OSManagement = ({
             </div>
 
             <form onSubmit={handleConfirmLabPrint} className="space-y-4">
+              {isVendedor && (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-300 text-xs flex items-center gap-2">
+                  <AlertCircle size={15} className="shrink-0 text-amber-400" />
+                  <span>Modo de visualização e impressão: Vendedores não podem alterar dados técnicos diretamente na Gestão de OS.</span>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">Laboratório</label>
-                  <input type="text" value={labFormData.LABORATORIO || ''} onChange={e => setLabFormData({...labFormData, LABORATORIO: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                  <input type="text" readOnly={isVendedor} value={labFormData.LABORATORIO || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, LABORATORIO: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />
                 </div>
               </div>
 
@@ -2449,32 +2567,32 @@ const OSManagement = ({
               <div className="grid grid-cols-4 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">OD Esférico</label>
-                  <input type="text" value={labFormData.OD_ESF || ''} onChange={e => setLabFormData({...labFormData, OD_ESF: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                  <input type="text" readOnly={isVendedor} value={labFormData.OD_ESF || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, OD_ESF: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">OD Cilíndrico</label>
-                  <input type="text" value={labFormData.OD_CIL || ''} onChange={e => setLabFormData({...labFormData, OD_CIL: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                  <input type="text" readOnly={isVendedor} value={labFormData.OD_CIL || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, OD_CIL: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">OD Eixo</label>
-                  <input type="text" value={labFormData.OD_EIXO || ''} onChange={e => setLabFormData({...labFormData, OD_EIXO: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                  <input type="text" readOnly={isVendedor} value={labFormData.OD_EIXO || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, OD_EIXO: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">Adição (AD)</label>
-                  <input type="text" value={labFormData.ADICAO || ''} onChange={e => setLabFormData({...labFormData, ADICAO: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 rounded-xl px-3 py-2 text-sm text-emerald-400 font-bold focus:outline-none focus:border-emerald-400" />
+                  <input type="text" readOnly={isVendedor} value={labFormData.ADICAO || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, ADICAO: e.target.value})} className={`w-full bg-black/40 border border-emerald-500/30 rounded-xl px-3 py-2 text-sm text-emerald-400 font-bold focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-emerald-400'}`} />
                 </div>
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">OE Esférico</label>
-                  <input type="text" value={labFormData.OE_ESF || ''} onChange={e => setLabFormData({...labFormData, OE_ESF: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                  <input type="text" readOnly={isVendedor} value={labFormData.OE_ESF || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, OE_ESF: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">OE Cilíndrico</label>
-                  <input type="text" value={labFormData.OE_CIL || ''} onChange={e => setLabFormData({...labFormData, OE_CIL: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                  <input type="text" readOnly={isVendedor} value={labFormData.OE_CIL || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, OE_CIL: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">OE Eixo</label>
-                  <input type="text" value={labFormData.OE_EIXO || ''} onChange={e => setLabFormData({...labFormData, OE_EIXO: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                  <input type="text" readOnly={isVendedor} value={labFormData.OE_EIXO || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, OE_EIXO: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />
                 </div>
               </div>
 
@@ -2482,19 +2600,19 @@ const OSManagement = ({
               <div className="grid grid-cols-4 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">OD DNP</label>
-                  <input type="text" value={labFormData.OD_DNP || ''} onChange={e => setLabFormData({...labFormData, OD_DNP: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                  <input type="text" readOnly={isVendedor} value={labFormData.OD_DNP || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, OD_DNP: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">OE DNP</label>
-                  <input type="text" value={labFormData.OE_DNP || ''} onChange={e => setLabFormData({...labFormData, OE_DNP: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                  <input type="text" readOnly={isVendedor} value={labFormData.OE_DNP || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, OE_DNP: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">OD Altura</label>
-                  <input type="text" value={labFormData.OD_ALT || ''} onChange={e => setLabFormData({...labFormData, OD_ALT: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                  <input type="text" readOnly={isVendedor} value={labFormData.OD_ALT || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, OD_ALT: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">OE Altura</label>
-                  <input type="text" value={labFormData.OE_ALT || ''} onChange={e => setLabFormData({...labFormData, OE_ALT: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                  <input type="text" readOnly={isVendedor} value={labFormData.OE_ALT || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, OE_ALT: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />
                 </div>
               </div>
 
@@ -2502,23 +2620,23 @@ const OSManagement = ({
               <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">Ponte + Aro</label>
-                  <input type="text" value={labFormData.PONTE_ARO || ''} onChange={e => setLabFormData({...labFormData, PONTE_ARO: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                  <input type="text" readOnly={isVendedor} value={labFormData.PONTE_ARO || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, PONTE_ARO: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">Diagonal Maior</label>
-                  <input type="text" value={labFormData.DIAGONAL_MAIOR || ''} onChange={e => setLabFormData({...labFormData, DIAGONAL_MAIOR: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                  <input type="text" readOnly={isVendedor} value={labFormData.DIAGONAL_MAIOR || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, DIAGONAL_MAIOR: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">Altura Vertical</label>
-                  <input type="text" value={labFormData.ALTURA_VERTICAL || ''} onChange={e => setLabFormData({...labFormData, ALTURA_VERTICAL: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                  <input type="text" readOnly={isVendedor} value={labFormData.ALTURA_VERTICAL || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, ALTURA_VERTICAL: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">Ponte</label>
-                  <input type="text" value={labFormData.PONTE || ''} onChange={e => setLabFormData({...labFormData, PONTE: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                  <input type="text" readOnly={isVendedor} value={labFormData.PONTE || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, PONTE: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">Aro</label>
-                  <input type="text" value={labFormData.ARO || ''} onChange={e => setLabFormData({...labFormData, ARO: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                  <input type="text" readOnly={isVendedor} value={labFormData.ARO || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, ARO: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />
                 </div>
               </div>
 
@@ -2534,7 +2652,7 @@ const OSManagement = ({
                   type="submit"
                   className="px-6 py-2.5 rounded-xl bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-xs font-black shadow-lg shadow-fuchsia-500/25 flex items-center gap-2 transition-all"
                 >
-                  <Printer size={16} /> Salvar & Imprimir
+                  <Printer size={16} /> {isVendedor ? 'Imprimir OS de Laboratório' : 'Salvar & Imprimir'}
                 </button>
               </div>
             </form>

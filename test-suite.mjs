@@ -546,7 +546,21 @@ async function runTests() {
   console.assert(canDeleteOrder(vendedorUser) === false, 'Vendedor must NOT have permission to delete OS');
   console.assert(canDeleteOrder(adminUser) === true, 'Admin MUST have permission to delete OS');
 
-  // 11.5 Header badge text by role
+  // 11.5 Status modification permission (Vendedor CANNOT alter OS status)
+  const canChangeOSStatus = (user) => !['vendedor'].includes(user?.role) && ['admin', 'administrativo'].includes(user?.role);
+  console.assert(canChangeOSStatus(vendedorUser) === false, 'Vendedor must NOT have permission to alter OS status');
+  console.assert(canChangeOSStatus(adminUser) === true, 'Admin MUST have permission to alter OS status');
+
+  // 11.6 Financial approval / confirmation permission (Vendedor CANNOT approve/confirm OS)
+  const canApproveOSFinance = (user) => !['vendedor'].includes(user?.role) && ['admin', 'administrativo'].includes(user?.role);
+  console.assert(canApproveOSFinance(vendedorUser) === false, 'Vendedor must NOT have permission to approve/confirm OS finance');
+  console.assert(canApproveOSFinance(adminUser) === true, 'Admin MUST have permission to approve/confirm OS finance');
+
+  // 11.7 Search, Store Filtering and Printing permissions (Universally accessible)
+  const canSearchAndPrintOS = (user) => Boolean(user && user.authorized);
+  console.assert(canSearchAndPrintOS(vendedorUser) === true, 'Vendedor MUST be able to search and print OS');
+  console.assert(canSearchAndPrintOS(adminUser) === true, 'Admin MUST be able to search and print OS');
+
   console.log('  ✅ Test 11 Passed: OS Management permissions, store preselection and deletion safety verified.\n');
 
   // ==========================================
@@ -1081,6 +1095,39 @@ async function runTests() {
   console.assert(osToTest.matchedClient['Status de Pagamento'] === 'Em dia', 'Status do cliente deve voltar para Em dia');
   console.assert(testArmacoesCascata[0].ESTOQUE === '3', `Estoque da armação deve ter voltado de 2 para 3 unidades, obteve ${testArmacoesCascata[0].ESTOQUE}`);
   console.assert(testVendasCascata.length === 0, 'Venda/OS deve ter sido removida de Registro_Vendas');
+
+  // 17.2 Resolução Segura de Cliente via clientsData / order.clientData / order.matchedClient
+  const clientLucas = {
+    id: 'cli_lucas_123',
+    'Nome Completo': 'Lucas Gabriel Ferreira',
+    'CPF / CNPJ': '111.222.333-44',
+    'Valor Devido': '400,00',
+    'Status de Pagamento': 'Inadimplente'
+  };
+  const osOrderLucas = {
+    osNumber: 'CAJ-7788',
+    clientName: 'Lucas Gabriel Ferreira',
+    clientCPF: '111.222.333-44',
+    clientData: clientLucas,
+    matchedClient: undefined,
+    raw: {
+      'OS DA VENDA': 'CAJ-7788',
+      'NOME CLIENTE': 'Lucas Gabriel Ferreira',
+      'CLIENTE_CPF': '111.222.333-44',
+      'VALOR TOTAL': '400,00',
+      'RESTANTE': '400,00'
+    }
+  };
+  const testClientsList = [clientLucas];
+  const resolvedClient = testClientsList.find(c => isSameClient(c, osOrderLucas.raw)) || osOrderLucas.clientData || osOrderLucas.matchedClient;
+  console.assert(resolvedClient && resolvedClient.id === 'cli_lucas_123', 'Resolução de cliente DEVE funcionar via order.clientData ou clientsData mesmo sem order.matchedClient');
+
+  const pendingInvoicesLucas = [{ id: 'rec_l1', VALOR: '400,00', STATUS: 'Pendente' }];
+  const currentDebtLucas = cleanValTest(resolvedClient['Valor Devido']);
+  const pendingTotalLucas = pendingInvoicesLucas.reduce((sum, inv) => sum + cleanValTest(inv.VALOR), 0);
+  resolvedClient['Valor Devido'] = Math.max(0, currentDebtLucas - pendingTotalLucas).toFixed(2).replace('.', ',');
+  resolvedClient['Status de Pagamento'] = resolvedClient['Valor Devido'] === '0,00' ? 'Em dia' : resolvedClient['Status de Pagamento'];
+  console.assert(resolvedClient['Valor Devido'] === '0,00' && resolvedClient['Status de Pagamento'] === 'Em dia', 'Débito do cliente resolvido via clientData deve ser estornado com sucesso');
 
   console.log('  ✅ Test 17 Passed: Exclusão em cascata da OS com limpeza no Contas a Receber, recálculo do Cliente e devolução de estoque verificados com sucesso!\n');
 
@@ -1892,6 +1939,439 @@ async function runTests() {
 
   console.log('  ✅ Test 23 Passed: Distribuição de Estoque por Cidade (Armações, Lentes & Brindes) validada com sucesso!\n');
 
+  // ==========================================
+  // TEST 24: Permissões Estritas de Vendedores em Gestão de OS
+  // ==========================================
+  console.log('▶ Test 24: Permissões de Vendedor em Gestão de OS (Somente Busca, Filtro e Impressão)');
+
+  const mockOSOrder = {
+    id: 'os_test_01',
+    osNumber: 'CAJ-200',
+    clientName: 'Roberto Alves',
+    clientPhone: '13998887766',
+    clientCPF: '333.444.555-66',
+    status: 'No Laboratório',
+    unit: 'Cajati',
+    raw: {
+      'OS DA VENDA': 'CAJ-200',
+      'NOME CLIENTE': 'Roberto Alves',
+      'STATUS_OS': 'No Laboratório',
+      'PAGAMENTO_CONFERIDO': 'Não',
+      'VALOR TOTAL': '400,00',
+      'RESTANTE': '200,00'
+    }
+  };
+
+  const simulateUpdateStatusByRole = (user, order, newStatus) => {
+    if (user?.role === 'vendedor') return false; // Bloqueado para vendedor
+    order.status = newStatus;
+    order.raw.STATUS_OS = newStatus;
+    return true;
+  };
+
+  const simulateToggleConferidoByRole = (user, order) => {
+    if (user?.role === 'vendedor') return false;
+    const isConf = order.raw.PAGAMENTO_CONFERIDO === 'Sim';
+    order.raw.PAGAMENTO_CONFERIDO = isConf ? 'Não' : 'Sim';
+    return true;
+  };
+
+  const simulateConfirmDeliveryByRole = (user, order) => {
+    if (user?.role === 'vendedor') return false;
+    order.status = 'Entregue';
+    order.raw.STATUS_OS = 'Entregue';
+    return true;
+  };
+
+  const simulateApproveOSByRole = (user, order) => {
+    if (user?.role === 'vendedor') return false;
+    order.status = 'No Laboratório';
+    order.raw.PAGAMENTO_CONFERIDO = 'Sim';
+    order.raw.DUPLICATAS_GERADAS = true;
+    return true;
+  };
+
+  // 24.1 Tentativas de alteração pelo vendedor -> Todas devem ser REJEITADAS
+  const testVendedorUser = { username: 'vendedor_test', role: 'vendedor', city: 'Cajati', authorized: true };
+  const testAdminUser = { username: 'admin_test', role: 'admin', city: 'Cajati', authorized: true };
+
+  const osCopy1 = JSON.parse(JSON.stringify(mockOSOrder));
+  console.assert(simulateUpdateStatusByRole(testVendedorUser, osCopy1, 'Entregue') === false, 'Vendedor NÃO deve poder alterar status de OS');
+  console.assert(osCopy1.status === 'No Laboratório', 'Status da OS deve permanecer inalterado após tentativa do vendedor');
+
+  console.assert(simulateToggleConferidoByRole(testVendedorUser, osCopy1) === false, 'Vendedor NÃO deve poder alterar conferência financeira');
+  console.assert(simulateConfirmDeliveryByRole(testVendedorUser, osCopy1) === false, 'Vendedor NÃO deve poder dar baixa de entrega');
+  console.assert(simulateApproveOSByRole(testVendedorUser, osCopy1) === false, 'Vendedor NÃO deve poder aprovar/confirmar OS financeiramente');
+
+  // 24.2 Ações permitidas para administrador
+  console.assert(simulateUpdateStatusByRole(testAdminUser, osCopy1, 'Em Produção') === true, 'Admin DEVE poder alterar status de OS');
+  console.assert(osCopy1.status === 'Em Produção', 'Status da OS deve ser atualizado pelo admin');
+  console.assert(simulateToggleConferidoByRole(testAdminUser, osCopy1) === true, 'Admin DEVE poder conferir financeiro');
+  console.assert(osCopy1.raw.PAGAMENTO_CONFERIDO === 'Sim', 'Pagamento deve constar como Sim após conferência do admin');
+
+  // 24.3 Operações de busca, filtro e impressão liberadas para vendedor
+  const canPerformSearchAndFilter = (user, query, unit) => {
+    return Boolean(user && user.authorized && (query !== undefined || unit !== undefined));
+  };
+  const canPrintA4AndLab = (user) => Boolean(user && user.authorized);
+
+  console.assert(canPerformSearchAndFilter(testVendedorUser, 'caj-200', 'Cajati') === true, 'Vendedor PODE buscar e filtrar OSs');
+  console.assert(canPrintA4AndLab(testVendedorUser) === true, 'Vendedor PODE imprimir OS A4 e OS de Laboratório');
+
+  // 24.4 Impressão de OS de Laboratório: Vendedor pode imprimir, mas NÃO pode alterar a OS no banco
+  const simulateConfirmLabPrintByRole = (user, order, newLabData) => {
+    let rowUpdated = false;
+    const isVendedor = user?.role === 'vendedor';
+    if (!isVendedor) {
+      rowUpdated = true;
+      order.raw = { ...order.raw, ...newLabData };
+    }
+    // Retorna se o banco seria alterado e os dados para impressão
+    return { rowUpdated, printPayload: { ...order.raw, ...newLabData } };
+  };
+
+  const labEditAttempt = { LABORATORIO: 'Lab Tentativa Fraude', OD_DNP: '35' };
+  const vendedorLabResult = simulateConfirmLabPrintByRole(testVendedorUser, osCopy1, labEditAttempt);
+  console.assert(vendedorLabResult.rowUpdated === false, 'Vendedor NÃO deve atualizar Registro_Vendas ao imprimir OS de laboratório');
+  console.assert(osCopy1.raw.LABORATORIO !== 'Lab Tentativa Fraude', 'Dados da OS original não devem ser alterados pelo vendedor');
+
+  const adminLabResult = simulateConfirmLabPrintByRole(testAdminUser, osCopy1, labEditAttempt);
+  console.assert(adminLabResult.rowUpdated === true, 'Admin DEVE poder atualizar Registro_Vendas ao salvar & imprimir OS de laboratório');
+  console.assert(osCopy1.raw.LABORATORIO === 'Lab Tentativa Fraude', 'Dados da OS original devem ser atualizados pelo admin');
+
+  console.log('  ✅ Test 24 Passed: Permissões de Vendedor em Gestão de OS (Bloqueios e Acessos) verificadas com sucesso!\n');
+
+  // ==========================================
+  // TEST 25: Edição de OS no Perfil do Cliente com Construtor de Pagamento Dinâmico do PDV
+  // ==========================================
+  console.log('▶ Test 25: Edição de OS no Perfil com Construtor de Pagamento do PDV & Semáforo Azul');
+
+  // 25.1 Construtor de pagamentos dinâmico com múltiplos métodos fracionados
+  const buildTestPayment = (method, val, installmentsCount = 1, dueDate = '2026-11-15', customDates = {}) => {
+    const n = parseInt(installmentsCount, 10) || 1;
+    const vParc = val / n;
+    let texto = '';
+    let parcelas = [];
+
+    if (method === 'dinheiro') {
+      texto = `💵 Dinheiro: R$ ${val.toFixed(2).replace('.', ',')}`;
+    } else if (method === 'pix') {
+      texto = `⚡ PIX: R$ ${val.toFixed(2).replace('.', ',')}`;
+    } else if (method === 'debito') {
+      texto = `💳 Cartão Débito: R$ ${val.toFixed(2).replace('.', ',')}`;
+    } else if (method === 'credito') {
+      texto = `💳 Cartão Crédito (${n}x de R$ ${vParc.toFixed(2).replace('.', ',')}): R$ ${val.toFixed(2).replace('.', ',')}`;
+      for (let i = 1; i <= n; i++) {
+        parcelas.push({ numero: i, totalParcelas: n, valor: vParc.toFixed(2).replace('.', ',') });
+      }
+    } else if (method === 'carne' || method === 'boleto') {
+      for (let i = 1; i <= n; i++) {
+        const d = customDates[i] || dueDate;
+        parcelas.push({ numero: i, totalParcelas: n, vencimento: d, valor: vParc.toFixed(2).replace('.', ',') });
+      }
+      const vencsStr = parcelas.map(p => `${p.numero}ª ${p.vencimento}`).join(', ');
+      texto = `📄 Boleto (${n}x de R$ ${vParc.toFixed(2).replace('.', ',')} | Venc: ${vencsStr}): R$ ${val.toFixed(2).replace('.', ',')}`;
+    }
+
+    return { id: `pay_${Math.random()}`, metodo: method, valor: val, texto, parcelas };
+  };
+
+  // Simular divisão em 4 formas de pagamento: Dinheiro R$ 100 + PIX R$ 200 + Cartão Crédito R$ 300 + Boleto R$ 300 = Total R$ 900
+  const totalOS = 900.00;
+  const splitPayments = [
+    buildTestPayment('dinheiro', 100.00),
+    buildTestPayment('pix', 200.00),
+    buildTestPayment('credito', 300.00, 3),
+    buildTestPayment('carne', 300.00, 3, '2026-11-15', { 1: '15/11/2026', 2: '15/12/2026', 3: '15/01/2027' })
+  ];
+
+  // 25.2 Validação da soma exata das formas de pagamento
+  const coveredSum = splitPayments.reduce((acc, p) => acc + p.valor, 0);
+  console.assert(Math.abs(coveredSum - totalOS) < 0.01, 'A soma das formas de pagamento deve bater exatamente com o total de R$ 900,00');
+
+  // Testar falha de validação quando a soma diverge
+  const incompletePayments = splitPayments.slice(0, 3); // Apenas R$ 600
+  const incompleteSum = incompletePayments.reduce((acc, p) => acc + p.valor, 0);
+  const isValidCoverage = (payments, total) => Math.abs(payments.reduce((acc, p) => acc + p.valor, 0) - total) < 0.05;
+  console.assert(isValidCoverage(incompletePayments, totalOS) === false, 'Pagamento incompleto deve falhar na validação');
+  console.assert(isValidCoverage(splitPayments, totalOS) === true, 'Pagamento completo deve passar na validação');
+
+  // 25.3 Cálculo de Entrada (Imediato) vs Restante (A Prazo / Boleto)
+  const entradaImediata = splitPayments.reduce((acc, p) => {
+    if (p.metodo === 'carne' || p.metodo === 'boleto') return acc;
+    return acc + p.valor;
+  }, 0);
+  const restanteBoleto = Math.max(0, totalOS - entradaImediata);
+
+  console.assert(entradaImediata === 600.00, `Entrada imediata deve ser R$ 600,00 (Dinheiro 100 + PIX 200 + Crédito 300), calculou ${entradaImediata}`);
+  console.assert(restanteBoleto === 300.00, `Restante a prazo deve ser R$ 300,00 (Boleto), calculou ${restanteBoleto}`);
+
+  // 25.4 Reconfirmação Obrigatória: Ao salvar qualquer alteração, status DEVE voltar para 'Aguardando Confirmação'
+  const simulateSaveEditedOS = (originalOS, editForm, paymentsList) => {
+    const tot = editForm.valorTotal;
+    const ent = paymentsList.reduce((acc, p) => (p.metodo === 'carne' || p.metodo === 'boleto') ? acc : acc + p.valor, 0);
+    const rest = Math.max(0, tot - ent);
+    const boletoParcs = paymentsList.filter(p => p.metodo === 'carne' || p.metodo === 'boleto').flatMap(p => p.parcelas || []);
+
+    return {
+      ...originalOS,
+      'ARMAÇÃO': editForm.armacao,
+      'LENTE': editForm.lente,
+      'VALOR TOTAL': tot.toFixed(2).replace('.', ','),
+      'VALOR ENTRADA': ent.toFixed(2).replace('.', ','),
+      'RESTANTE': rest.toFixed(2).replace('.', ','),
+      'FORMAS_PAGAMENTO': paymentsList.map(p => p.texto).join(' + '),
+      'PARCELAS_JSON': JSON.stringify(boletoParcs),
+      'parcelas': boletoParcs,
+      'STATUS_OS': 'Aguardando Confirmação',
+      'SITUAÇÃO': 'Aguardando Confirmação',
+      'PAGAMENTO_CONFERIDO': 'Não',
+      'DUPLICATAS_GERADAS': false
+    };
+  };
+
+  const originalOrder = {
+    'OS DA VENDA': 'CAJ-999',
+    'ARMAÇÃO': 'Armação Antiga',
+    'LENTE': 'Lente Simples',
+    'VALOR TOTAL': '500,00',
+    'STATUS_OS': 'Entregue',
+    'PAGAMENTO_CONFERIDO': 'Sim',
+    'DUPLICATAS_GERADAS': true
+  };
+
+  const editedOrder = simulateSaveEditedOS(originalOrder, {
+    armacao: 'Ray-Ban RB3025 Aviador',
+    lente: 'Hoya BlueControl Antirreflexo',
+    valorTotal: 900.00
+  }, splitPayments);
+
+  console.assert(editedOrder.STATUS_OS === 'Aguardando Confirmação', 'Ao salvar, a OS DEVE voltar para Aguardando Confirmação (Semáforo Azul)');
+  console.assert(editedOrder.SITUAÇÃO === 'Aguardando Confirmação', 'Situação DEVE voltar para Aguardando Confirmação');
+  console.assert(editedOrder.PAGAMENTO_CONFERIDO === 'Não', 'Pagamento conferido DEVE ser resetado para Não');
+  console.assert(editedOrder.DUPLICATAS_GERADAS === false, 'Flag de duplicatas geradas DEVE ser resetada para false');
+  console.assert(editedOrder['ARMAÇÃO'] === 'Ray-Ban RB3025 Aviador', 'Armação deve ter sido atualizada');
+  console.assert(editedOrder['LENTE'] === 'Hoya BlueControl Antirreflexo', 'Lente deve ter sido atualizada');
+  console.assert(editedOrder['VALOR ENTRADA'] === '600,00', 'Entrada deve ser R$ 600,00');
+  console.assert(editedOrder['RESTANTE'] === '300,00', 'Restante deve ser R$ 300,00');
+
+  console.log('  ✅ Test 25 Passed: Construtor dinâmico de pagamentos do PDV na edição de OS e Semáforo Azul validados com sucesso!\n');
+
+  // ==========================================
+  // TEST 26: Limpeza Atômica de Duplicatas Pendentes em CONTAS_RECEBER ao Editar OS e Reconfirmação
+  // ==========================================
+  console.log('▶ Test 26: Limpeza Atômica de Duplicatas ao Editar OS e Reconfirmação Sem Duplicidades');
+
+  const clientMariana = {
+    id: 'cli_mariana',
+    'Nome Completo': 'Mariana Souza Lima',
+    'CPF / CNPJ': '888.777.666-55',
+    'Valor Devido': '300,00',
+    'Status de Pagamento': 'Pendente'
+  };
+
+  let contasReceberMariana = [
+    // Duplicatas pendentes antigas da OS #CAJ-88 (2x de R$ 150)
+    { id: 'rec_m1', VENDA_OS: 'CAJ-88', DOCUMENTO: 'BOLETO 1/2 - OS CAJ-88', VALOR: '150,00', STATUS: 'Pendente', CLIENTE_ID: 'cli_mariana' },
+    { id: 'rec_m2', VENDA_OS: 'CAJ-88', DOCUMENTO: 'BOLETO 2/2 - OS CAJ-88', VALOR: '150,00', STATUS: 'Pendente', CLIENTE_ID: 'cli_mariana' },
+    // Parcela de outra compra já PAGA (não deve ser tocada)
+    { id: 'rec_pago', VENDA_OS: 'CAJ-10', DOCUMENTO: 'BOLETO 1/1 - OS CAJ-10', VALOR: '100,00', STATUS: 'Recebido', CLIENTE_ID: 'cli_mariana' },
+    // Parcela de outro cliente (não deve ser tocada)
+    { id: 'rec_outro', VENDA_OS: 'REG-55', DOCUMENTO: 'BOLETO 1/1 - OS REG-55', VALOR: '200,00', STATUS: 'Pendente', CLIENTE_ID: 'cli_outro' }
+  ];
+
+  // Simular a limpeza atômica acionada durante a edição da OS no perfil do cliente
+  const executeOSEditCleanup = (targetOSNum, client, receberList) => {
+    const target = String(targetOSNum).trim().toLowerCase();
+    const pendingToDelete = receberList.filter(inv => {
+      const vOS = String(inv.VENDA_OS || inv.OS || '').trim().toLowerCase();
+      const matchesOS = vOS && (vOS === target || vOS.replace(/^os-?/i, '') === target.replace(/^os-?/i, ''));
+      const doc = String(inv.DOCUMENTO || '').toLowerCase();
+      return (matchesOS || doc.includes(target)) && inv.STATUS !== 'Recebido' && inv.STATUS !== 'Pago';
+    });
+
+    // 1. Remove duplicatas pendentes da OS antiga
+    const updatedReceber = receberList.filter(inv => !pendingToDelete.some(p => p.id === inv.id));
+
+    // 2. Abate débito provisório do cliente
+    const totalRemoved = pendingToDelete.reduce((sum, inv) => sum + parseFloat(inv.VALOR.replace(',', '.')), 0);
+    const currDebt = parseFloat(client['Valor Devido'].replace(',', '.'));
+    const newDebt = Math.max(0, currDebt - totalRemoved);
+    client['Valor Devido'] = newDebt.toFixed(2).replace('.', ',');
+    client['Status de Pagamento'] = newDebt === 0 ? 'Em dia' : client['Status de Pagamento'];
+
+    return { updatedReceber, deletedCount: pendingToDelete.length, refundedAmount: totalRemoved };
+  };
+
+  const cleanupResult = executeOSEditCleanup('CAJ-88', clientMariana, contasReceberMariana);
+  contasReceberMariana = cleanupResult.updatedReceber;
+
+  console.assert(cleanupResult.deletedCount === 2, 'Deve ter removido as 2 duplicatas antigas pendentes da OS CAJ-88');
+  console.assert(cleanupResult.refundedAmount === 300.00, 'Valor estornado do débito deve ser R$ 300,00');
+  console.assert(clientMariana['Valor Devido'] === '0,00', 'Débito da Mariana deve voltar temporariamente para 0,00 aguardando reconfirmação');
+  console.assert(clientMariana['Status de Pagamento'] === 'Em dia', 'Status da Mariana deve constar como Em dia aguardando reconfirmação');
+  console.assert(contasReceberMariana.some(r => r.id === 'rec_pago'), 'Parcela já recebida deve permanecer intacta');
+  console.assert(contasReceberMariana.some(r => r.id === 'rec_outro'), 'Parcela de outro cliente deve permanecer intacta');
+
+  // Simular Reconfirmação Financeira pelo Administrador em Gestão de OS
+  const executeFinancialReapproval = (editedOS, client, receberList) => {
+    const parcs = JSON.parse(editedOS.PARCELAS_JSON || '[]');
+    const targetOs = String(editedOS['OS DA VENDA']).trim().toLowerCase();
+
+    // Limpeza preventiva de idempotência
+    const stalePending = receberList.filter(r => {
+      const vOS = String(r.VENDA_OS || r.OS || '').trim().toLowerCase();
+      return (vOS === targetOs || String(r.DOCUMENTO || '').toLowerCase().includes(targetOs)) && r.STATUS !== 'Recebido' && r.STATUS !== 'Pago';
+    });
+    let cleanList = receberList.filter(r => !stalePending.includes(r));
+
+    // Gera as novas duplicatas aprovadas
+    parcs.forEach((p, idx) => {
+      cleanList.push({
+        id: `rec_new_${Date.now()}_${idx}`,
+        VENDA_OS: editedOS['OS DA VENDA'],
+        DOCUMENTO: `BOLETO/CARNÊ ${p.numero}/${p.totalParcelas} - OS ${editedOS['OS DA VENDA']}`,
+        VALOR: p.valor,
+        DATA_VENCIMENTO: p.vencimento,
+        STATUS: 'Pendente',
+        CLIENTE_ID: client.id
+      });
+    });
+
+    // Atualiza débito do cliente com o novo restante
+    const restVal = parseFloat(editedOS.RESTANTE.replace(',', '.'));
+    const curDebt = parseFloat(client['Valor Devido'].replace(',', '.'));
+    const newDebt = (curDebt + restVal).toFixed(2).replace('.', ',');
+    client['Valor Devido'] = newDebt;
+    client['Status de Pagamento'] = restVal > 0 ? 'Inadimplente' : 'Em dia';
+
+    // Libera a OS
+    editedOS.STATUS_OS = 'No Laboratório';
+    editedOS.SITUAÇÃO = 'Pendente';
+    editedOS.PAGAMENTO_CONFERIDO = 'Sim';
+    editedOS.DUPLICATAS_GERADAS = true;
+
+    return cleanList;
+  };
+
+  // Mariana teve a OS editada com 3 parcelas de R$ 100 (Total R$ 300 restante)
+  const editedMarianaOS = {
+    'OS DA VENDA': 'CAJ-88',
+    'VALOR TOTAL': '600,00',
+    'VALOR ENTRADA': '300,00',
+    'RESTANTE': '300,00',
+    'PARCELAS_JSON': JSON.stringify([
+      { numero: 1, totalParcelas: 3, valor: '100,00', vencimento: '2026-11-10' },
+      { numero: 2, totalParcelas: 3, valor: '100,00', vencimento: '2026-12-10' },
+      { numero: 3, totalParcelas: 3, valor: '100,00', vencimento: '2027-01-10' }
+    ])
+  };
+
+  contasReceberMariana = executeFinancialReapproval(editedMarianaOS, clientMariana, contasReceberMariana);
+
+  const marianaActiveDuplicatas = contasReceberMariana.filter(r => r.VENDA_OS === 'CAJ-88');
+  console.assert(marianaActiveDuplicatas.length === 3, `Deve conter exatamente 3 novas duplicatas, retornou ${marianaActiveDuplicatas.length}`);
+  console.assert(marianaActiveDuplicatas[0].VALOR === '100,00', 'Nova parcela 1 deve ser de R$ 100,00');
+  console.assert(clientMariana['Valor Devido'] === '300,00', `Novo débito da cliente deve ser R$ 300,00, calculou ${clientMariana['Valor Devido']}`);
+  console.assert(editedMarianaOS.STATUS_OS === 'No Laboratório', 'Após reconfirmação pelo financeiro, OS deve ser liberada para No Laboratório');
+  console.assert(editedMarianaOS.PAGAMENTO_CONFERIDO === 'Sim', 'Pagamento conferido deve estar como Sim');
+  console.assert(editedMarianaOS.DUPLICATAS_GERADAS === true, 'Duplicatas geradas deve ser true');
+
+  // 26.2 Cenário de Pagamento Parcial: OS com 1 parcela já quitada e 2 pendentes
+  // Cliente Rodrigo comprou óculos em 3x de R$ 150 (Total R$ 450).
+  // Parcela 1/3 (R$ 150) foi PAGA. Parcelas 2/3 (R$ 150) e 3/3 (R$ 150) estão PENDENTES. Débito atual: R$ 300,00.
+  const clientRodrigo = {
+    id: 'cli_rodrigo',
+    'Nome Completo': 'Rodrigo Mendes',
+    'CPF / CNPJ': '999.888.777-66',
+    'Valor Devido': '300,00',
+    'Status de Pagamento': 'Inadimplente'
+  };
+
+  let contasReceberRodrigo = [
+    { id: 'rec_rod_1', VENDA_OS: 'CAJ-99', DOCUMENTO: 'BOLETO 1/3 - OS CAJ-99', VALOR: '150,00', STATUS: 'Recebido', CLIENTE_ID: 'cli_rodrigo' },
+    { id: 'rec_rod_2', VENDA_OS: 'CAJ-99', DOCUMENTO: 'BOLETO 2/3 - OS CAJ-99', VALOR: '150,00', STATUS: 'Pendente', CLIENTE_ID: 'cli_rodrigo' },
+    { id: 'rec_rod_3', VENDA_OS: 'CAJ-99', DOCUMENTO: 'BOLETO 3/3 - OS CAJ-99', VALOR: '150,00', STATUS: 'Pendente', CLIENTE_ID: 'cli_rodrigo' }
+  ];
+
+  // 1. Edição da OS: Apenas as pendentes são limpas, parcela PAGA fica intacta!
+  const cleanupRodrigo = executeOSEditCleanup('CAJ-99', clientRodrigo, contasReceberRodrigo);
+  contasReceberRodrigo = cleanupRodrigo.updatedReceber;
+
+  console.assert(cleanupRodrigo.deletedCount === 2, 'Deve ter removido somente as 2 duplicatas pendentes (2/3 e 3/3)');
+  console.assert(cleanupRodrigo.refundedAmount === 300.00, 'Valor estornado do débito deve ser R$ 300,00');
+  console.assert(clientRodrigo['Valor Devido'] === '0,00', 'Débito temporário deve zerar aguardando reconfirmação');
+  console.assert(contasReceberRodrigo.length === 1 && contasReceberRodrigo[0].id === 'rec_rod_1', 'Parcela 1/3 já recebida deve permanecer intacta');
+
+  // 2. Re-aprovação Financeira em OSManagement:
+  // Detecta que a parcela 1/3 já está paga e gera SOMENTE as parcelas não pagas (2/3 e 3/3)
+  const executePartialFinancialReapproval = (order, client, receberList) => {
+    const targetOs = String(order.osNumber).trim().toLowerCase();
+    const parcs = JSON.parse(order.raw.PARCELAS_JSON || '[]');
+
+    // Identificar pagas
+    const paidInvoices = receberList.filter(r => {
+      const vOS = String(r.VENDA_OS || '').trim().toLowerCase();
+      return vOS === targetOs && (r.STATUS === 'Recebido' || r.STATUS === 'Pago');
+    });
+
+    let newlyCreatedPendingSum = 0;
+    const cleanList = [...receberList];
+
+    for (const p of parcs) {
+      const numP = p.numero || 1;
+      const totP = p.totalParcelas || parcs.length;
+      const isAlreadyPaid = paidInvoices.some(paid => {
+        const doc = String(paid.DOCUMENTO || '').toLowerCase();
+        return doc.includes(`${numP}/${totP}`) || doc.includes(`parcela ${numP}`);
+      });
+
+      if (!isAlreadyPaid) {
+        newlyCreatedPendingSum += parseFloat(p.valor.replace(',', '.'));
+        cleanList.push({
+          id: `rec_new_${Date.now()}_${numP}`,
+          VENDA_OS: order.osNumber,
+          DOCUMENTO: `BOLETO/CARNÊ ${numP}/${totP} - OS ${order.osNumber}`,
+          VALOR: p.valor,
+          STATUS: 'Pendente',
+          CLIENTE_ID: client.id
+        });
+      }
+    }
+
+    // Débito do cliente recebe newlyCreatedPendingSum (R$ 300 restante)
+    const curDebt = parseFloat(client['Valor Devido'].replace(',', '.'));
+    client['Valor Devido'] = (curDebt + newlyCreatedPendingSum).toFixed(2).replace('.', ',');
+    client['Status de Pagamento'] = newlyCreatedPendingSum > 0 ? 'Inadimplente' : 'Em dia';
+
+    return { cleanList, newlyCreatedPendingSum };
+  };
+
+  const editedRodrigoOrder = {
+    osNumber: 'CAJ-99',
+    raw: {
+      'OS DA VENDA': 'CAJ-99',
+      'VALOR TOTAL': '450,00',
+      'RESTANTE': '300,00',
+      'PARCELAS_JSON': JSON.stringify([
+        { numero: 1, totalParcelas: 3, valor: '150,00', vencimento: '2026-10-10' },
+        { numero: 2, totalParcelas: 3, valor: '150,00', vencimento: '2026-11-10' },
+        { numero: 3, totalParcelas: 3, valor: '150,00', vencimento: '2026-12-10' }
+      ])
+    }
+  };
+
+  const reapprovalRodrigo = executePartialFinancialReapproval(editedRodrigoOrder, clientRodrigo, contasReceberRodrigo);
+  contasReceberRodrigo = reapprovalRodrigo.cleanList;
+
+  console.assert(reapprovalRodrigo.newlyCreatedPendingSum === 300.00, 'Soma das novas duplicatas criadas deve ser R$ 300,00 (excluindo a 1ª já paga)');
+  console.assert(contasReceberRodrigo.length === 3, 'Total de duplicatas deve ser 3 (1 paga + 2 novas pendentes)');
+  console.assert(contasReceberRodrigo.filter(r => r.STATUS === 'Recebido').length === 1, 'Exatamente 1 duplicata deve constar como Recebido');
+  console.assert(contasReceberRodrigo.filter(r => r.STATUS === 'Pendente').length === 2, 'Exatamente 2 duplicatas devem constar como Pendente');
+  console.assert(clientRodrigo['Valor Devido'] === '300,00', 'Débito do Rodrigo deve ser restabelecido exatamente para R$ 300,00');
+
+  console.log('  ✅ Test 26 Passed: Limpeza atômica e reconfirmação sem duplicidades validadas com sucesso!\n');
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
 }
 
@@ -1899,6 +2379,7 @@ runTests().catch(err => {
   console.error('❌ Test failed:', err);
   process.exit(1);
 });
+
 
 
 

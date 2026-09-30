@@ -61,6 +61,23 @@ const parseCurrency = (val) => {
   return isNaN(num) ? 0 : num;
 };
 
+export const isMatchingOS = (inv, targetOs) => {
+  if (!inv || !targetOs) return false;
+  const target = String(targetOs).trim().toLowerCase();
+  if (!target || target === '—') return false;
+  const targetPure = target.replace(/^os-?/i, '');
+  const vOS = String(inv.VENDA_OS || inv.venda_os || inv.OS || inv.os || '').trim().toLowerCase();
+  if (vOS) {
+    if (vOS === target || vOS.replace(/^os-?/i, '') === targetPure) return true;
+  }
+  const doc = String(inv.DOCUMENTO || inv.documento || '').toLowerCase();
+  const desc = String(inv.DESCRICAO || inv.descricao || '').toLowerCase();
+  if (targetPure && (doc.includes(`os #${targetPure}`) || doc.includes(`os ${targetPure}`) || doc.includes(`os-${targetPure}`) || desc.includes(`os #${targetPure}`) || desc.includes(`os ${targetPure}`) || desc.includes(`os-${targetPure}`))) {
+    return true;
+  }
+  return doc.includes(target) || desc.includes(target);
+};
+
 const ClientProfileModal = ({ 
   isOpen, 
   onClose, 
@@ -78,6 +95,7 @@ const ClientProfileModal = ({
   receberData = [], 
   onUpdateRow,
   onAddRow,
+  onDeleteRow,
   onUpdateSale
 }) => {
   const [currentClient, setCurrentClient] = useState(clientData);
@@ -100,16 +118,71 @@ const ClientProfileModal = ({
     setLocalHistory(clientHistory);
   }, [clientHistory]);
 
-  const handleSaveOS = (updatedRow) => {
-    if (onUpdateSale && editingOS) {
-      onUpdateSale(editingOS, updatedRow);
-    } else if (onUpdateRow && editingOS) {
-      onUpdateRow('Registro_Vendas', editingOS, updatedRow);
+  const handleSaveOS = async (updatedRow) => {
+    // 1. Garantir que a OS volte obrigatoriamente para "Aguardando Confirmação" (Semáforo Azul)
+    const finalizedRow = {
+      ...updatedRow,
+      'STATUS_OS': 'Aguardando Confirmação',
+      'SITUAÇÃO': 'Aguardando Confirmação',
+      'PAGAMENTO_CONFERIDO': 'Não',
+      'DUPLICATAS_GERADAS': false
+    };
+
+    // 2. Limpeza atômica de parcelas antigas/duplicatas pendentes em CONTAS_RECEBER vinculadas a esta OS
+    const osNum = String(editingOS?.['OS DA VENDA'] || editingOS?.['OS'] || editingOS?.['VENDA_OS'] || editingOS?.['OS da COMPRA'] || '').trim();
+    if (osNum && osNum !== '—' && Array.isArray(receberData) && receberData.length > 0) {
+      const targetOS = osNum.toLowerCase();
+      const pendingInvoices = receberData.filter(inv => {
+        return isMatchingOS(inv, targetOS) && inv.STATUS !== 'Recebido' && inv.STATUS !== 'Pago';
+      });
+
+      if (onDeleteRow && pendingInvoices.length > 0) {
+        for (const inv of pendingInvoices) {
+          try {
+            await onDeleteRow('CONTAS_RECEBER', inv);
+          } catch (delErr) {
+            console.warn('Erro ao remover duplicata pendente da OS antiga:', delErr);
+          }
+        }
+      }
+
+      // Se havia duplicatas pendentes, ajusta o débito do cliente para não haver cobrança dupla
+      const totalRemoved = pendingInvoices.reduce((sum, inv) => sum + parseCurrency(inv.VALOR), 0);
+      if (totalRemoved > 0 && currentClient && onUpdateRow) {
+        const curDebt = parseCurrency(currentClient['Valor Devido']);
+        const newDebt = Math.max(0, curDebt - totalRemoved);
+        const updatedClient = {
+          ...currentClient,
+          'Valor Devido': newDebt.toFixed(2).replace('.', ','),
+          'Status de Pagamento': newDebt === 0 ? 'Em dia' : currentClient['Status de Pagamento']
+        };
+        try {
+          await onUpdateRow('CLIENTES_CADASTRADOS', currentClient, updatedClient);
+          setCurrentClient(updatedClient);
+          if (onUpdateClient) {
+            onUpdateClient({ oldRow: currentClient, newRow: updatedClient });
+          }
+        } catch (debtErr) {
+          console.warn('Erro ao atualizar débito do cliente na reconfirmação da OS:', debtErr);
+        }
+      }
     }
-    setLocalHistory(prev => prev.map(item => item === editingOS ? updatedRow : item));
+
+    if (onUpdateSale && editingOS) {
+      await onUpdateSale(editingOS, finalizedRow);
+    } else if (onUpdateRow && editingOS) {
+      await onUpdateRow('Registro_Vendas', editingOS, finalizedRow);
+    }
+    setLocalHistory(prev => prev.map(item => {
+      const isThis = item === editingOS ||
+        (item.id && item.id === editingOS?.id) ||
+        (item['OS DA VENDA'] && item['OS DA VENDA'] === editingOS?.['OS DA VENDA']) ||
+        (item['OS'] && item['OS'] === editingOS?.['OS']);
+      return isThis ? finalizedRow : item;
+    }));
     setEditingOS(null);
     setOsSuccessMessage(true);
-    setTimeout(() => setOsSuccessMessage(false), 4000);
+    setTimeout(() => setOsSuccessMessage(false), 5000);
   };
 
   // Formulário de Edição Interna no Modal
@@ -1676,6 +1749,7 @@ const ClientProfileModal = ({
         onClose={() => setEditingOS(null)}
         osData={editingOS}
         clientData={currentClient}
+        currentUser={currentUser}
         onSave={handleSaveOS}
       />
       {/* Toast de Sucesso da OS */}
@@ -1685,10 +1759,10 @@ const ClientProfileModal = ({
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="fixed top-6 left-1/2 -translate-x-1/2 z-[99999] bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-2 text-xs uppercase tracking-wider"
+            className="fixed top-6 left-1/2 -translate-x-1/2 z-[99999] bg-gradient-to-r from-sky-500 via-teal-500 to-emerald-500 text-slate-950 font-black px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-2 text-xs uppercase tracking-wider"
           >
             <CheckCircle2 size={18} />
-            <span>Dados da Ordem de Serviço atualizados com sucesso!</span>
+            <span>OS atualizada com sucesso! Enviada para Aguardando Confirmação do Financeiro.</span>
           </motion.div>
         )}
       </AnimatePresence>

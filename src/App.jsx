@@ -869,6 +869,7 @@ function App() {
             onDeleteSale={(saleToDelete) => handleDeleteRow(data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING', saleToDelete)}
             onAddRow={handleAddRow}
             onUpdateRow={handleRowUpdate}
+            onDeleteRow={handleDeleteRow}
             onBack={() => setView(currentUser?.role === 'vendedor' ? 'pos' : 'dashboard')} 
           />
         ) : view === 'erp' ? (

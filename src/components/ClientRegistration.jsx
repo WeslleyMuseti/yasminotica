@@ -139,7 +139,7 @@ const checkClientDuplicate = (form, editingClient, clients) => {
   };
 };
 
-const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesData = [], armacoesData = [], receberData = [], onAddClient, onUpdateClient, onDeleteClient, onAddSale, onUpdateSale, onDeleteSale, onAddRow, onUpdateRow, onBack, initialTab = 'todos' }) => {
+const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesData = [], armacoesData = [], receberData = [], onAddClient, onUpdateClient, onDeleteClient, onAddSale, onUpdateSale, onDeleteSale, onAddRow, onUpdateRow, onDeleteRow, onBack, initialTab = 'todos' }) => {
   const [activeTab, setActiveTab] = useState(() => initialTab === 'novo' ? 'todos' : initialTab);
   const [osClientData, setOsClientData] = useState(null);
   const [osDataForPrint, setOsDataForPrint] = useState(null);
@@ -1745,7 +1745,12 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
         clientData={profileClientData}
         currentUser={currentUser}
         onDeleteClient={onDeleteClient}
+        onUpdateClient={onUpdateClient}
         clientHistory={salesData.filter(sale => isSameClient(profileClientData, sale))}
+        receberData={receberData}
+        onUpdateRow={onUpdateRow}
+        onDeleteRow={onDeleteRow}
+        onAddRow={onAddRow}
         onUpdateSale={(oldSale, updatedSale) => {
           if (onUpdateSale) {
             onUpdateSale(oldSale, updatedSale);

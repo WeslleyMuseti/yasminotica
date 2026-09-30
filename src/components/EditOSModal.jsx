@@ -9,22 +9,34 @@ import {
   DollarSign, 
   PackageCheck, 
   AlertCircle,
-  Building2,
-  User,
-  Stethoscope,
-  Glasses
+  Building2, 
+  User, 
+  Stethoscope, 
+  Glasses,
+  Plus,
+  Trash2,
+  CheckCircle2,
+  AlertTriangle,
+  CreditCard,
+  QrCode,
+  FileText,
+  ShieldCheck,
+  Clock,
+  AlertOctagon
 } from 'lucide-react';
 
-const parseCurrency = (val) => {
-  if (val === null || val === undefined || val === '') return 0;
-  if (typeof val === 'number') return isNaN(val) ? 0 : val;
-  let str = String(val).replace(/R\$\s?/g, '').trim();
+const cleanVal = (v) => {
+  if (v === null || v === undefined || v === '') return 0;
+  if (typeof v === 'number') return isNaN(v) ? 0 : v;
+  let str = String(v).replace(/R\$\s?/g, '').trim();
   if (!str) return 0;
   if (str.includes(',')) {
     str = str.replace(/\./g, '').replace(',', '.');
-  } else {
-    const dotCount = (str.match(/\./g) || []).length;
-    if (dotCount > 1) {
+  } else if (str.includes('.')) {
+    const parts = str.split('.');
+    if (parts.length === 2 && parts[1].length === 3 && parts[0].length >= 1) {
+      str = parts.join('');
+    } else if (parts.length > 2) {
       str = str.replace(/\./g, '');
     }
   }
@@ -32,8 +44,122 @@ const parseCurrency = (val) => {
   return isNaN(parsed) ? 0 : parsed;
 };
 
-const formatCurrency = (val) => {
-  return Number(val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }).replace('R$', '').trim();
+const fmtMoeda = (v) => `R$ ${Number(cleanVal(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const formatMoney = (val) => {
+  return Number(cleanVal(val) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+const parseCurrency = cleanVal;
+
+const formatSafeDate = (dStr) => {
+  if (!dStr) return new Date().toLocaleDateString('pt-BR');
+  if (dStr.includes('/')) return dStr;
+  const parts = dStr.split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  return dStr;
+};
+
+const getInstallmentDate = (firstDateStr, offset) => {
+  if (!firstDateStr) {
+    const d = new Date();
+    d.setDate(d.getDate() + 30 * (offset + 1));
+    return d.toISOString().split('T')[0];
+  }
+  const parts = firstDateStr.split('-');
+  if (parts.length === 3) {
+    const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    d.setMonth(d.getMonth() + offset);
+    return d.toISOString().split('T')[0];
+  }
+  return firstDateStr;
+};
+
+const buildPaymentObject = (method, val, cashReceivedVal, installmentsCount, dueDate, customDates = {}) => {
+  let texto = '';
+  let parcelasDetalhe = [];
+  let trocoLocal = 0;
+  const n = parseInt(installmentsCount, 10) || 1;
+  const valorNumerico = Math.max(0, cleanVal(val));
+
+  if (method === 'dinheiro') {
+    const recebido = cleanVal(cashReceivedVal) || valorNumerico;
+    trocoLocal = Math.max(0, recebido - valorNumerico);
+    texto = `💵 Dinheiro: ${fmtMoeda(valorNumerico)}${trocoLocal > 0 ? ` (Recebido: ${fmtMoeda(recebido)} | Troco: ${fmtMoeda(trocoLocal)})` : ''}`;
+  } else if (method === 'pix') {
+    texto = `⚡ PIX: ${fmtMoeda(valorNumerico)}`;
+  } else if (method === 'debito') {
+    texto = `💳 Cartão Débito: ${fmtMoeda(valorNumerico)}`;
+  } else if (method === 'credito') {
+    const vParc = n > 0 ? valorNumerico / n : valorNumerico;
+    if (n > 1) {
+      for (let i = 1; i <= n; i++) {
+        parcelasDetalhe.push({
+          numero: i,
+          totalParcelas: n,
+          valor: vParc.toFixed(2).replace('.', ',')
+        });
+      }
+      texto = `💳 Cartão Crédito (${n}x de ${fmtMoeda(vParc)}): ${fmtMoeda(valorNumerico)}`;
+    } else {
+      texto = `💳 Cartão Crédito (1x à vista): ${fmtMoeda(valorNumerico)}`;
+    }
+  } else if (method === 'carne' || method === 'boleto') {
+    const vParc = n > 0 ? valorNumerico / n : valorNumerico;
+    for (let i = 1; i <= n; i++) {
+      const rawDue = customDates[i] || getInstallmentDate(dueDate, i - 1);
+      const formattedDue = formatSafeDate(rawDue);
+      parcelasDetalhe.push({
+        numero: i,
+        totalParcelas: n,
+        vencimento: formattedDue,
+        valor: vParc.toFixed(2).replace('.', ',')
+      });
+    }
+    const vencsTexto = parcelasDetalhe.map(p => `${p.numero}ª ${p.vencimento}`).join(', ');
+    texto = `📄 Boleto (${n}x de ${fmtMoeda(vParc)} | Venc: ${vencsTexto}): ${fmtMoeda(valorNumerico)}`;
+  }
+
+  return {
+    id: `pay_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+    metodo: method,
+    valor: valorNumerico,
+    texto,
+    parcelas: parcelasDetalhe,
+    troco: trocoLocal,
+    valorRecebido: cleanVal(cashReceivedVal)
+  };
+};
+
+const parsePaymentsFromString = (fpStr, totalExpected, defaultDue) => {
+  if (!fpStr || typeof fpStr !== 'string') return null;
+  const parts = fpStr.split(' + ').map(s => s.trim()).filter(Boolean);
+  if (parts.length <= 1) return null;
+  
+  const parsed = [];
+  for (const part of parts) {
+    let metodo = 'dinheiro';
+    if (/pix/i.test(part)) metodo = 'pix';
+    else if (/d[eé]bito/i.test(part)) metodo = 'debito';
+    else if (/cr[eé]dito/i.test(part)) metodo = 'credito';
+    else if (/boleto|carn[eê]/i.test(part)) metodo = 'carne';
+    
+    const xMatch = part.match(/(\d+)x/i);
+    const n = xMatch ? parseInt(xMatch[1], 10) : 1;
+    
+    const valMatches = [...part.matchAll(/R\$\s*([\d.,]+)/gi)];
+    let val = 0;
+    if (valMatches.length > 0) {
+      val = cleanVal(valMatches[valMatches.length - 1][1]);
+    }
+    
+    if (val > 0) {
+      parsed.push(buildPaymentObject(metodo, val, val, n, defaultDue));
+    }
+  }
+  return parsed.length > 0 ? parsed : null;
 };
 
 const EditOSModal = ({
@@ -41,19 +167,18 @@ const EditOSModal = ({
   onClose,
   osData,
   clientData,
+  currentUser,
   onSave
 }) => {
   const [formData, setFormData] = useState({
     numeroOS: '',
-    status: 'No Laboratório',
+    status: 'Aguardando Confirmação',
     armacao: '',
     lente: '',
     laboratorio: '',
     medico: '',
     dataVenda: '',
     dataEntrega: '',
-    dataEntregaReal: '',
-    quemRetirou: '',
     valorTotal: '',
     valorEntrada: '',
     restante: '',
@@ -74,30 +199,43 @@ const EditOSModal = ({
 
   const [activeTab, setActiveTab] = useState('geral'); // 'geral', 'receita', 'financeiro'
 
+  // Construtor Dinâmico de Formas de Pagamento (Idêntico ao Caixa / PDV)
+  const [payments, setPayments] = useState([]);
+  const [currentMethod, setCurrentMethod] = useState('dinheiro'); // 'dinheiro', 'pix', 'debito', 'credito', 'carne'
+  const [paymentInputVal, setPaymentInputVal] = useState('');
+  const [payInstallments, setPayInstallments] = useState(1);
+  const [payFirstDueDate, setPayFirstDueDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().split('T')[0];
+  });
+  const [customDueDates, setCustomDueDates] = useState({});
+  const [cashTendered, setCashTendered] = useState('');
+
   useEffect(() => {
     if (osData) {
-      let st = osData['STATUS_OS'] || osData['SITUAÇÃO'] || 'No Laboratório';
-      if (st === 'Pago' || st === 'PAGO' || st === 'Concluído' || st === 'Entregue') {
-        st = 'Entregue';
-      } else if (st === 'Pendente' || st === 'PENDENTE' || st === 'Aberto') {
-        st = 'No Laboratório';
-      }
+      const numOS = String(osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || osData['OS da COMPRA'] || '').trim();
+      const rawTotal = osData['VALOR TOTAL'] || osData['VALOR DO ORÇAMENTO'] || osData['VALOR DA VENDA'] || osData['VALOR'] || '';
+      const totalNum = cleanVal(rawTotal);
+      const rawEntrada = osData['VALOR ENTRADA'] || osData['SINAL'] || '';
+      const entradaNum = cleanVal(rawEntrada);
+      const rawRestante = osData['RESTANTE'] || '';
+      const restanteNum = cleanVal(rawRestante) || Math.max(0, totalNum - entradaNum);
+      const fpStr = osData['FORMAS_PAGAMENTO'] || osData['FORMA_PAGTO'] || osData['FORMA DE PAGAMENTO'] || osData['MEIO_PAGAMENTO'] || '';
 
       setFormData({
-        numeroOS: String(osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || osData['OS da COMPRA'] || '').trim(),
-        status: st,
+        numeroOS: numOS,
+        status: 'Aguardando Confirmação',
         armacao: osData['ARMAÇÃO'] || osData['Armação'] || osData['PRODUTO'] || '',
         lente: osData['LENTE'] || osData['Lente'] || '',
         laboratorio: osData['LABORATORIO'] || osData['Laboratório'] || osData['LAB'] || '',
         medico: osData['MEDICO'] || osData['Médico'] || '',
         dataVenda: osData['DATA  DA VENDA'] || osData['DATA'] || osData['Data da Venda'] || '',
         dataEntrega: osData['DATA ENTREGA ÓCULOS'] || osData['DATA_ENTREGA'] || osData['Previsão Entrega'] || osData['DATA VENCIMENTO'] || '',
-        dataEntregaReal: osData['DATA_ENTREGA_REAL'] || osData['DATA_BAIXA_ENTREGA'] || (st === 'Entregue' ? new Date().toISOString().split('T')[0] : ''),
-        quemRetirou: osData['QUEM_RETIROU'] || (st === 'Entregue' ? 'Próprio Cliente' : ''),
-        valorTotal: osData['VALOR TOTAL'] || osData['VALOR DO ORÇAMENTO'] || osData['VALOR DA VENDA'] || osData['VALOR'] || '',
-        valorEntrada: osData['VALOR ENTRADA'] || osData['SINAL'] || '',
-        restante: osData['RESTANTE'] || '',
-        formasPagamento: osData['FORMAS_PAGAMENTO'] || osData['FORMA_PAGTO'] || osData['FORMA DE PAGAMENTO'] || osData['MEIO_PAGAMENTO'] || '',
+        valorTotal: formatMoney(totalNum),
+        valorEntrada: formatMoney(entradaNum),
+        restante: formatMoney(restanteNum),
+        formasPagamento: fpStr,
         observacoes: osData['OBSERVACOES'] || osData['OBS'] || osData['Observações'] || '',
         // Prescrição OD
         odEsf: osData['OD_ESF'] || osData['odEsf'] || osData['OD ESF'] || '',
@@ -114,43 +252,196 @@ const EditOSModal = ({
         // Adição
         adicao: osData['ADICAO'] || osData['adicao'] || osData['ADIÇÃO'] || ''
       });
+
+      // Inicializa pagamentos a partir dos dados existentes da OS
+      let initialPays = [];
+      let rawPayments = osData.payments;
+      if (typeof rawPayments === 'string') {
+        try { rawPayments = JSON.parse(rawPayments); } catch (e) {}
+      }
+      if (Array.isArray(rawPayments) && rawPayments.length > 0) {
+        initialPays = rawPayments;
+      } else {
+        const parsedFromString = parsePaymentsFromString(fpStr, totalNum, payFirstDueDate);
+        if (parsedFromString && parsedFromString.length > 0) {
+          initialPays = parsedFromString;
+        } else {
+          let boletoParcs = [];
+          try {
+            if (osData.PARCELAS_JSON) boletoParcs = JSON.parse(osData.PARCELAS_JSON);
+            else if (Array.isArray(osData.parcelas)) boletoParcs = osData.parcelas;
+          } catch (e) {}
+
+        if (boletoParcs.length > 0) {
+          const boletoVal = restanteNum > 0 ? restanteNum : boletoParcs.reduce((acc, p) => acc + cleanVal(p.valor), 0);
+          const n = boletoParcs.length;
+          const vParc = boletoVal / n;
+          const vencsTexto = boletoParcs.map(p => `${p.numero}ª ${p.vencimento}`).join(', ');
+          initialPays.push({
+            id: 'init_carne',
+            metodo: 'carne',
+            valor: boletoVal,
+            texto: `📄 Boleto (${n}x de ${fmtMoeda(vParc)} | Venc: ${vencsTexto}): ${fmtMoeda(boletoVal)}`,
+            parcelas: boletoParcs
+          });
+
+          if (entradaNum > 0) {
+            let m = 'dinheiro';
+            if (/pix/i.test(fpStr)) m = 'pix';
+            else if (/d[eé]bito/i.test(fpStr)) m = 'debito';
+            else if (/cr[eé]dito/i.test(fpStr)) m = 'credito';
+            initialPays.unshift(buildPaymentObject(m, entradaNum, entradaNum, 1, ''));
+          }
+        } else if (totalNum > 0) {
+          const isApenasBoleto = /boleto|carn[eê]/i.test(fpStr) && !/dinheiro|pix|d[eé]bito|cr[eé]dito/i.test(fpStr);
+          if (isApenasBoleto) {
+            const match = fpStr.match(/(\d+)x/i);
+            const n = match ? parseInt(match[1], 10) : 1;
+            const defDue = new Date();
+            defDue.setDate(defDue.getDate() + 30);
+            initialPays.push(buildPaymentObject('carne', totalNum, totalNum, n, defDue.toISOString().split('T')[0]));
+          } else if (entradaNum > 0 && restanteNum > 0) {
+            let m = 'dinheiro';
+            if (/pix/i.test(fpStr)) m = 'pix';
+            else if (/d[eé]bito/i.test(fpStr)) m = 'debito';
+            else if (/cr[eé]dito/i.test(fpStr)) m = 'credito';
+            initialPays.push(buildPaymentObject(m, entradaNum, entradaNum, 1, ''));
+            const defDue = new Date();
+            defDue.setDate(defDue.getDate() + 30);
+            initialPays.push(buildPaymentObject('carne', restanteNum, restanteNum, 1, defDue.toISOString().split('T')[0]));
+          } else {
+            let m = 'dinheiro';
+            if (/pix/i.test(fpStr)) m = 'pix';
+            else if (/d[eé]bito/i.test(fpStr)) m = 'debito';
+            else if (/cr[eé]dito/i.test(fpStr)) m = 'credito';
+            else if (/boleto|carn[eê]/i.test(fpStr)) m = 'carne';
+            const defDue = new Date();
+            defDue.setDate(defDue.getDate() + 30);
+            initialPays.push(buildPaymentObject(m, totalNum, totalNum, 1, defDue.toISOString().split('T')[0]));
+          }
+        }
+      }
     }
-  }, [osData]);
+    setPayments(initialPays);
+  }
+}, [osData]);
 
   if (!isOpen || !osData) return null;
 
+  // Cálculos de Cobertura e Valores
+  const totalFinal = cleanVal(formData.valorTotal);
+  const covered = payments.reduce((acc, p) => acc + (cleanVal(p.valor) || 0), 0);
+  const remaining = Math.max(0, totalFinal - covered);
+  const isFullyCovered = Math.abs(covered - totalFinal) < 0.01 && totalFinal > 0;
+
+  const totalPagoImediato = payments.reduce((acc, p) => {
+    const m = String(p.metodo || '').toLowerCase();
+    if (m === 'boleto' || m === 'carne') return acc;
+    return acc + (cleanVal(p.valor) || 0);
+  }, 0);
+
+  const totalBoletoCarne = payments.reduce((acc, p) => {
+    const m = String(p.metodo || '').toLowerCase();
+    if (m === 'boleto' || m === 'carne') return acc + (cleanVal(p.valor) || 0);
+    return acc;
+  }, 0);
+
   const handleChange = (field, value) => {
-    setFormData(prev => {
-      const next = { ...prev, [field]: value };
-      
-      // Auto-recalcula restante se alterar valor total ou entrada
-      if (field === 'valorTotal' || field === 'valorEntrada') {
-        const vt = parseCurrency(field === 'valorTotal' ? value : next.valorTotal);
-        const ve = parseCurrency(field === 'valorEntrada' ? value : next.valorEntrada);
-        const diff = Math.max(0, vt - ve);
-        next.restante = diff.toFixed(2).replace('.', ',');
-      }
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
 
-      // Se status mudar para Entregue e não tiver data real, preenche hoje
-      if (field === 'status' && value === 'Entregue' && !next.dataEntregaReal) {
-        next.dataEntregaReal = new Date().toISOString().split('T')[0];
-        if (!next.quemRetirou) next.quemRetirou = 'Próprio Cliente';
-      }
+  // Adicionar forma de pagamento à lista fracionada
+  const handleAddPayment = () => {
+    if (payments.length > 0 && isFullyCovered) {
+      alert(`O valor total da OS (${fmtMoeda(totalFinal)}) já está 100% coberto. Se deseja alterar as formas de pagamento, remova um pagamento clicando na lixeira 🗑️ abaixo.`);
+      return;
+    }
 
-      return next;
-    });
+    if (currentMethod === 'carne' && String(clientData?.['Status de Pagamento'] || '').toLowerCase() === 'inadimplente') {
+      const clientName = clientData?.['Nome Completo'] || clientData?.['NOME'] || 'o cliente';
+      const allow = window.confirm(
+        `⚠️ ALERTA DE RISCO DE CRÉDITO:\n\n${clientName} possui pendências financeiras registradas no cadastro.\n\nDeseja autorizar o parcelamento em CARNÊ / BOLETO para este cliente?`
+      );
+      if (!allow) return;
+    }
+
+    const rawVal = cleanVal(paymentInputVal) || (currentMethod === 'dinheiro' ? cleanVal(cashTendered) : 0) || remaining;
+    const val = remaining > 0 ? Math.min(rawVal, remaining) : (rawVal || totalFinal);
+
+    if (val <= 0) {
+      alert('Informe o valor a ser pago nesta forma de pagamento.');
+      return;
+    }
+
+    const newPay = buildPaymentObject(currentMethod, val, cashTendered, payInstallments, payFirstDueDate, customDueDates);
+    setPayments(prev => [...prev, newPay]);
+    setPaymentInputVal('');
+    setCashTendered('');
+    setPayInstallments(1);
+    setCustomDueDates({});
+  };
+
+  const removePayment = (id) => {
+    setPayments(prev => prev.filter(p => p.id !== id));
+  };
+
+  const handleClearPayments = () => {
+    setPayments([]);
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
 
+    const totalVal = cleanVal(formData.valorTotal);
+    if (totalVal <= 0) {
+      alert('Por favor, informe um Valor Total válido para a OS.');
+      setActiveTab('financeiro');
+      return;
+    }
+
+    // Se nenhum pagamento adicionado, tenta auto-gerar cobrindo 100%
+    let effectivePayments = [...payments];
+    if (effectivePayments.length === 0) {
+      const valDigitado = cleanVal(paymentInputVal);
+      if (valDigitado > 0 && valDigitado < totalVal - 0.01) {
+        alert(`O valor digitado (${fmtMoeda(valDigitado)}) é menor que o total da OS (${fmtMoeda(totalVal)}). Clique em "+ Dividir / Adicionar Pagamento" para lançar e adicione a forma de pagamento do restante.`);
+        setActiveTab('financeiro');
+        return;
+      }
+      const autoPay = buildPaymentObject(currentMethod, totalVal, cashTendered, payInstallments, payFirstDueDate, customDueDates);
+      effectivePayments = [autoPay];
+    }
+
+    const sumPayments = effectivePayments.reduce((acc, p) => acc + (cleanVal(p.valor) || 0), 0);
+    if (Math.abs(sumPayments - totalVal) > 0.05) {
+      alert(`⚠️ Erro de Validação Financeira!\n\nA soma das formas de pagamento (R$ ${formatMoney(sumPayments)}) deve ser exatamente igual ao Valor Total da OS (R$ ${formatMoney(totalVal)}).\nDiferença: R$ ${formatMoney(Math.abs(sumPayments - totalVal))}`);
+      setActiveTab('financeiro');
+      return;
+    }
+
+    // Cálculo exato de Entrada vs Restante conforme padrão do sistema (Test 12)
+    const entradaFinal = effectivePayments.reduce((acc, p) => {
+      const m = String(p.metodo || '').toLowerCase();
+      if (m === 'boleto' || m === 'carne') return acc;
+      return acc + (cleanVal(p.valor) || 0);
+    }, 0);
+    const restanteFinal = Math.max(0, totalVal - entradaFinal);
+
+    // Extração de parcelas estruturadas de boleto
+    const allBoletoParcelas = effectivePayments
+      .filter(p => p.metodo === 'carne' || p.metodo === 'boleto')
+      .flatMap(p => p.parcelas || []);
+
     const updatedRow = {
       ...osData,
-      'OS DA VENDA': formData.numeroOS,
-      'OS': formData.numeroOS,
-      'VENDA_OS': formData.numeroOS,
-      'STATUS_OS': formData.status,
-      'SITUAÇÃO': formData.status,
+      'OS DA VENDA': (formData.numeroOS && formData.numeroOS.trim()) || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || '',
+      'OS': (formData.numeroOS && formData.numeroOS.trim()) || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || '',
+      'VENDA_OS': (formData.numeroOS && formData.numeroOS.trim()) || osData['OS DA VENDA'] || osData['OS'] || osData['VENDA_OS'] || '',
+      // Reconfirmação Obrigatória do Financeiro (Semáforo Azul)
+      'STATUS_OS': 'Aguardando Confirmação',
+      'SITUAÇÃO': 'Aguardando Confirmação',
+      'PAGAMENTO_CONFERIDO': 'Não',
+      'DUPLICATAS_GERADAS': false,
       'ARMAÇÃO': formData.armacao,
       'LENTE': formData.lente,
       'PRODUTO': formData.lente ? `${formData.armacao || 'Armação'} + ${formData.lente}` : (formData.armacao || osData['PRODUTO'] || 'Óculos Completo'),
@@ -160,14 +451,17 @@ const EditOSModal = ({
       'DATA': formData.dataVenda,
       'DATA ENTREGA ÓCULOS': formData.dataEntrega,
       'DATA_ENTREGA': formData.dataEntrega,
-      'DATA_ENTREGA_REAL': formData.status === 'Entregue' ? formData.dataEntregaReal : '',
-      'QUEM_RETIROU': formData.status === 'Entregue' ? formData.quemRetirou : '',
-      'VALOR TOTAL': formData.valorTotal,
-      'VALOR': formData.valorTotal,
-      'VALOR ENTRADA': formData.valorEntrada,
-      'SINAL': formData.valorEntrada,
-      'RESTANTE': formData.restante,
-      'FORMAS_PAGAMENTO': formData.formasPagamento,
+      'VALOR TOTAL': formatMoney(totalVal),
+      'VALOR': formatMoney(totalVal),
+      'VALOR DA VENDA': formatMoney(totalVal),
+      'VALOR ENTRADA': formatMoney(entradaFinal),
+      'SINAL': formatMoney(entradaFinal),
+      'RESTANTE': formatMoney(restanteFinal),
+      'FORMAS_PAGAMENTO': effectivePayments.map(p => p.texto).join(' + '),
+      'FORMA_PAGTO': effectivePayments.map(p => p.texto).join(' + '),
+      'PARCELAS_JSON': JSON.stringify(allBoletoParcelas),
+      'parcelas': allBoletoParcelas,
+      'payments': effectivePayments,
       'OD_ESF': formData.odEsf,
       'OD_CIL': formData.odCil,
       'OD_EIXO': formData.odEixo,
@@ -179,7 +473,9 @@ const EditOSModal = ({
       'OE_DNP': formData.oeDnp,
       'OE_ALT': formData.oeAlt,
       'ADICAO': formData.adicao,
-      'OBSERVACOES': formData.observacoes
+      'OBSERVACOES': formData.observacoes,
+      'DATA_EDICAO': new Date().toISOString(),
+      'EDITADO_POR': currentUser?.username || 'Usuário'
     };
 
     if (onSave) {
@@ -206,12 +502,16 @@ const EditOSModal = ({
                 <ClipboardList size={24} />
               </div>
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-[10px] font-black uppercase tracking-widest bg-pink-500/20 text-pink-400 border border-pink-500/30 px-2.5 py-0.5 rounded-full">
                     Edição de OS
                   </span>
                   <span className="text-xs font-mono font-black text-pink-300">
                     {formData.numeroOS ? `#${formData.numeroOS}` : 'Sem número'}
+                  </span>
+                  <span className="text-[10px] font-black uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
+                    Semáforo Azul (Reconfirmação Obrigatória)
                   </span>
                 </div>
                 <h3 className="text-xl font-black text-white tracking-tight mt-0.5 flex items-center gap-2">
@@ -271,18 +571,18 @@ const EditOSModal = ({
               }`}
             >
               <DollarSign size={15} />
-              <span>Financeiro & Condições</span>
+              <span>Financeiro & Formas de Pagamento (PDV)</span>
             </button>
           </div>
 
           {/* Conteúdo do Formulário */}
           <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-6 flex-1 custom-scrollbar">
             
-            {/* ─── ABA 1: GERAL (PRODUTOS, STATUS & PRAZOS) ─── */}
+            {/* ─── ABA 1: GERAL (PRODUTOS & PRAZOS) ─── */}
             {activeTab === 'geral' && (
               <div className="space-y-6">
                 
-                {/* Linha 1: Status Semáforo & Número da OS */}
+                {/* Banner de Semáforo Azul e Número da OS */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-950/70 p-4 rounded-2xl border border-slate-800">
                   <div>
                     <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5 block">
@@ -297,22 +597,14 @@ const EditOSModal = ({
                     />
                   </div>
 
-                  <div className="sm:col-span-2">
+                  <div className="sm:col-span-2 flex flex-col justify-center">
                     <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5 block">
-                      Status da Produção (Semáforo do Laboratório)
+                      Status da OS (Reconfirmação Automática)
                     </label>
-                    <select
-                      value={formData.status}
-                      onChange={e => handleChange('status', e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white font-bold focus:outline-none focus:border-pink-500 cursor-pointer"
-                    >
-                      <option value="No Laboratório">🟡 No Laboratório (Aguardando Produção)</option>
-                      <option value="Aguardando Lente">🔴 Aguardando Lente (Falta de Bloco/Lente)</option>
-                      <option value="Em Produção">🟡 Em Produção / Montagem</option>
-                      <option value="Pronto para Retirada">🟡 Pronto para Retirada na Loja</option>
-                      <option value="Entregue">🟢 Entregue ao Cliente (Finalizada)</option>
-                      <option value="Cancelada">⚫ Cancelada</option>
-                    </select>
+                    <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-200 text-xs">
+                      <span className="w-2.5 h-2.5 rounded-full bg-sky-400 animate-pulse shrink-0" />
+                      <span>Ao salvar qualquer alteração, a OS voltará para <strong>🔵 Aguardando Confirmação</strong> (Semáforo Azul) para conferência obrigatória do Financeiro.</span>
+                    </div>
                   </div>
                 </div>
 
@@ -344,35 +636,6 @@ const EditOSModal = ({
                     />
                   </div>
                 </div>
-
-                {/* Se estiver Entregue: Detalhes da Baixa */}
-                {formData.status === 'Entregue' && (
-                  <div className="bg-emerald-950/20 border border-emerald-500/30 p-4 rounded-2xl grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in fade-in">
-                    <div>
-                      <label className="text-[10px] font-black uppercase tracking-wider text-emerald-400 mb-1.5 flex items-center gap-1.5">
-                        <PackageCheck size={13} /> Data Real da Retirada / Entrega
-                      </label>
-                      <input
-                        type="date"
-                        value={formData.dataEntregaReal}
-                        onChange={e => handleChange('dataEntregaReal', e.target.value)}
-                        className="w-full bg-slate-900 border border-emerald-500/30 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-400"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-black uppercase tracking-wider text-emerald-400 mb-1.5 flex items-center gap-1.5">
-                        <User size={13} /> Quem Retirou os Óculos
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.quemRetirou}
-                        onChange={e => handleChange('quemRetirou', e.target.value)}
-                        className="w-full bg-slate-900 border border-emerald-500/30 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400"
-                        placeholder="Ex: Próprio Cliente / Mãe / Esposo"
-                      />
-                    </div>
-                  </div>
-                )}
 
                 {/* Linha 3: Armação & Lente */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -454,7 +717,7 @@ const EditOSModal = ({
               <div className="space-y-6">
                 <div className="p-3 bg-sky-500/10 border border-sky-500/20 rounded-2xl flex items-center gap-2.5 text-xs text-sky-300">
                   <Eye size={16} className="shrink-0 text-sky-400" />
-                  <span>Dioptrias vinculadas exclusivamente a esta Ordem de Serviço. Os dados impressos e enviados ao laboratório usarão esses valores.</span>
+                  <span>Dioptrias vinculadas a esta Ordem de Serviço. Os dados impressos no A4 e na OS do Laboratório usarão estes parâmetros.</span>
                 </div>
 
                 {/* Tabela Olho Direito (OD) */}
@@ -594,84 +857,356 @@ const EditOSModal = ({
               </div>
             )}
 
-            {/* ─── ABA 3: FINANCEIRO & PAGAMENTO ─── */}
+            {/* ─── ABA 3: FINANCEIRO & FORMAS DE PAGAMENTO DO PDV ─── */}
             {activeTab === 'financeiro' && (
               <div className="space-y-6">
-                
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+
+                {/* Bloco 1: Valor Total e Resumo de Entrada / Restante */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-950/70 p-4 rounded-2xl border border-slate-800">
                   <div>
                     <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5 flex items-center gap-1.5">
-                      <DollarSign size={13} className="text-emerald-400" /> Valor Total (R$)
+                      <DollarSign size={13} className="text-emerald-400" /> Valor Total da OS (R$)
                     </label>
                     <input
                       type="text"
+                      inputMode="decimal"
                       value={formData.valorTotal}
                       onChange={e => handleChange('valorTotal', e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-emerald-400 font-bold focus:outline-none focus:border-emerald-500"
+                      onBlur={e => {
+                        const v = cleanVal(e.target.value);
+                        if (v > 0) handleChange('valorTotal', formatMoney(v));
+                      }}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-emerald-400 font-black focus:outline-none focus:border-emerald-500"
                       placeholder="0,00"
                     />
                   </div>
 
                   <div>
                     <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5 flex items-center gap-1.5">
-                      <DollarSign size={13} className="text-teal-400" /> Valor Entrada / Sinal (R$)
+                      <DollarSign size={13} className="text-teal-400" /> Entrada / Imediato
                     </label>
-                    <input
-                      type="text"
-                      value={formData.valorEntrada}
-                      onChange={e => handleChange('valorEntrada', e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-teal-300 font-bold focus:outline-none focus:border-teal-500"
-                      placeholder="0,00"
-                    />
+                    <div className="w-full bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-teal-300 font-bold">
+                      {fmtMoeda(totalPagoImediato)}
+                    </div>
+                    <span className="text-[9px] text-slate-500 mt-0.5 block">Dinheiro, PIX, Débito e Crédito</span>
                   </div>
 
                   <div>
                     <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5 flex items-center gap-1.5">
-                      <DollarSign size={13} className="text-amber-400" /> Saldo Restante (R$)
+                      <DollarSign size={13} className="text-amber-400" /> A Prazo / Boleto (Carnê)
                     </label>
-                    <input
-                      type="text"
-                      value={formData.restante}
-                      onChange={e => handleChange('restante', e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-amber-400 font-bold focus:outline-none focus:border-amber-500"
-                      placeholder="0,00"
-                    />
+                    <div className="w-full bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-amber-300 font-bold">
+                      {fmtMoeda(totalBoletoCarne)}
+                    </div>
+                    <span className="text-[9px] text-slate-500 mt-0.5 block">Gera duplicatas no Financeiro</span>
                   </div>
                 </div>
 
-                <div>
-                  <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5 block">
-                    Formas de Pagamento & Parcelamento Registradas
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={formData.formasPagamento}
-                    onChange={e => handleChange('formasPagamento', e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
-                    placeholder="Ex: R$ 350,00 no Cartão de Crédito 3x / Entrada de R$ 100,00 no PIX..."
-                  />
+                {/* Banner de Validação da Soma das Formas de Pagamento */}
+                <div className={`p-3.5 rounded-2xl border flex items-center justify-between text-xs font-bold transition-all ${
+                  isFullyCovered
+                    ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                    : covered > totalFinal + 0.01
+                    ? 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+                    : 'bg-amber-500/15 border-amber-500/30 text-amber-300'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    {isFullyCovered ? (
+                      <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
+                    ) : (
+                      <AlertTriangle size={18} className={covered > totalFinal + 0.01 ? 'text-rose-400 shrink-0' : 'text-amber-400 shrink-0'} />
+                    )}
+                    <div>
+                      <p className="font-black text-sm">
+                        {isFullyCovered 
+                          ? '✅ Valor Total da OS 100% Coberto!' 
+                          : covered > totalFinal + 0.01
+                          ? `⚠️ Valor Lançado Excede o Total da OS!`
+                          : `⚠️ Falta Cobrir: ${fmtMoeda(remaining)}`}
+                      </p>
+                      <p className="text-[11px] opacity-80 mt-0.5">
+                        Lançado: <strong>{fmtMoeda(covered)}</strong> de <strong>{fmtMoeda(totalFinal)}</strong>
+                        {covered > totalFinal + 0.01 && ` (Excesso de ${fmtMoeda(covered - totalFinal)})`}
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="text-xs font-mono font-black px-3 py-1 rounded-xl bg-black/30 border border-white/10">
+                    {isFullyCovered ? 'R$ 0,00' : fmtMoeda(remaining)}
+                  </span>
+                </div>
+
+                {/* Seletor de Método de Pagamento (Idêntico ao PDV) */}
+                <div className="space-y-3 bg-slate-950/70 p-4 rounded-2xl border border-slate-800">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase tracking-wider text-slate-400">
+                      Adicionar Forma de Pagamento
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-medium">
+                      Construtor Dinâmico PDV
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    {[
+                      { id: 'dinheiro', label: '💵 Dinheiro' },
+                      { id: 'pix', label: '⚡ PIX' },
+                      { id: 'debito', label: '💳 Débito' },
+                      { id: 'credito', label: '💳 Crédito' },
+                      { id: 'carne', label: '📄 Boleto' }
+                    ].map(p => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setCurrentMethod(p.id)}
+                        className={`py-2 px-3 rounded-xl text-xs font-bold transition-all border text-center ${
+                          currentMethod === p.id
+                            ? 'bg-emerald-500 text-slate-950 border-emerald-400 font-black shadow-lg shadow-emerald-500/20'
+                            : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Campos do Método Selecionado */}
+                  <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs text-slate-400 font-bold">Valor deste Lançamento:</span>
+                      <div className="relative flex-1 max-w-[160px]">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-bold">R$</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={paymentInputVal}
+                          onChange={e => setPaymentInputVal(e.target.value)}
+                          onBlur={e => {
+                            const v = cleanVal(e.target.value);
+                            if (v > 0) setPaymentInputVal(formatMoney(v));
+                          }}
+                          placeholder={formatMoney(remaining > 0 ? remaining : totalFinal)}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl py-1.5 pl-8 pr-2.5 text-right text-xs text-white font-bold focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Dinheiro: Troco */}
+                    {currentMethod === 'dinheiro' && (
+                      <div className="space-y-2 pt-2 border-t border-slate-800">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-xs text-slate-400 font-bold">Valor Entregue pelo Cliente:</span>
+                          <div className="relative flex-1 max-w-[160px]">
+                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-bold">R$</span>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={cashTendered}
+                              onChange={e => setCashTendered(e.target.value)}
+                              onBlur={e => {
+                                const v = cleanVal(e.target.value);
+                                if (v > 0) setCashTendered(formatMoney(v));
+                              }}
+                              placeholder={formatMoney(cleanVal(paymentInputVal) || (remaining > 0 ? remaining : totalFinal))}
+                              className="w-full bg-slate-950 border border-slate-700 rounded-xl py-1.5 pl-8 pr-2.5 text-right text-xs text-white font-bold focus:outline-none focus:border-emerald-500"
+                            />
+                          </div>
+                        </div>
+
+                        {cleanVal(cashTendered) > (cleanVal(paymentInputVal) || (remaining > 0 ? remaining : totalFinal)) && (
+                          <div className="flex justify-between items-center text-xs font-black text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/20">
+                            <span>Troco a Devolver:</span>
+                            <span>{fmtMoeda(cleanVal(cashTendered) - (cleanVal(paymentInputVal) || (remaining > 0 ? remaining : totalFinal)))}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Crédito ou Boleto/Carnê */}
+                    {['carne', 'credito'].includes(currentMethod) && (
+                      <div className="space-y-3 pt-2 border-t border-slate-800">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-slate-400 font-bold">Parcelas:</span>
+                          <select
+                            value={payInstallments}
+                            onChange={e => {
+                              setPayInstallments(Number(e.target.value));
+                              setCustomDueDates({});
+                            }}
+                            className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white font-bold cursor-pointer"
+                          >
+                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(n => {
+                              const calcVal = (cleanVal(paymentInputVal) || (remaining > 0 ? remaining : totalFinal)) / n;
+                              return (
+                                <option key={n} value={n}>{n}x de {fmtMoeda(calcVal)}</option>
+                              );
+                            })}
+                          </select>
+                        </div>
+
+                        {/* Vencimentos exclusivamente para Boleto/Carnê */}
+                        {currentMethod === 'carne' && (
+                          <div className="space-y-2.5">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-slate-400 font-bold">1º Vencimento:</span>
+                              <input
+                                type="date"
+                                value={payFirstDueDate}
+                                onChange={e => {
+                                  setPayFirstDueDate(e.target.value);
+                                  setCustomDueDates({});
+                                }}
+                                className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1 text-xs text-white font-bold"
+                              />
+                            </div>
+
+                            {payInstallments > 1 && (
+                              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2">
+                                <div className="flex items-center justify-between text-[11px] text-emerald-400 font-bold border-b border-slate-800 pb-1.5">
+                                  <span className="flex items-center gap-1.5 uppercase tracking-wider font-black">
+                                    <Calendar size={13} /> Todas as Datas ({payInstallments}x)
+                                  </span>
+                                  <span className="text-slate-400 font-mono">
+                                    {fmtMoeda((cleanVal(paymentInputVal) || (remaining > 0 ? remaining : totalFinal)) / payInstallments)} / parc
+                                  </span>
+                                </div>
+                                <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
+                                  {Array.from({ length: payInstallments }, (_, i) => {
+                                    const num = i + 1;
+                                    const calculatedDate = getInstallmentDate(payFirstDueDate, i);
+                                    const currentDateVal = customDueDates[num] || calculatedDate;
+                                    const valPerParc = (cleanVal(paymentInputVal) || (remaining > 0 ? remaining : totalFinal)) / payInstallments;
+                                    return (
+                                      <div key={num} className="bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-800 flex items-center justify-between gap-2">
+                                        <span className="text-[11px] font-black text-slate-300">
+                                          {num}ª Parcela ({fmtMoeda(valPerParc)}):
+                                        </span>
+                                        <input
+                                          type="date"
+                                          value={currentDateVal}
+                                          onChange={e => setCustomDueDates(prev => ({ ...prev, [num]: e.target.value }))}
+                                          className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white font-mono font-bold focus:outline-none focus:border-emerald-500"
+                                        />
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Botão de Adicionar / Dividir Pagamento */}
+                    <button
+                      type="button"
+                      onClick={handleAddPayment}
+                      disabled={payments.length > 0 && isFullyCovered}
+                      className={`w-full py-2.5 rounded-xl border font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${
+                        payments.length > 0 && isFullyCovered
+                          ? 'bg-slate-950/60 text-slate-500 border-slate-800 cursor-not-allowed'
+                          : 'bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border-indigo-500/30'
+                      }`}
+                    >
+                      {payments.length > 0 && isFullyCovered ? (
+                        <span>✅ Total da OS já Coberto ({fmtMoeda(totalFinal)})</span>
+                      ) : (
+                        <>
+                          <Plus size={14} />
+                          <span>
+                            + Dividir / Adicionar Pagamento {
+                              (cleanVal(paymentInputVal) || (currentMethod === 'dinheiro' ? cleanVal(cashTendered) : 0)) > 0
+                                ? `de ${fmtMoeda(cleanVal(paymentInputVal) || cleanVal(cashTendered))}`
+                                : (remaining > 0 ? `de ${fmtMoeda(remaining)}` : '')
+                            }
+                          </span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Lista de Pagamentos Lançados */}
+                {payments.length > 0 && (
+                  <div className="space-y-2 bg-slate-950/70 p-4 rounded-2xl border border-slate-800">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                        Pagamentos Lançados nesta OS ({payments.length}):
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleClearPayments}
+                        className="text-[10px] font-bold text-rose-400 hover:text-rose-300 hover:underline transition-colors"
+                      >
+                        Limpar Todos
+                      </button>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      {payments.map(p => (
+                        <div key={p.id} className="p-3 bg-slate-900 rounded-xl border border-slate-800 flex justify-between items-center text-xs">
+                          <div className="min-w-0 pr-2">
+                            <p className="font-bold text-white leading-relaxed">{p.texto}</p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="font-black text-emerald-400 font-mono text-sm">{fmtMoeda(p.valor)}</span>
+                            <button
+                              type="button"
+                              onClick={() => removePayment(p.id)}
+                              className="text-slate-500 hover:text-rose-400 transition-colors p-1.5 rounded-lg hover:bg-rose-500/10"
+                              title="Remover este pagamento"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Alerta Informativo de Reconfirmação do Financeiro */}
+                <div className="p-4 rounded-2xl bg-sky-950/40 border border-sky-500/30 text-sky-200 text-xs flex items-start gap-3">
+                  <ShieldCheck size={20} className="text-sky-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-black uppercase tracking-wide text-sky-300">
+                      Reconfirmação Financeira Obrigatória (Semáforo Azul)
+                    </p>
+                    <p className="text-slate-300 leading-relaxed text-[11px]">
+                      Ao salvar as alterações, a OS voltará para <strong>"Aguardando Confirmação"</strong>. O financeiro revalidará os lançamentos e gerará as duplicatas limpas e atualizadas no sistema, evitando qualquer cobrança duplicada no carnê do cliente.
+                    </p>
+                  </div>
                 </div>
 
               </div>
             )}
 
             {/* Rodapé de Ações */}
-            <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3 shrink-0">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold transition-all"
-              >
-                Cancelar
-              </button>
+            <div className="pt-4 border-t border-slate-800 flex items-center justify-between gap-3 shrink-0 flex-wrap">
+              <div className="flex items-center gap-2 text-xs font-mono font-bold text-slate-400">
+                <span>Total: <strong className="text-emerald-400">{fmtMoeda(totalFinal)}</strong></span>
+                <span>•</span>
+                <span>Lançado: <strong className={isFullyCovered ? "text-emerald-400" : "text-amber-400"}>{fmtMoeda(covered)}</strong></span>
+              </div>
 
-              <button
-                type="submit"
-                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-pink-500/25 flex items-center gap-2 active:scale-95"
-              >
-                <Save size={16} />
-                <span>Salvar Alterações da OS</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold transition-all"
+                >
+                  Cancelar
+                </button>
+
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-pink-500/25 flex items-center gap-2 active:scale-95"
+                >
+                  <Save size={16} />
+                  <span>Salvar Alterações da OS</span>
+                </button>
+              </div>
             </div>
 
           </form>
