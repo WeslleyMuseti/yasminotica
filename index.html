@@ -28,7 +28,15 @@
           <div style="width: 220px; height: 6px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255,255,255,0.1); border-radius: 9999px; overflow: hidden; position: relative; margin-bottom: 16px;">
             <div style="position: absolute; top: 0; left: 0; height: 100%; width: 45%; background: linear-gradient(90deg, #ec4899, #10b981); border-radius: 9999px; animation: splashPulse 1.2s infinite ease-in-out;"></div>
           </div>
-          <p style="font-size: 12px; font-weight: 600; color: #cbd5e1; margin: 0;">Inicializando sistema...</p>
+          <p id="splash-status-text" style="font-size: 12px; font-weight: 600; color: #cbd5e1; margin: 0;">Inicializando sistema...</p>
+          <div id="splash-timeout-box" style="display: none; margin-top: 18px;">
+            <p style="font-size: 11px; color: #f87171; margin: 0 0 10px 0; font-weight: 500;">
+              O carregamento está demorando mais que o esperado.
+            </p>
+            <button onclick="localStorage.clear(); sessionStorage.clear(); window.location.reload();" style="padding: 7px 16px; font-size: 11px; font-weight: bold; background: linear-gradient(135deg, #ec4899, #db2777); border: none; color: #ffffff; border-radius: 9999px; cursor: pointer; box-shadow: 0 4px 12px rgba(236,72,153,0.3);">
+              Recarregar Sistema
+            </button>
+          </div>
         </div>
       </div>
       <style>
@@ -39,6 +47,14 @@
         }
       </style>
     </div>
+    <script>
+      setTimeout(function() {
+        var box = document.getElementById('splash-timeout-box');
+        if (box && document.getElementById('splash-status-text')) {
+          box.style.display = 'block';
+        }
+      }, 3500);
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

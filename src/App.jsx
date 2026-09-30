@@ -255,6 +255,14 @@ function App() {
     }
   };
 
+  // 🛡️ Watchdog de segurança máxima: garante que a tela de splash inicial NUNCA fique presa por mais de 2.0s
+  useEffect(() => {
+    const watchdogTimer = setTimeout(() => {
+      setIsInitialLoading(false);
+    }, 2000);
+    return () => clearTimeout(watchdogTimer);
+  }, []);
+
   // Carrega automaticamente a planilha base com os dados históricos somente após autenticação bem-sucedida
   useEffect(() => {
     if (!currentUser) {
@@ -264,8 +272,11 @@ function App() {
 
     let isMounted = true;
     const autoLoad = async () => {
+      const controller = new AbortController();
+      const abortTimeout = setTimeout(() => controller.abort(), 2500);
       try {
-        const res = await fetch('/YASMIN ÓTICA.Sheets.xlsx?v=' + Date.now());
+        const res = await fetch(encodeURI('/YASMIN ÓTICA.Sheets.xlsx?v=' + Date.now()), { signal: controller.signal });
+        clearTimeout(abortTimeout);
         if (!res.ok) {
           if (isMounted) setIsInitialLoading(false);
           return;
@@ -288,11 +299,12 @@ function App() {
           setData(prev => ({ ...sheets, ...prev }));
         }
       } catch (err) {
-        console.warn('Aviso: Planilha base não carregada, usando apenas banco na nuvem.', err);
+        clearTimeout(abortTimeout);
+        console.warn('Aviso: Planilha base não carregada ou timeout atingido, usando apenas banco na nuvem.', err);
       } finally {
         setTimeout(() => {
           if (isMounted) setIsInitialLoading(false);
-        }, 800);
+        }, 500);
       }
     };
     autoLoad();

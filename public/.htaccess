@@ -16,7 +16,7 @@
 </IfModule>
 
 # 🛡️ BLOQUEIO ABSOLUTO DE ARQUIVOS DE CONFIGURAÇÃO E BACKUPS
-<FilesMatch "\.(xlsx|xls|csv|env|sql|bak|log|git|sh|md|config)$">
+<FilesMatch "\.(env|sql|bak|log|git|sh|md|config)$">
   <IfModule mod_authz_core.c>
     Require all denied
   </IfModule>
