@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeftRight, X, Search, CheckCircle2, AlertTriangle,
   Package, Glasses, Eye, Truck, ArrowRight, Printer,
-  Building2, Hash, FileText, UserCheck, ShieldCheck
+  Building2, Hash, FileText, UserCheck, ShieldCheck, Gift
 } from 'lucide-react';
 
 const STORES = ['Cajati', 'Registro', 'Jacupiranga', 'Central', 'Venda Externa'];
@@ -15,7 +15,7 @@ export default function ProductTransferModal({
   currentUser,
   onTransferComplete
 }) {
-  const [productType, setProductType] = useState('armacoes'); // 'armacoes' | 'lentes'
+  const [productType, setProductType] = useState('armacoes'); // 'armacoes' | 'lentes' | 'brindes'
   const [searchQuery, setSearchQuery] = useState('');
   const [originStore, setOriginStore] = useState('Central');
   const [destStore, setDestStore] = useState('Cajati');
@@ -28,7 +28,7 @@ export default function ProductTransferModal({
 
   // Lista de produtos filtrada pela loja de origem selecionada
   const availableProducts = useMemo(() => {
-    const sheetKey = productType === 'armacoes' ? 'CAD_ARMACOES' : 'CAD_LENTES';
+    const sheetKey = productType === 'armacoes' ? 'CAD_ARMACOES' : productType === 'brindes' ? 'CAD_BRINDES' : 'CAD_LENTES';
     const list = data?.[sheetKey] || [];
     
     return list.filter(item => {
@@ -42,12 +42,14 @@ export default function ProductTransferModal({
       const q = searchQuery.toLowerCase();
       const marca = (item.MARCA || item.marca || '').toLowerCase();
       const modelo = (item.MODELO || item.modelo || '').toLowerCase();
-      const sku = (item.REFERENCIA_SKU || item.sku || '').toLowerCase();
+      const nome = (item.NOME || item.nome || '').toLowerCase();
+      const categoria = (item.CATEGORIA || item.categoria || '').toLowerCase();
+      const sku = (item.REFERENCIA_SKU || item.sku || item.CODIGO || item.codigo || '').toLowerCase();
       const material = (item.MATERIAL || '').toLowerCase();
       const cor = (item.COR || '').toLowerCase();
       const tratamento = (item.TRATAMENTO || '').toLowerCase();
 
-      return marca.includes(q) || modelo.includes(q) || sku.includes(q) || material.includes(q) || cor.includes(q) || tratamento.includes(q);
+      return marca.includes(q) || modelo.includes(q) || nome.includes(q) || categoria.includes(q) || sku.includes(q) || material.includes(q) || cor.includes(q) || tratamento.includes(q);
     });
   }, [data, productType, originStore, searchQuery]);
 
@@ -60,20 +62,20 @@ export default function ProductTransferModal({
   // Procura se o produto já existe na loja de destino
   const existingDestProduct = useMemo(() => {
     if (!selectedProduct) return null;
-    const sheetKey = productType === 'armacoes' ? 'CAD_ARMACOES' : 'CAD_LENTES';
+    const sheetKey = productType === 'armacoes' ? 'CAD_ARMACOES' : productType === 'brindes' ? 'CAD_BRINDES' : 'CAD_LENTES';
     const list = data?.[sheetKey] || [];
     
     return list.find(item => {
       const itemStore = (item.UNIDADE || item.CIDADE || item.LOJA || '').trim().toLowerCase();
       if (itemStore !== destStore.trim().toLowerCase()) return false;
 
-      if (productType === 'armacoes') {
-        const sku1 = (selectedProduct.REFERENCIA_SKU || selectedProduct.sku || '').trim().toLowerCase();
-        const sku2 = (item.REFERENCIA_SKU || item.sku || '').trim().toLowerCase();
+      if (productType === 'armacoes' || productType === 'brindes') {
+        const sku1 = (selectedProduct.REFERENCIA_SKU || selectedProduct.sku || selectedProduct.CODIGO || '').trim().toLowerCase();
+        const sku2 = (item.REFERENCIA_SKU || item.sku || item.CODIGO || '').trim().toLowerCase();
         if (sku1 && sku2 && sku1 === sku2) return true;
 
-        const m1 = (selectedProduct.MARCA || '').trim().toLowerCase();
-        const m2 = (item.MARCA || '').trim().toLowerCase();
+        const m1 = (selectedProduct.NOME || selectedProduct.MARCA || '').trim().toLowerCase();
+        const m2 = (item.NOME || item.MARCA || '').trim().toLowerCase();
         const mod1 = (selectedProduct.MODELO || '').trim().toLowerCase();
         const mod2 = (item.MODELO || '').trim().toLowerCase();
         const cor1 = (selectedProduct.COR || '').trim().toLowerCase();
@@ -141,12 +143,14 @@ export default function ProductTransferModal({
 
     const productName = productType === 'armacoes'
       ? `${selectedProduct.MARCA || ''} ${selectedProduct.MODELO || ''} ${selectedProduct.REFERENCIA_SKU ? `(SKU: ${selectedProduct.REFERENCIA_SKU})` : ''}`.trim()
+      : productType === 'brindes'
+      ? `${selectedProduct.NOME || selectedProduct.MODELO || 'Brinde'} ${selectedProduct.CATEGORIA ? `[${selectedProduct.CATEGORIA}]` : ''} ${selectedProduct.COR ? `(${selectedProduct.COR})` : ''}`.trim()
       : `${selectedProduct.MARCA || ''} ${selectedProduct.MODELO || ''} ${selectedProduct.TRATAMENTO ? `(${selectedProduct.TRATAMENTO})` : ''}`.trim();
 
     const transferPayload = {
       id: transferId,
       productType,
-      sheetKey: productType === 'armacoes' ? 'CAD_ARMACOES' : 'CAD_LENTES',
+      sheetKey: productType === 'armacoes' ? 'CAD_ARMACOES' : productType === 'brindes' ? 'CAD_BRINDES' : 'CAD_LENTES',
       productName,
       originItem: selectedProduct,
       existingDestItem: existingDestProduct,
@@ -274,7 +278,7 @@ export default function ProductTransferModal({
                 <div className="p-4 rounded-xl bg-white/5 print:bg-slate-100 border border-white/10 print:border-slate-200 flex items-center justify-between">
                   <div>
                     <span className="text-xs font-bold text-indigo-400 print:text-indigo-700 uppercase">
-                      {completedTransfer.productType === 'armacoes' ? 'Armação' : 'Lente'}
+                      {completedTransfer.productType === 'armacoes' ? 'Armação' : completedTransfer.productType === 'brindes' ? 'Brinde' : 'Lente'}
                     </span>
                     <p className="text-base font-black text-white print:text-black">{completedTransfer.productName}</p>
                     {completedTransfer.reason && (
@@ -336,28 +340,39 @@ export default function ProductTransferModal({
               {/* TIPO */}
               <div className="space-y-1.5">
                 <label className="text-[11px] font-black uppercase tracking-widest text-slate-400">Tipo de Produto</label>
-                <div className="grid grid-cols-2 gap-2 bg-slate-950/60 p-1 rounded-xl border border-white/10">
+                <div className="grid grid-cols-3 gap-1.5 bg-slate-950/60 p-1 rounded-xl border border-white/10">
                   <button
                     type="button"
                     onClick={() => { setProductType('armacoes'); setSelectedProduct(null); }}
-                    className={`flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-black transition-all ${
+                    className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-black transition-all ${
                       productType === 'armacoes'
                         ? 'bg-fuchsia-600 text-white shadow-md'
                         : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    <Glasses size={16} /> Armações
+                    <Glasses size={15} /> Armações
                   </button>
                   <button
                     type="button"
                     onClick={() => { setProductType('lentes'); setSelectedProduct(null); }}
-                    className={`flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-black transition-all ${
+                    className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-black transition-all ${
                       productType === 'lentes'
                         ? 'bg-sky-600 text-white shadow-md'
                         : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    <Eye size={16} /> Lentes
+                    <Eye size={15} /> Lentes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setProductType('brindes'); setSelectedProduct(null); }}
+                    className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-black transition-all ${
+                      productType === 'brindes'
+                        ? 'bg-pink-600 text-white shadow-md'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Gift size={15} /> Brindes
                   </button>
                 </div>
               </div>
@@ -443,22 +458,24 @@ export default function ProductTransferModal({
                         }`}
                       >
                         <div className="flex items-center gap-3 min-w-0">
-                          {productType === 'armacoes' && item.IMAGEM ? (
-                            <img src={item.IMAGEM} alt="Armação" className="w-9 h-9 object-cover rounded-lg border border-white/10 shrink-0" />
+                          {item.IMAGEM ? (
+                            <img src={item.IMAGEM} alt="Produto" className="w-9 h-9 object-cover rounded-lg border border-white/10 shrink-0" />
                           ) : (
                             <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
-                              productType === 'armacoes' ? 'bg-fuchsia-500/20 text-fuchsia-400' : 'bg-sky-500/20 text-sky-400'
+                              productType === 'armacoes' ? 'bg-fuchsia-500/20 text-fuchsia-400' : productType === 'brindes' ? 'bg-pink-500/20 text-pink-400' : 'bg-sky-500/20 text-sky-400'
                             }`}>
-                              {productType === 'armacoes' ? <Glasses size={18} /> : <Eye size={18} />}
+                              {productType === 'armacoes' ? <Glasses size={18} /> : productType === 'brindes' ? <Gift size={18} /> : <Eye size={18} />}
                             </div>
                           )}
                           <div className="truncate">
                             <p className="text-sm font-black text-white truncate">
-                              {item.MARCA || 'Sem Marca'} {item.MODELO || ''}
+                              {productType === 'brindes' ? (item.NOME || item.MODELO || 'Brinde') : `${item.MARCA || 'Sem Marca'} ${item.MODELO || ''}`}
                             </p>
                             <p className="text-[11px] text-slate-400 font-semibold truncate">
                               {productType === 'armacoes'
                                 ? `SKU: ${item.REFERENCIA_SKU || 'N/A'} · Cor: ${item.COR || 'Padrão'} · Mat: ${item.MATERIAL || 'N/A'}`
+                                : productType === 'brindes'
+                                ? `Cat: ${item.CATEGORIA || 'Geral'} · SKU: ${item.REFERENCIA_SKU || 'N/A'} · Cor: ${item.COR || 'Padrão'}`
                                 : `Tratamento: ${item.TRATAMENTO || 'N/A'} · Mat: ${item.MATERIAL || 'N/A'}`
                               }
                             </p>

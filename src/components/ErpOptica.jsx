@@ -116,8 +116,8 @@ const ErpOptica = ({
   const [successMsg, setSuccessMsg] = useState('');
   const [filterCriticalStock, setFilterCriticalStock] = useState(false);
   const [isStockFilterModalOpen, setIsStockFilterModalOpen] = useState(false);
-  const [appliedStockFilters, setAppliedStockFilters] = useState({ armacoes: null, lentes: null });
-  const appliedStockFilter = (activeTab === 'armacoes' || activeTab === 'lentes') ? (appliedStockFilters[activeTab] || null) : null;
+  const [appliedStockFilters, setAppliedStockFilters] = useState({ armacoes: null, lentes: null, brindes: null });
+  const appliedStockFilter = (activeTab === 'armacoes' || activeTab === 'lentes' || activeTab === 'brindes') ? (appliedStockFilters[activeTab] || null) : null;
   const [showStockChartHeader, setShowStockChartHeader] = useState(true);
   const [labelModalItem, setLabelModalItem] = useState(null);
 
@@ -175,6 +175,11 @@ const ErpOptica = ({
     PRECO_COMPRA: '', PRECO_VENDA: '', ESTOQUE: '5', IMAGEM: '', OBSERVACOES: ''
   });
 
+  const [brindesForm, setBrindesForm] = useState({
+    UNIDADE: userCity || 'Central', NOME: '', CATEGORIA: 'Estojo Rígido', REFERENCIA_SKU: '', COR: 'Sortido',
+    PRECO_COMPRA: '', PRECO_VENDA: '0,00', ESTOQUE: '20', IMAGEM: '', OBSERVACOES: ''
+  });
+
   const [pagarForm, setPagarForm] = useState({
     DESCRICAO: '', CATEGORIA: 'Fornecedores', VALOR: '',
     DATA_VENCIMENTO: new Date().toISOString().split('T')[0],
@@ -214,6 +219,15 @@ const ErpOptica = ({
     if (!userCity) return list;
     return list.filter(a => {
       const u = String(a.UNIDADE || a.CIDADE || a.LOJA || a.Unidade || '').trim().toUpperCase();
+      return u && u !== 'CENTRAL' && u.includes(userCity.toUpperCase());
+    });
+  }, [data, userCity]);
+
+  const brindesData = useMemo(() => {
+    const list = data?.['CAD_BRINDES'] || [];
+    if (!userCity) return list;
+    return list.filter(b => {
+      const u = String(b.UNIDADE || b.CIDADE || b.LOJA || b.Unidade || '').trim().toUpperCase();
       return u && u !== 'CENTRAL' && u.includes(userCity.toUpperCase());
     });
   }, [data, userCity]);
@@ -287,6 +301,20 @@ const ErpOptica = ({
     });
     return { total: armacoesData.length, totalPecs, valorEstoque, criticos };
   }, [armacoesData]);
+
+  const brindesStats = useMemo(() => {
+    let totalPecs = 0;
+    let valorEstoque = 0;
+    let criticos = 0;
+    brindesData.forEach(item => {
+      const qtd = parseInt(item.ESTOQUE || item.estoque || 0, 10) || 0;
+      const preco = parseCurrency(item.PRECO_COMPRA || item.preco_compra || 0);
+      totalPecs += qtd;
+      valorEstoque += qtd * preco;
+      if (qtd <= 5) criticos++;
+    });
+    return { total: brindesData.length, totalPecs, valorEstoque, criticos };
+  }, [brindesData]);
 
   const pagarStats = useMemo(() => {
     let pendente = 0;
@@ -372,7 +400,7 @@ const ErpOptica = ({
         DATA: payload.date,
         HORA: payload.time,
         DATA_HORA: payload.timestamp,
-        TIPO: payload.productType === 'armacoes' ? 'Armação' : 'Lente',
+        TIPO: payload.productType === 'armacoes' ? 'Armação' : payload.productType === 'brindes' ? 'Brinde' : 'Lente',
         PRODUTO: payload.productName,
         ORIGEM: payload.originStore,
         DESTINO: payload.destStore,
@@ -620,6 +648,23 @@ const ErpOptica = ({
         PRECO_COMPRA: '', PRECO_VENDA: '', ESTOQUE: '5', IMAGEM: '', OBSERVACOES: ''
       });
       setSuccessMsg('Armação cadastrada com sucesso no estoque!');
+    } else if (activeTab === 'brindes') {
+      const sku = (brindesForm.REFERENCIA_SKU || '').trim() || `BRD-${Date.now().toString().slice(-6)}`;
+      onAddRow('CAD_BRINDES', {
+        ...brindesForm,
+        REFERENCIA_SKU: sku,
+        CODIGO: sku,
+        SKU: sku,
+        PRECO_COMPRA: parseCurrency(brindesForm.PRECO_COMPRA).toFixed(2).replace('.', ','),
+        PRECO_VENDA: parseCurrency(brindesForm.PRECO_VENDA || 0).toFixed(2).replace('.', ','),
+        ESTOQUE: parseInt(brindesForm.ESTOQUE, 10) || 0,
+        DATA_CADASTRO: new Date().toLocaleDateString('pt-BR')
+      });
+      setBrindesForm({
+        UNIDADE: userCity || 'Central', NOME: '', CATEGORIA: 'Estojo Rígido', REFERENCIA_SKU: '', COR: 'Sortido',
+        PRECO_COMPRA: '', PRECO_VENDA: '0,00', ESTOQUE: '20', IMAGEM: '', OBSERVACOES: ''
+      });
+      setSuccessMsg('Brinde / Cortesia cadastrado com sucesso no estoque!');
     } else if (activeTab === 'pagar') {
       onAddRow('CONTAS_PAGAR', {
         ...pagarForm,
@@ -794,6 +839,7 @@ const ErpOptica = ({
     switch (activeTab) {
       case 'lentes': return 'CAD_LENTES';
       case 'armacoes': return 'CAD_ARMACOES';
+      case 'brindes': return 'CAD_BRINDES';
       case 'pagar': return 'CONTAS_PAGAR';
       case 'receber': return 'CONTAS_RECEBER';
       case 'transferencias': return 'TRANSFERENCIAS_ESTOQUE';
@@ -807,35 +853,37 @@ const ErpOptica = ({
     switch (activeTab) {
       case 'lentes': rows = lentesData; break;
       case 'armacoes': rows = armacoesData; break;
+      case 'brindes': rows = brindesData; break;
       case 'pagar': rows = pagarData; break;
       case 'receber': rows = receberData; break;
       case 'transferencias': rows = transferenciasData; break;
       case 'vouchers': rows = vouchersData; break;
       default: rows = []; break;
     }
-    if (activeTab === 'lentes' || activeTab === 'armacoes') {
+    if (activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes') {
       if (appliedStockFilter) {
         return filterAndSortStock(rows, salesData, appliedStockFilter);
       }
       if (filterCriticalStock) {
         return rows.filter(item => {
           const qtd = parseInt(item.ESTOQUE || item.estoque || 0, 10);
-          return qtd <= 2;
+          return qtd <= (activeTab === 'brindes' ? 5 : 2);
         });
       }
     }
     return rows;
-  }, [activeTab, lentesData, armacoesData, pagarData, receberData, transferenciasData, vouchersData, appliedStockFilter, filterCriticalStock, salesData]);
+  }, [activeTab, lentesData, armacoesData, brindesData, pagarData, receberData, transferenciasData, vouchersData, appliedStockFilter, filterCriticalStock, salesData]);
 
   const handleExportStockExcel = (type) => {
     try {
       const isArmacao = type === 'armacoes';
-      const rawList = isArmacao ? armacoesData : lentesData;
+      const isBrinde = type === 'brindes';
+      const rawList = isArmacao ? armacoesData : isBrinde ? brindesData : lentesData;
       const todayStr = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
-      const filename = `Estoque_${isArmacao ? 'Armacoes' : 'Lentes'}_Yasmin_Otica_${todayStr}.xlsx`;
+      const filename = `Estoque_${isArmacao ? 'Armacoes' : isBrinde ? 'Brindes' : 'Lentes'}_Yasmin_Otica_${todayStr}.xlsx`;
 
       if (!rawList || rawList.length === 0) {
-        alert(`Não há registros de estoque de ${isArmacao ? 'armações' : 'lentes'} para exportar.`);
+        alert(`Não há registros de estoque de ${isArmacao ? 'armações' : isBrinde ? 'brindes' : 'lentes'} para exportar.`);
         return;
       }
 
@@ -853,6 +901,20 @@ const ErpOptica = ({
             'Estoque (Peças)': parseInt(item.ESTOQUE || item.estoque || 0, 10),
             'Preço de Venda (R$)': item.PRECO_VENDA || item.preco_venda || '',
             'Preço de Custo (R$)': item.PRECO_COMPRA || item.preco_compra || '',
+            'Observações': item.OBSERVACOES || item.observacoes || '',
+            'Data Cadastro': item.DATA_CADASTRO || item.data_cadastro || ''
+          };
+        } else if (isBrinde) {
+          return {
+            'Nº': index + 1,
+            'Unidade': item.UNIDADE || item.CIDADE || item.LOJA || item.unidade || 'Central',
+            'Nome / Descrição': item.NOME || item.nome || item.MODELO || '',
+            'Categoria': item.CATEGORIA || item.categoria || 'Acessório',
+            'SKU / Código': item.REFERENCIA_SKU || item.referencia_sku || item.CODIGO || item.SKU || '',
+            'Cor': item.COR || item.cor || '',
+            'Estoque (Unidades)': parseInt(item.ESTOQUE || item.estoque || 0, 10),
+            'Preço de Venda (R$)': item.PRECO_VENDA || item.preco_venda || '0,00',
+            'Preço de Custo (R$)': item.PRECO_COMPRA || item.preco_compra || '0,00',
             'Observações': item.OBSERVACOES || item.observacoes || '',
             'Data Cadastro': item.DATA_CADASTRO || item.data_cadastro || ''
           };
@@ -880,7 +942,7 @@ const ErpOptica = ({
 
       const ws = XLSX.utils.json_to_sheet(formattedRows);
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, isArmacao ? 'Estoque Armações' : 'Estoque Lentes');
+      XLSX.utils.book_append_sheet(wb, ws, isArmacao ? 'Estoque Armações' : isBrinde ? 'Estoque Brindes' : 'Estoque Lentes');
       XLSX.writeFile(wb, filename);
     } catch (err) {
       console.error('Erro ao exportar estoque:', err);
@@ -913,8 +975,19 @@ const ErpOptica = ({
         });
       }
     });
+    brindesData.forEach(item => {
+      const qtd = parseInt(item.ESTOQUE || item.estoque || 0, 10);
+      if (qtd <= 5) {
+        list.push({
+          type: 'Brinde',
+          name: `${item.NOME || item.nome || item.MODELO || 'Brinde'}`.trim(),
+          qtd,
+          rawItem: item
+        });
+      }
+    });
     return list;
-  }, [lentesData, armacoesData]);
+  }, [lentesData, armacoesData, brindesData]);
 
   const overdueBills = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
@@ -967,7 +1040,7 @@ const ErpOptica = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {(activeTab === 'lentes' || activeTab === 'armacoes') && (
+          {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes') && (
             <button
               onClick={() => setIsStockFilterModalOpen(true)}
               className={`flex items-center gap-2 px-4 py-2.5 border font-black rounded-xl shadow-lg transition-all text-sm active:scale-95 ${
@@ -975,16 +1048,16 @@ const ErpOptica = ({
                   ? 'bg-gradient-to-r from-emerald-600/40 to-teal-600/40 border-emerald-400 text-emerald-100 ring-2 ring-emerald-500/30'
                   : 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-500/40 text-emerald-300 hover:text-white'
               }`}
-              title={`Filtros & Relatórios de Estoque (${activeTab === 'armacoes' ? 'Armações' : 'Lentes'})`}
+              title={`Filtros & Relatórios de Estoque (${activeTab === 'armacoes' ? 'Armações' : activeTab === 'brindes' ? 'Brindes' : 'Lentes'})`}
             >
               <Filter size={16} className="text-emerald-400" />
-              <span>Filtros de Estoque ({activeTab === 'armacoes' ? 'Armações' : 'Lentes'})</span>
+              <span>Filtros de Estoque ({activeTab === 'armacoes' ? 'Armações' : activeTab === 'brindes' ? 'Brindes' : 'Lentes'})</span>
               {appliedStockFilter && (
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               )}
             </button>
           )}
-          {(activeTab === 'lentes' || activeTab === 'armacoes') && (
+          {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes') && (
             <button
               onClick={() => setIsTransferModalOpen(true)}
               className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-indigo-600/30 to-sky-600/30 hover:from-indigo-600/50 hover:to-sky-600/50 border border-indigo-500/40 hover:border-indigo-400 text-indigo-200 hover:text-white font-black rounded-xl shadow-lg transition-all text-sm"
@@ -1038,7 +1111,7 @@ const ErpOptica = ({
       )}
 
       {/* Navegação Secundária em Abas */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 gap-3">
         <button
           onClick={() => { setActiveTab('lentes'); setIsAdding(false); }}
           className={`flex items-center gap-3 p-4 rounded-2xl transition-all border ${
@@ -1070,6 +1143,23 @@ const ErpOptica = ({
           <div className="text-left">
             <p className="text-xs font-black uppercase tracking-widest opacity-60">Estoque</p>
             <p className="font-black text-sm">Armações</p>
+          </div>
+        </button>
+
+        <button
+          onClick={() => { setActiveTab('brindes'); setIsAdding(false); }}
+          className={`flex items-center gap-3 p-4 rounded-2xl transition-all border ${
+            activeTab === 'brindes'
+              ? 'bg-pink-500/20 border-pink-500 text-white shadow-lg shadow-pink-500/10'
+              : 'glass-card border-white/5 text-slate-400 hover:bg-white/5 hover:text-white'
+          }`}
+        >
+          <div className={`p-3 rounded-xl ${activeTab === 'brindes' ? 'bg-pink-500 text-white' : 'bg-white/5 text-pink-400'}`}>
+            <Gift size={20} />
+          </div>
+          <div className="text-left">
+            <p className="text-xs font-black uppercase tracking-widest opacity-60">Estoque</p>
+            <p className="font-black text-sm">Brindes</p>
           </div>
         </button>
 
@@ -1200,7 +1290,7 @@ const ErpOptica = ({
         </div>
       ) : (
         <div className="space-y-6">
-          {(activeTab === 'lentes' || activeTab === 'armacoes') && (
+          {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes') && (
             <div className="glass-card p-5 rounded-3xl border border-white/10 bg-slate-900/60 shadow-xl space-y-3">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-white/5 pb-3">
                 <div className="flex items-center gap-2.5">
@@ -1215,7 +1305,7 @@ const ErpOptica = ({
                       </span>
                     </h4>
                     <p className="text-[11px] text-slate-400 font-semibold">
-                      Distribuição proporcional de {activeTab === 'armacoes' ? 'Armações' : 'Lentes'} por Saúde, Loja e Marca
+                      Distribuição proporcional de {activeTab === 'armacoes' ? 'Armações' : activeTab === 'brindes' ? 'Brindes' : 'Lentes'} por Saúde, Loja e Marca
                     </p>
                   </div>
                 </div>
@@ -1246,7 +1336,7 @@ const ErpOptica = ({
                   <StockPieChart
                     items={currentTabRows}
                     compact={true}
-                    title={`Distribuição do Inventário (${activeTab === 'armacoes' ? 'Armações' : 'Lentes'})`}
+                    title={`Distribuição do Inventário (${activeTab === 'armacoes' ? 'Armações' : activeTab === 'brindes' ? 'Brindes' : 'Lentes'})`}
                     onSliceClick={() => setIsStockFilterModalOpen(true)}
                   />
                 </div>
@@ -1254,7 +1344,7 @@ const ErpOptica = ({
             </div>
           )}
 
-          <div className={`grid gap-6 ${activeTab === 'lentes' || activeTab === 'armacoes' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4' : 'grid-cols-1 md:grid-cols-3'}`}>
+          <div className={`grid gap-6 ${activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4' : 'grid-cols-1 md:grid-cols-3'}`}>
           {activeTab === 'lentes' && (
             <>
               <div className="glass-card p-6 border-l-4 border-l-sky-500">
@@ -1335,6 +1425,46 @@ const ErpOptica = ({
             </>
           )}
 
+          {activeTab === 'brindes' && (
+            <>
+              <div className="glass-card p-6 border-l-4 border-l-pink-500">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Modelos Cadastrados</p>
+                <p className="text-3xl font-black text-white mt-1">{brindesStats.total}</p>
+              </div>
+              <div className="glass-card p-6 border-l-4 border-l-rose-500">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Peças em Estoque</p>
+                <p className="text-3xl font-black text-rose-400 mt-1">{brindesStats.totalPecs}</p>
+              </div>
+              <div className="glass-card p-6 border-l-4 border-l-emerald-500">
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Custo Total do Inventário</p>
+                <p className="text-3xl font-black text-emerald-400 mt-1">{formatCurrency(brindesStats.valorEstoque)}</p>
+              </div>
+              <div
+                onClick={() => setFilterCriticalStock(prev => !prev)}
+                className={`glass-card p-6 border-l-4 cursor-pointer transition-all ${
+                  filterCriticalStock
+                    ? 'border-l-amber-500 ring-2 ring-amber-500/50 bg-amber-500/10'
+                    : 'border-l-amber-500 hover:border-amber-400 hover:bg-white/5'
+                }`}
+                title="Clique para filtrar apenas brindes com estoque crítico (<= 5 unidades)"
+              >
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-black uppercase tracking-widest text-amber-400 flex items-center gap-1.5">
+                    <AlertTriangle size={14} className={brindesStats.criticos > 0 ? 'animate-pulse' : ''} />
+                    Estoque Crítico (≤ 5)
+                  </p>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${filterCriticalStock ? 'bg-amber-500 text-slate-950 font-black' : 'bg-amber-500/20 text-amber-300'}`}>
+                    {filterCriticalStock ? 'Filtro Ativo' : 'Ponto de Pedido'}
+                  </span>
+                </div>
+                <p className="text-3xl font-black text-amber-300 mt-1">{brindesStats.criticos} itens</p>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  {filterCriticalStock ? 'Clique para desativar filtro' : 'Clique para isolar no catálogo'}
+                </p>
+              </div>
+            </>
+          )}
+
           {activeTab === 'receber' && (
             <>
               <div className="glass-card p-6 border-l-4 border-l-emerald-500">
@@ -1406,6 +1536,7 @@ const ErpOptica = ({
                 <h3 className="text-xl font-black text-white uppercase tracking-tight">
                   {activeTab === 'lentes' && 'Cadastrar Nova Lente no Estoque'}
                   {activeTab === 'armacoes' && 'Cadastrar Nova Armação no Estoque'}
+                  {activeTab === 'brindes' && 'Cadastrar Novo Brinde / Cortesia no Estoque'}
                   {activeTab === 'vouchers' && 'Criar Novo Voucher / Cupom Promocional'}
                   {activeTab === 'receber' && 'Lançar Nova Conta a Receber'}
                   {activeTab === 'pagar' && 'Lançar Nova Conta a Pagar'}
@@ -1917,6 +2048,74 @@ const ErpOptica = ({
                 </div>
               )}
 
+              {/* FORMULÁRIO DE BRINDES */}
+              {activeTab === 'brindes' && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Unidade (Loja) *</label>
+                    {userCity ? (
+                      <div className="w-full bg-black/60 border border-pink-500/30 rounded-xl px-4 py-3 text-pink-400 font-bold flex items-center justify-between">
+                        <span>{userCity}</span>
+                        <span className="text-[10px] bg-pink-500/10 text-pink-400 px-2 py-0.5 rounded-full border border-pink-500/20 font-black uppercase">Unidade Fixa</span>
+                      </div>
+                    ) : (
+                      <select value={brindesForm.UNIDADE} onChange={e => setBrindesForm({...brindesForm, UNIDADE: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-pink-500/50">
+                        <option className="bg-slate-900" value="Central">Central (Todas)</option>
+                        <option className="bg-slate-900" value="Cajati">Cajati</option>
+                        <option className="bg-slate-900" value="Registro">Registro</option>
+                        <option className="bg-slate-900" value="Jacupiranga">Jacupiranga</option>
+                        <option className="bg-slate-900" value="Venda Externa">Venda Externa</option>
+                      </select>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Nome / Descrição do Brinde *</label>
+                    <input required type="text" placeholder="Ex: Estojo Rígido Yasmin, Flanela Microfibra, Limpa-Lentes Spray" value={brindesForm.NOME} onChange={e => setBrindesForm({...brindesForm, NOME: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-pink-500/50" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Categoria do Brinde</label>
+                    <select value={brindesForm.CATEGORIA} onChange={e => setBrindesForm({...brindesForm, CATEGORIA: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-pink-500/50">
+                      <option className="bg-slate-900" value="Estojo Rígido">Estojo Rígido</option>
+                      <option className="bg-slate-900" value="Estojo Flexível">Estojo Flexível / Saquinho</option>
+                      <option className="bg-slate-900" value="Flanela Microfibra">Flanela Microfibra</option>
+                      <option className="bg-slate-900" value="Limpa-Lentes Spray">Limpa-Lentes Spray</option>
+                      <option className="bg-slate-900" value="Cordão / Corrente">Cordão / Corrente de Armação</option>
+                      <option className="bg-slate-900" value="Kit Limpeza e Cuidados">Kit Limpeza e Cuidados</option>
+                      <option className="bg-slate-900" value="Brinde Promocional / Campanha">Brinde Promocional / Campanha</option>
+                      <option className="bg-slate-900" value="Outros">Outros</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Código de Barras / SKU</label>
+                    <input type="text" placeholder="Ex: BRD-001 (auto se vazio)" value={brindesForm.REFERENCIA_SKU} onChange={e => setBrindesForm({...brindesForm, REFERENCIA_SKU: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-pink-500/50" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Cor / Variação</label>
+                    <input type="text" placeholder="Ex: Preto, Azul, Sortido, Floral" value={brindesForm.COR} onChange={e => setBrindesForm({...brindesForm, COR: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-pink-500/50" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Estoque Inicial (Peças) *</label>
+                    <input required type="number" min="0" placeholder="20" value={brindesForm.ESTOQUE} onChange={e => setBrindesForm({...brindesForm, ESTOQUE: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-pink-500/50" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Preço de Custo (R$)</label>
+                    <input type="text" placeholder="3,50" value={brindesForm.PRECO_COMPRA} onChange={e => setBrindesForm({...brindesForm, PRECO_COMPRA: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-pink-500/50" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Preço de Venda (R$) (0,00 = Cortesia)</label>
+                    <input type="text" placeholder="0,00" value={brindesForm.PRECO_VENDA} onChange={e => setBrindesForm({...brindesForm, PRECO_VENDA: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-pink-300 font-bold focus:ring-2 focus:ring-pink-500/50" />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">URL / Link da Foto (Imagem)</label>
+                    <input type="text" placeholder="https://..." value={brindesForm.IMAGEM} onChange={e => setBrindesForm({...brindesForm, IMAGEM: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-pink-500/50" />
+                  </div>
+                  <div className="space-y-2 md:col-span-3">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-400">Observações</label>
+                    <input type="text" placeholder="Ex: Fornecido gratuitamente na compra de óculos completos..." value={brindesForm.OBSERVACOES} onChange={e => setBrindesForm({...brindesForm, OBSERVACOES: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-pink-500/50" />
+                  </div>
+                </div>
+              )}
+
               {/* FORMULÁRIO DE VOUCHERS / CUPONS */}
               {activeTab === 'vouchers' && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -2227,13 +2426,14 @@ const ErpOptica = ({
               <h3 className="text-lg font-black text-white uppercase tracking-tight flex items-center gap-2">
                 {activeTab === 'lentes' && <><Eye size={18} className="text-sky-400" /> Catálogo de Lentes em Estoque</>}
                 {activeTab === 'armacoes' && <><Glasses size={18} className="text-fuchsia-400" /> Catálogo de Armações em Estoque</>}
+                {activeTab === 'brindes' && <><Gift size={18} className="text-pink-400" /> Catálogo de Brindes &amp; Cortesias em Estoque</>}
                 {activeTab === 'receber' && <><TrendingUp size={18} className="text-emerald-400" /> Tabela de Contas a Receber</>}
                 {activeTab === 'pagar' && <><TrendingDown size={18} className="text-rose-400" /> Tabela de Contas a Pagar</>}
                 {activeTab === 'transferencias' && <><Truck size={18} className="text-indigo-400" /> Registro e Auditoria de Transferências de Estoque</>}
               </h3>
 
               <div className="flex flex-wrap items-center gap-2">
-                {(activeTab === 'lentes' || activeTab === 'armacoes') && (
+                {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes') && (
                   <button
                     onClick={() => setIsStockFilterModalOpen(true)}
                     className={`flex items-center gap-1.5 px-3 py-1.5 border text-xs font-black rounded-xl transition-all shadow-sm active:scale-95 ${
@@ -2241,7 +2441,7 @@ const ErpOptica = ({
                         ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200 ring-2 ring-emerald-500/20'
                         : 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/30 text-emerald-300 hover:text-white'
                     }`}
-                    title={`Filtros e Relatórios de Estoque (${activeTab === 'armacoes' ? 'Armações' : 'Lentes'})`}
+                    title={`Filtros e Relatórios de Estoque (${activeTab === 'armacoes' ? 'Armações' : activeTab === 'brindes' ? 'Brindes' : 'Lentes'})`}
                   >
                     <Filter size={14} className="text-emerald-400" />
                     <span>Filtros de Estoque</span>
@@ -2251,11 +2451,11 @@ const ErpOptica = ({
                   </button>
                 )}
 
-                {(appliedStockFilter || filterCriticalStock) && (activeTab === 'lentes' || activeTab === 'armacoes') && (
+                {(appliedStockFilter || filterCriticalStock) && (activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes') && (
                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gradient-to-r from-sky-500/15 to-emerald-500/15 border border-sky-500/30 text-sky-200 text-xs font-black shadow-sm">
                     <Filter size={14} className="text-sky-400 shrink-0" />
                     <span>
-                      {appliedStockFilter ? appliedStockFilter.label : 'Estoque Crítico (≤ 2 un)'}
+                      {appliedStockFilter ? appliedStockFilter.label : activeTab === 'brindes' ? 'Estoque Crítico (≤ 5 un)' : 'Estoque Crítico (≤ 2 un)'}
                     </span>
                     <button
                       onClick={() => setIsStockFilterModalOpen(true)}
@@ -2285,7 +2485,7 @@ const ErpOptica = ({
               onDeleteRow={onDeleteRow}
               onViewInstallments={activeTab === 'receber' ? handleViewInstallments : undefined}
               currentUser={currentUser}
-              showPrintLabel={activeTab === 'armacoes' || activeTab === 'lentes'}
+              showPrintLabel={activeTab === 'armacoes' || activeTab === 'lentes' || activeTab === 'brindes'}
             />
           </motion.div>
         )}
@@ -2312,8 +2512,8 @@ const ErpOptica = ({
       <StockFilterModal
         isOpen={isStockFilterModalOpen}
         onClose={() => setIsStockFilterModalOpen(false)}
-        type={activeTab === 'armacoes' ? 'armacoes' : 'lentes'}
-        items={activeTab === 'armacoes' ? armacoesData : lentesData}
+        type={activeTab === 'armacoes' ? 'armacoes' : activeTab === 'brindes' ? 'brindes' : 'lentes'}
+        items={activeTab === 'armacoes' ? armacoesData : activeTab === 'brindes' ? brindesData : lentesData}
         salesData={salesData}
         activeFilter={appliedStockFilter}
         onApplyFilter={(filterConfig) => {

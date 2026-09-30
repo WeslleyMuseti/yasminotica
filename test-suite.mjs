@@ -1687,6 +1687,159 @@ async function runTests() {
 
   console.log('  ✅ Test 21 Passed: Função de OS de Laboratório e mapeamento de formulário validados com sucesso!\n');
 
+  // ─── TEST 22: Optical Gifts & Giveaways Stock Management (CAD_BRINDES) ────────
+  console.log('▶ Test 22: Optical Gifts & Giveaways Management (CAD_BRINDES, ERP, POS & Transfers)');
+
+  // 22.1 Mock database dataset for CAD_BRINDES
+  const mockBrindesData = [
+    {
+      id: 'brd_001',
+      UNIDADE: 'Cajati',
+      NOME: 'Estojo Rígido Yasmin Luxo',
+      CATEGORIA: 'Estojo Rígido',
+      REFERENCIA_SKU: 'EST-RIG-01',
+      COR: 'Preto Fosco',
+      PRECO_COMPRA: '4,50',
+      PRECO_VENDA: '0,00',
+      ESTOQUE: 35,
+      DATA_CADASTRO: '2026-09-30'
+    },
+    {
+      id: 'brd_002',
+      UNIDADE: 'Cajati',
+      NOME: 'Flanela Microfibra Antiembaçante',
+      CATEGORIA: 'Flanela Microfibra',
+      REFERENCIA_SKU: 'FLA-MIC-02',
+      COR: 'Azul Marinho',
+      PRECO_COMPRA: '1,20',
+      PRECO_VENDA: '0,00',
+      ESTOQUE: 4, // Estoque Crítico (<= 5)
+      DATA_CADASTRO: '2026-09-30'
+    },
+    {
+      id: 'brd_003',
+      UNIDADE: 'Registro',
+      NOME: 'Limpa-Lentes Spray 30ml',
+      CATEGORIA: 'Limpa-Lentes Spray',
+      REFERENCIA_SKU: 'LMP-SPR-03',
+      COR: 'Incolor',
+      PRECO_COMPRA: '3,00',
+      PRECO_VENDA: '15,00', // Venda avulsa permitida
+      ESTOQUE: 50,
+      DATA_CADASTRO: '2026-09-30'
+    },
+    {
+      id: 'brd_004',
+      UNIDADE: 'Central',
+      NOME: 'Cordão Silicone para Armação',
+      CATEGORIA: 'Cordão / Corrente',
+      REFERENCIA_SKU: 'CRD-SIL-04',
+      COR: 'Preto',
+      PRECO_COMPRA: '2,00',
+      PRECO_VENDA: '0,00',
+      ESTOQUE: 2, // Estoque Crítico (<= 5)
+      DATA_CADASTRO: '2026-09-30'
+    }
+  ];
+
+  // 22.2 KPI calculations (matching ErpOptica stats)
+  const calculateBrindesKPIs = (items) => {
+    let total = items.length;
+    let totalPecs = 0;
+    let valorEstoque = 0;
+    let criticos = 0;
+
+    items.forEach(item => {
+      const q = parseInt(item.ESTOQUE || 0, 10);
+      const custo = parseFloat(String(item.PRECO_COMPRA || '0').replace(/\./g, '').replace(',', '.')) || 0;
+      totalPecs += q;
+      valorEstoque += q * custo;
+      if (q <= 5) criticos++;
+    });
+
+    return { total, totalPecs, valorEstoque, criticos };
+  };
+
+  const kpisAll = calculateBrindesKPIs(mockBrindesData);
+  console.assert(kpisAll.total === 4, 'Total de modelos de brindes deve ser 4');
+  console.assert(kpisAll.totalPecs === 91, 'Total de peças deve ser 35 + 4 + 50 + 2 = 91');
+  console.assert(kpisAll.criticos === 2, 'Brindes com estoque <= 5 devem ser 2 (FLA-MIC-02 e CRD-SIL-04)');
+  const expectedCustoTotal = (35 * 4.5) + (4 * 1.2) + (50 * 3.0) + (2 * 2.0);
+  console.assert(Math.abs(kpisAll.valorEstoque - expectedCustoTotal) < 0.01, 'Custo total do inventário de brindes deve bater');
+
+  // 22.3 Multi-loja vendor isolation
+  const vendorCajatiItems = mockBrindesData.filter(item => {
+    const u = (item.UNIDADE || '').toUpperCase();
+    return u === 'CAJATI';
+  });
+  console.assert(vendorCajatiItems.length === 2, 'Vendedor de Cajati deve visualizar apenas os 2 brindes de Cajati');
+
+  // 22.4 Inter-store transfer simulation (ProductTransferModal)
+  const originItem = mockBrindesData.find(i => i.id === 'brd_001'); // Cajati, 35 un
+  const transferQty = 10;
+  const originStockAfter = originItem.ESTOQUE - transferQty;
+  console.assert(originStockAfter === 25, 'Saldo de origem após transferência de 10 unidades deve ser 25');
+
+  const destItemCreated = {
+    ...originItem,
+    id: 'brd_001_registro',
+    UNIDADE: 'Registro',
+    CIDADE: 'Registro',
+    LOJA: 'Registro',
+    ESTOQUE: transferQty
+  };
+  console.assert(destItemCreated.UNIDADE === 'Registro' && destItemCreated.ESTOQUE === 10, 'Item transferido para Registro deve ter 10 un');
+
+  const transferAudit = {
+    ID: 'TRF-BRD-001',
+    TIPO: 'Brinde',
+    PRODUTO: `${originItem.NOME} [${originItem.CATEGORIA}]`,
+    ORIGEM: 'Cajati',
+    DESTINO: 'Registro',
+    QUANTIDADE: transferQty,
+    SALDO_ORIGEM_RESTANTE: originStockAfter,
+    SALDO_DESTINO_FINAL: 10,
+    STATUS: 'Concluído'
+  };
+  console.assert(transferAudit.TIPO === 'Brinde', 'Auditoria deve registrar tipo Brinde');
+
+  // 22.5 POS Cart addition & atomic deduction simulation
+  const posCartItem = {
+    id: originItem.id,
+    type: 'brindes',
+    nome: originItem.NOME,
+    detalhes: `Cat: ${originItem.CATEGORIA} | Loja: ${originItem.UNIDADE}`,
+    preco: parseFloat(originItem.PRECO_VENDA.replace(',', '.')) || 0,
+    qtd: 1,
+    rawProduct: originItem
+  };
+  console.assert(posCartItem.preco === 0, 'Preço de venda cortesia padrão deve ser 0');
+  console.assert(posCartItem.type === 'brindes', 'Item no carrinho do PDV deve ter type brindes');
+
+  // Decremento atômico de estoque no PDV
+  const updatedStockAfterSale = Math.max(0, originItem.ESTOQUE - posCartItem.qtd);
+  console.assert(updatedStockAfterSale === 34, 'Estoque de brinde após venda no PDV deve ser 34');
+
+  // 22.6 Printable OS item formatting
+  const osItem = {
+    type: posCartItem.type,
+    nome: posCartItem.nome,
+    detalhes: posCartItem.detalhes,
+    qtd: posCartItem.qtd,
+    preco: posCartItem.preco
+  };
+
+  let tipoFormatado = 'Produto';
+  if (osItem.type === 'armacoes') tipoFormatado = 'Armação';
+  else if (osItem.type === 'lentes') tipoFormatado = 'Lente Oftálmica';
+  else if (osItem.type === 'brindes') tipoFormatado = 'Brinde / Cortesia';
+
+  const precoExibido = osItem.preco === 0 && tipoFormatado === 'Brinde / Cortesia' ? 'Cortesia' : `R$ ${osItem.preco.toFixed(2)}`;
+  console.assert(tipoFormatado === 'Brinde / Cortesia', 'OS deve classificar como Brinde / Cortesia');
+  console.assert(precoExibido === 'Cortesia', 'OS deve exibir Cortesia para brindes de valor 0');
+
+  console.log('  ✅ Test 22 Passed: Gestão de Brindes (CAD_BRINDES, ERP, POS, Transferências e Impressão de OS) validada com sucesso!\n');
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
 }
 

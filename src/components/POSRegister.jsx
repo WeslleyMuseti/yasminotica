@@ -6,7 +6,7 @@ import {
   Sparkles, RefreshCw, X, ShieldCheck, Calendar, Phone,
   UserPlus, ClipboardList, Glasses, Layers, Tag, Check,
   Lock, Unlock, ArrowDownRight, ArrowUpRight, Building, Wallet, History, Receipt,
-  Ticket, Percent, AlertOctagon, Star
+  Ticket, Percent, AlertOctagon, Star, Gift
 } from 'lucide-react';
 import PrintableOS from './PrintableOS';
 import PrintableReceipt from './PrintableReceipt';
@@ -315,6 +315,15 @@ const POSRegister = ({
     });
   }, [data, userFixedCity]);
 
+  const erpBrindes = useMemo(() => {
+    const list = data?.['CAD_BRINDES'] || [];
+    if (!userFixedCity) return list;
+    return list.filter(item => {
+      const u = String(item['UNIDADE'] || item['CIDADE'] || item['LOJA'] || item['Unidade'] || '').trim().toUpperCase();
+      return u && u !== 'CENTRAL' && u.includes(userFixedCity.toUpperCase());
+    });
+  }, [data, userFixedCity]);
+
   // ─── FILTROS DE CLIENTES ─────────────────────────────────────────
   const filteredClients = useMemo(() => {
     if (!clientSearch) return [];
@@ -396,6 +405,8 @@ const POSRegister = ({
       source = erpArmacoes.map(i => ({ ...i, _type: 'armacoes' }));
     } else if (productCategory === 'lentes') {
       source = erpLentes.map(i => ({ ...i, _type: 'lentes' }));
+    } else if (productCategory === 'brindes') {
+      source = erpBrindes.map(i => ({ ...i, _type: 'brindes' }));
     } else if (productCategory === 'geral') {
       source = erpGeral.map(i => ({ ...i, _type: 'geral' }));
     } else if (productCategory === 'mais_vendidos') {
@@ -414,6 +425,7 @@ const POSRegister = ({
       source = [
         ...erpArmacoes.map(i => ({ ...i, _type: 'armacoes' })),
         ...erpLentes.map(i => ({ ...i, _type: 'lentes' })),
+        ...erpBrindes.map(i => ({ ...i, _type: 'brindes' })),
         ...erpGeral.map(i => ({ ...i, _type: 'geral' }))
       ];
     }
@@ -438,11 +450,11 @@ const POSRegister = ({
       const text = Object.values(item).join(' ').toLowerCase();
       return text.includes(q);
     });
-  }, [productCategory, erpArmacoes, erpLentes, erpGeral, salesCountMap, productSearch, selectedCityStock, userFixedCity, isVendor]);
+  }, [productCategory, erpArmacoes, erpLentes, erpBrindes, erpGeral, salesCountMap, productSearch, selectedCityStock, userFixedCity, isVendor]);
 
   // ─── OPERAÇÕES DO CARRINHO ───────────────────────────────────────
   const addToCart = (product, type) => {
-    const effectiveType = type || product._type || (product['LENTE'] ? 'lentes' : (product['COR'] || product['MODELO'] ? 'armacoes' : 'geral'));
+    const effectiveType = type || product._type || (product['CATEGORIA'] && !product['MARCA'] ? 'brindes' : product['LENTE'] ? 'lentes' : (product['COR'] || product['MODELO'] ? 'armacoes' : 'geral'));
     const id = product.id || `${effectiveType}_${product['MARCA'] || ''}_${product['MODELO'] || ''}_${product['REFERENCIA_SKU'] || ''}_${product['NOME'] || ''}_${product['LENTE'] || ''}`;
     
     let name = 'Produto';
@@ -462,6 +474,14 @@ const POSRegister = ({
       if (product['INDICE_REFRACAO']) extra.push(`Índice: ${product['INDICE_REFRACAO']}`);
       if (product['TRATAMENTO']) extra.push(product['TRATAMENTO']);
       details = extra.join(' | ');
+    } else if (effectiveType === 'brindes') {
+      name = product['NOME'] || product['MODELO'] || product['PRODUTO'] || 'Brinde / Cortesia';
+      const extra = [];
+      if (product['CATEGORIA']) extra.push(`Cat: ${product['CATEGORIA']}`);
+      if (product['COR']) extra.push(`Cor: ${product['COR']}`);
+      if (product['REFERENCIA_SKU']) extra.push(`Ref: ${product['REFERENCIA_SKU']}`);
+      if (product['UNIDADE']) extra.push(`Loja: ${product['UNIDADE']}`);
+      details = extra.join(' | ');
     } else {
       name = product['PRODUTO'] || product['DESCRICAO'] || product['NOME'] || 'Produto do Estoque';
     }
@@ -477,7 +497,7 @@ const POSRegister = ({
       return [...prev, {
         id,
         rawProduct: product,
-        type,
+        type: effectiveType,
         nome: name,
         detalhes: details,
         imagem: product['IMAGEM'] || null,
@@ -572,7 +592,7 @@ const POSRegister = ({
 
     const findMatch = (item) => {
       const sku = String(item['REFERENCIA_SKU'] || item['referencia_sku'] || item['REFERENCIA'] || item['referencia'] || item['Referência'] || item['CODIGO'] || item['codigo'] || item['SKU'] || item['sku'] || item['EAN'] || item['CODIGO_BARRAS'] || item.id || '').trim().toUpperCase();
-      const modelo = String(item['MODELO'] || item['modelo'] || item['PRODUTO'] || item['produto'] || item['DESCRICAO'] || item['descricao'] || '').trim().toUpperCase();
+      const modelo = String(item['NOME'] || item['nome'] || item['MODELO'] || item['modelo'] || item['PRODUTO'] || item['produto'] || item['DESCRICAO'] || item['descricao'] || '').trim().toUpperCase();
       const marca = String(item['MARCA'] || item['marca'] || '').trim().toUpperCase();
       const full = `${marca} ${modelo}`.trim().toUpperCase();
 
@@ -591,9 +611,14 @@ const POSRegister = ({
       if (matchedItem) {
         matchedType = 'lentes';
       } else {
-        matchedItem = erpGeral.find(findMatch);
+        matchedItem = erpBrindes.find(findMatch);
         if (matchedItem) {
-          matchedType = 'geral';
+          matchedType = 'brindes';
+        } else {
+          matchedItem = erpGeral.find(findMatch);
+          if (matchedItem) {
+            matchedType = 'geral';
+          }
         }
       }
     }
@@ -972,9 +997,10 @@ const POSRegister = ({
 
     // 2. Baixar Estoque dos Itens Vendidos no ERP (Transações Atômicas no Firestore)
     for (const item of cart) {
-      if (item.rawProduct && (item.type === 'armacoes' || item.type === 'lentes' || item.type === 'geral')) {
+      if (item.rawProduct && (item.type === 'armacoes' || item.type === 'lentes' || item.type === 'brindes' || item.type === 'geral')) {
         let sheetName = 'CAD_ARMACOES';
         if (item.type === 'lentes') sheetName = 'CAD_LENTES';
+        else if (item.type === 'brindes') sheetName = 'CAD_BRINDES';
         else if (item.type === 'geral') sheetName = 'ESTOQUE';
 
         const currentStock = parseInt(item.rawProduct['ESTOQUE'] || item.rawProduct['EM ESTOQUE'] || 1, 10);
@@ -1596,10 +1622,17 @@ const POSRegister = ({
                 </button>
                 <button
                   type="button"
+                  onClick={() => setProductCategory('brindes')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${productCategory === 'brindes' ? 'bg-pink-600 text-white font-black shadow-lg shadow-pink-600/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                >
+                  🎁 Brindes ({erpBrindes.length})
+                </button>
+                <button
+                  type="button"
                   onClick={() => setProductCategory('todos')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${productCategory === 'todos' ? 'bg-sky-600 text-white font-black shadow-md shadow-sky-600/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
                 >
-                  📦 Todos ({erpArmacoes.length + erpLentes.length})
+                  📦 Todos ({erpArmacoes.length + erpLentes.length + erpBrindes.length})
                 </button>
                 <button
                   type="button"
@@ -1680,29 +1713,31 @@ const POSRegister = ({
                   style={{ maxHeight: '520px' }}
                 >
                   {filteredProducts.slice(0, 100).map((prod, idx) => {
-                    const isArmacao = productCategory === 'armacoes';
+                    const isArmacao = productCategory === 'armacoes' || prod._type === 'armacoes';
+                    const isBrinde = productCategory === 'brindes' || prod._type === 'brindes';
                     const brand = prod['MARCA'] || prod['marca'] || '';
-                    const model = prod['MODELO'] || prod['modelo'] || prod['PRODUTO'] || prod['DESCRICAO'] || '';
+                    const model = prod['NOME'] || prod['MODELO'] || prod['modelo'] || prod['PRODUTO'] || prod['DESCRICAO'] || '';
                     const sku = prod['REFERENCIA_SKU'] || prod['CODIGO'] || prod['SKU'] || '';
                     const cor = prod['COR'] || '';
+                    const categoria = prod['CATEGORIA'] || '';
                     const unit = prod['UNIDADE'] || prod['CIDADE'] || prod['LOJA'] || 'Central';
                     const imagem = prod['IMAGEM'] || null;
 
-                    const title = `${brand} ${model}`.trim() || 'Item ERP';
+                    const title = isBrinde ? (prod['NOME'] || prod['MODELO'] || 'Brinde') : `${brand} ${model}`.trim() || 'Item ERP';
                     const price = cleanVal(prod['PRECO_VENDA'] || prod['preco_venda'] || prod['VALOR'] || prod['PRECO'] || 0);
                     const stock = parseInt(prod['ESTOQUE'] || prod['estoque'] || prod['EM ESTOQUE'] || 0, 10);
 
                     return (
                       <div
                         key={idx}
-                        className="bg-slate-950/90 border border-slate-800 hover:border-amber-500/40 p-3.5 rounded-2xl flex flex-col justify-between transition-all group shadow-sm"
+                        className={`bg-slate-950/90 border ${isBrinde ? 'border-pink-500/20 hover:border-pink-500/50' : 'border-slate-800 hover:border-amber-500/40'} p-3.5 rounded-2xl flex flex-col justify-between transition-all group shadow-sm`}
                       >
                         <div className="flex items-start gap-3 mb-2">
                           {imagem ? (
                             <img src={imagem} alt={title} className="w-12 h-12 object-cover rounded-xl border border-white/10 shrink-0 bg-slate-900" />
                           ) : (
                             <div className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 shrink-0">
-                              {isArmacao ? <Glasses size={18} className="text-amber-400" /> : <Package size={18} className="text-indigo-400" />}
+                              {isArmacao ? <Glasses size={18} className="text-amber-400" /> : isBrinde ? <Gift size={18} className="text-pink-400" /> : <Package size={18} className="text-indigo-400" />}
                             </div>
                           )}
                           <div className="min-w-0 flex-1">
@@ -1710,6 +1745,11 @@ const POSRegister = ({
                               {title}
                             </p>
                             <div className="flex flex-wrap items-center gap-1 mt-1">
+                              {categoria && (
+                                <span className="text-[9px] font-bold text-pink-400 bg-pink-500/10 px-1.5 py-0.5 rounded">
+                                  {categoria}
+                                </span>
+                              )}
                               {sku && (
                                 <span className="text-[9px] font-bold text-slate-400 bg-slate-900 px-1.5 py-0.5 rounded">
                                   Ref: {sku}
@@ -1731,7 +1771,11 @@ const POSRegister = ({
 
                         <div className="flex items-center justify-between pt-2 border-t border-slate-900 mt-auto">
                           <div>
-                            <span className="text-amber-400 font-black text-sm">{fmtMoeda(price)}</span>
+                            {isBrinde && price === 0 ? (
+                              <span className="text-pink-400 font-black text-xs uppercase bg-pink-500/10 px-2 py-0.5 rounded border border-pink-500/20">Cortesia (R$ 0,00)</span>
+                            ) : (
+                              <span className="text-amber-400 font-black text-sm">{fmtMoeda(price)}</span>
+                            )}
                             <div className="mt-0.5">
                               <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
                                 stock > 2 ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :

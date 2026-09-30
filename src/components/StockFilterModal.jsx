@@ -198,20 +198,21 @@ export default function StockFilterModal({
         return;
       }
       const isArmacao = type === 'armacoes';
+      const isBrinde = type === 'brindes';
       const todayStr = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
       const presetName = selectedPreset.toUpperCase().replace(/\s+/g, '_');
-      const filename = `Estoque_${isArmacao ? 'Armacoes' : 'Lentes'}_${presetName}_${todayStr}.xlsx`;
+      const filename = `Estoque_${isArmacao ? 'Armacoes' : isBrinde ? 'Brindes' : 'Lentes'}_${presetName}_${todayStr}.xlsx`;
 
       const formatted = filteredItems.map((item, idx) => {
         const base = {
           'Nº': idx + 1,
           'Unidade / Loja': sanitizeFormula(item.UNIDADE || item.CIDADE || item.LOJA || item.unidade || 'Central'),
-          'Marca': sanitizeFormula(item.MARCA || item.marca || ''),
-          'Modelo': sanitizeFormula(item.MODELO || item.modelo || ''),
-          'SKU / Referência': sanitizeFormula(item.REFERENCIA_SKU || item.referencia_sku || item.SKU || item.REFERÊNCIA || ''),
+          'Marca / Categoria': sanitizeFormula(item.MARCA || item.marca || item.CATEGORIA || item.categoria || ''),
+          'Modelo / Descrição': sanitizeFormula(item.NOME || item.nome || item.MODELO || item.modelo || ''),
+          'SKU / Referência': sanitizeFormula(item.REFERENCIA_SKU || item.referencia_sku || item.SKU || item.REFERÊNCIA || item.CODIGO || ''),
           'Material': sanitizeFormula(item.MATERIAL || item.material || ''),
           'Estoque Físico': item._qtdEstoque ?? 0,
-          'Status': item._statusEstoque === 'esgotado' ? 'Esgotado' : item._statusEstoque === 'critico' ? 'Crítico (≤ 2)' : 'Normal',
+          'Status': item._statusEstoque === 'esgotado' ? 'Esgotado' : item._statusEstoque === 'critico' ? 'Crítico' : 'Normal',
           'Preço Custo (R$)': Number((item._precoCusto || 0).toFixed(2)),
           'Preço Venda (R$)': Number((item._precoVenda || 0).toFixed(2)),
           'Lucro Unitário (R$)': Number((item._lucroUnitario || 0).toFixed(2)),
@@ -223,6 +224,9 @@ export default function StockFilterModal({
         if (isArmacao) {
           base['Cor'] = sanitizeFormula(item.COR || item.cor || '');
           base['Tamanho'] = sanitizeFormula(item.TAMANHO || item.tamanho || '');
+        } else if (isBrinde) {
+          base['Categoria'] = sanitizeFormula(item.CATEGORIA || item.categoria || '');
+          base['Cor'] = sanitizeFormula(item.COR || item.cor || '');
         } else {
           base['Índice Refração'] = sanitizeFormula(item.INDICE_REFRACAO || item.indice_refracao || '');
           base['Tratamento'] = sanitizeFormula(item.TRATAMENTO || item.tratamento || '');
@@ -248,7 +252,7 @@ export default function StockFilterModal({
       ws['!cols'] = colWidths;
 
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, isArmacao ? 'Armações' : 'Lentes');
+      XLSX.utils.book_append_sheet(wb, ws, isArmacao ? 'Armações' : isBrinde ? 'Brindes' : 'Lentes');
       XLSX.writeFile(wb, filename);
 
       setDownloadSuccess(true);
@@ -321,7 +325,7 @@ export default function StockFilterModal({
                   Filtros &amp; Relatórios de Estoque
                 </h2>
                 <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-black uppercase tracking-wider">
-                  {type === 'armacoes' ? 'Armações' : 'Lentes'}
+                  {type === 'armacoes' ? 'Armações' : type === 'brindes' ? 'Brindes' : 'Lentes'}
                 </span>
               </div>
               <p className="text-xs text-slate-400 font-semibold">

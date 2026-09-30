@@ -76,6 +76,7 @@ const PrintableOS = ({ osData, clientData = {} }) => {
         let tipo = 'Produto';
         if (item.type === 'armacoes') tipo = 'Armação';
         else if (item.type === 'lentes') tipo = 'Lente Oftálmica';
+        else if (item.type === 'brindes') tipo = 'Brinde / Cortesia';
         else if (item.type === 'avulso') tipo = 'Serviço / Avulso';
 
         const precoUnit = parseCurrencyPrint(item.preco || item.valor || 0);
@@ -345,10 +346,10 @@ const PrintableOS = ({ osData, clientData = {} }) => {
                   {hasItemPrices ? (
                     <>
                       <td className="border border-slate-300 py-0.5 px-1 text-right text-slate-700">
-                        {item.precoUnit ? formatCurrencyPrint(item.precoUnit) : '—'}
+                        {item.precoUnit ? formatCurrencyPrint(item.precoUnit) : item.tipo === 'Brinde / Cortesia' ? 'Cortesia' : '—'}
                       </td>
                       <td className="border border-slate-300 py-0.5 px-1.5 text-right font-black text-slate-900">
-                        {item.total ? formatCurrencyPrint(item.total) : '—'}
+                        {item.total ? formatCurrencyPrint(item.total) : item.tipo === 'Brinde / Cortesia' ? 'R$ 0,00' : '—'}
                       </td>
                     </>
                   ) : (

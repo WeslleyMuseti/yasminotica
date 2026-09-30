@@ -19,6 +19,7 @@ const COLLECTIONS = [
   'Registro_Vendas',
   'CAD_LENTES',
   'CAD_ARMACOES',
+  'CAD_BRINDES',
   'CONTAS_PAGAR',
   'CONTAS_RECEBER',
   'USUARIOS',
