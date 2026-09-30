@@ -5,9 +5,10 @@ import {
   Trash2, MapPin, ArrowLeft, ArrowUpDown, ChevronRight, ShieldAlert,
   Sparkles, CheckCircle2, AlertCircle, ShoppingBag, Phone, X, Check, PackageCheck, Tag,
   Glasses, ChevronDown, ChevronUp, LayoutGrid, Table as TableIcon, CreditCard, DollarSign,
-  ShieldCheck, XCircle, FileText, Receipt
+  ShieldCheck, XCircle, FileText, Receipt, FlaskConical
 } from "lucide-react";
 import PrintableOS from "./PrintableOS";
+import PrintableLabOS from "./PrintableLabOS";
 import { PrintableLabelModal } from "./PrintableLabel";
 import { isSameClient } from "../firebaseSync";
 
@@ -164,12 +165,18 @@ const OSManagement = ({
   const [collapsedOrders, setCollapsedOrders] = useState({});
   const [osDataForPrint, setOsDataForPrint] = useState(null);
   const [printClient, setPrintClient] = useState(null);
+  const [osDataForLabPrint, setOsDataForLabPrint] = useState(null);
+  const [printLabClient, setPrintLabClient] = useState(null);
   const [labelModalData, setLabelModalData] = useState(null);
 
   // Modal de Conferência Financeira & Aprovação de OS (Semáforo Azul)
   const [approvalModalOrder, setApprovalModalOrder] = useState(null);
   const [isApproving, setIsApproving] = useState(false);
   const [successToast, setSuccessToast] = useState('');
+
+  // Modal Formulário Lab
+  const [labModalOrder, setLabModalOrder] = useState(null);
+  const [labFormData, setLabFormData] = useState({});
 
   // Modal de Baixa de Entrega ao Cliente
   const [deliveryModalOrder, setDeliveryModalOrder] = useState(null);
@@ -854,6 +861,8 @@ const OSManagement = ({
 
   // Impressão da OS
   const handlePrint = (order) => {
+    setOsDataForLabPrint(null);
+    setPrintLabClient(null);
     const cData = {
       ...order.raw,
       ...(order.clientData || {}),
@@ -887,6 +896,90 @@ const OSManagement = ({
       oeAlt: order.oeAlt || order.raw["OE_ALT"] || "",
       adicao: order.adicao || order.raw["ADICAO"] || ""
     });
+
+    setTimeout(() => {
+      window.print();
+    }, 300);
+  };
+
+  const handlePrintLab = (order) => {
+    setLabModalOrder(order);
+    setLabFormData({
+      LABORATORIO: order.laboratorio || order.raw["LABORATORIO"] || "",
+      OD_ESF: order.odEsf || order.raw["OD_ESF"] || "",
+      OD_CIL: order.odCil || order.raw["OD_CIL"] || "",
+      OD_EIXO: order.odEixo || order.raw["OD_EIXO"] || "",
+      OE_ESF: order.oeEsf || order.raw["OE_ESF"] || "",
+      OE_CIL: order.oeCil || order.raw["OE_CIL"] || "",
+      OE_EIXO: order.oeEixo || order.raw["OE_EIXO"] || "",
+      ADICAO: order.adicao || order.raw["ADICAO"] || "",
+      OD_DNP: order.odDnp || order.raw["OD_DNP"] || "",
+      OD_ALT: order.odAlt || order.raw["OD_ALT"] || "",
+      OE_DNP: order.oeDnp || order.raw["OE_DNP"] || "",
+      OE_ALT: order.oeAlt || order.raw["OE_ALT"] || "",
+      PONTE_ARO: order.raw["PONTE_ARO"] || "",
+      DIAGONAL_MAIOR: order.raw["DIAGONAL_MAIOR"] || "",
+      ALTURA_VERTICAL: order.raw["ALTURA_VERTICAL"] || "",
+      PONTE: order.raw["PONTE"] || "",
+      ARO: order.raw["ARO"] || ""
+    });
+  };
+
+  const handleConfirmLabPrint = (e) => {
+    e.preventDefault();
+    if (!labModalOrder) return;
+    
+    // Atualizar dados na OS atual
+    const order = labModalOrder;
+    const updatedRaw = {
+      ...order.raw,
+      ...labFormData
+    };
+    
+    if (onUpdateRow) {
+      onUpdateRow("Registro_Vendas", order.raw, updatedRaw);
+    }
+    
+    // Preparar impressão usando updatedRaw
+    setOsDataForPrint(null);
+    setPrintClient(null);
+    const cData = {
+      ...updatedRaw,
+      ...(order.clientData || {}),
+      "Nome Completo": order.clientName || updatedRaw?.['CLIENTE'] || updatedRaw?.['NOME'],
+      "WhatsApp": order.clientPhone || updatedRaw?.['TELEFONE'],
+      "Cidade": order.clientCity || order.unit
+    };
+    setPrintLabClient(cData);
+    setOsDataForLabPrint({
+      raw: updatedRaw,
+      numeroOS: order.osNumber,
+      selectedCity: order.unit,
+      unidade: order.unit,
+      laboratorio: updatedRaw["LABORATORIO"] || "",
+      medico: updatedRaw["MEDICO"] || "",
+      lente: order.lente || updatedRaw["LENTE"] || order.product,
+      armacao: order.armacao || updatedRaw["ARMAÇÃO"] || "",
+      valorTotal: order.valorTotal,
+      valorEntrada: updatedRaw["VALOR ENTRADA"] || "0,00",
+      restante: updatedRaw["RESTANTE"] || "0,00",
+      dataEntrega: order.dtEntrega,
+      formasPagamento: updatedRaw["FORMAS_PAGAMENTO"] || updatedRaw["MEIO_PAGAMENTO"] || "",
+      observacoes: updatedRaw["OBSERVACOES"] || order.obsEntrega || "",
+      odEsf: updatedRaw["OD_ESF"] || "",
+      odCil: updatedRaw["OD_CIL"] || "",
+      odEixo: updatedRaw["OD_EIXO"] || "",
+      odDnp: updatedRaw["OD_DNP"] || "",
+      odAlt: updatedRaw["OD_ALT"] || "",
+      oeEsf: updatedRaw["OE_ESF"] || "",
+      oeCil: updatedRaw["OE_CIL"] || "",
+      oeEixo: updatedRaw["OE_EIXO"] || "",
+      oeDnp: updatedRaw["OE_DNP"] || "",
+      oeAlt: updatedRaw["OE_ALT"] || "",
+      adicao: updatedRaw["ADICAO"] || ""
+    });
+
+    setLabModalOrder(null);
 
     setTimeout(() => {
       window.print();
@@ -1337,6 +1430,17 @@ const OSManagement = ({
                           <Printer size={15} />
                           <span className="hidden sm:inline">Imprimir OS</span>
                         </button>
+
+                        {order.status !== "Aguardando Confirmação" && order.status !== "Cancelada" && (
+                          <button
+                            onClick={() => handlePrintLab(order)}
+                            className="p-2 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 text-fuchsia-400 rounded-xl transition-colors border border-fuchsia-500/20 flex items-center gap-1 text-xs font-bold"
+                            title="Imprimir OS de Laboratório"
+                          >
+                            <FlaskConical size={15} />
+                            <span className="hidden sm:inline">OS Lab</span>
+                          </button>
+                        )}
 
                         <button
                           onClick={() => openLabelModal(order)}
@@ -1850,6 +1954,16 @@ const OSManagement = ({
                                 <Printer size={15} />
                               </button>
 
+                              {order.status !== "Aguardando Confirmação" && order.status !== "Cancelada" && (
+                                <button
+                                  onClick={() => handlePrintLab(order)}
+                                  className="p-2 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 text-fuchsia-400 rounded-xl transition-colors border border-fuchsia-500/20"
+                                  title="Imprimir OS de Laboratório"
+                                >
+                                  <FlaskConical size={15} />
+                                </button>
+                              )}
+
                               <button
                                 onClick={() => openLabelModal(order)}
                                 className="p-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 rounded-xl transition-colors border border-amber-500/20"
@@ -2300,9 +2414,140 @@ const OSManagement = ({
         </div>
       )}
 
-      {/* Componente Invisível de Impressão */}
+      {/* Modal Formulário Lab */}
+      {labModalOrder && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-[#0f172a] border border-fuchsia-500/30 rounded-3xl p-6 sm:p-8 max-w-2xl w-full shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200 my-8">
+            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-fuchsia-500/20 border border-fuchsia-500/30 flex items-center justify-center text-fuchsia-400 shadow-lg shadow-fuchsia-500/20">
+                  <FlaskConical size={22} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-white">Gerar OS de Laboratório</h3>
+                  <p className="text-xs text-slate-400 font-mono">Ordem de Serviço #{labModalOrder.osNumber} · {labModalOrder.unit}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLabModalOrder(null)}
+                className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-all"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmLabPrint} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-400">Laboratório</label>
+                  <input type="text" value={labFormData.LABORATORIO || ''} onChange={e => setLabFormData({...labFormData, LABORATORIO: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                </div>
+              </div>
+
+              <h4 className="text-sm font-bold text-white mt-4 border-b border-white/10 pb-2">Prescrição / Dioptria</h4>
+              <div className="grid grid-cols-4 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-400">OD Esférico</label>
+                  <input type="text" value={labFormData.OD_ESF || ''} onChange={e => setLabFormData({...labFormData, OD_ESF: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-400">OD Cilíndrico</label>
+                  <input type="text" value={labFormData.OD_CIL || ''} onChange={e => setLabFormData({...labFormData, OD_CIL: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-400">OD Eixo</label>
+                  <input type="text" value={labFormData.OD_EIXO || ''} onChange={e => setLabFormData({...labFormData, OD_EIXO: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-400">Adição (AD)</label>
+                  <input type="text" value={labFormData.ADICAO || ''} onChange={e => setLabFormData({...labFormData, ADICAO: e.target.value})} className="w-full bg-black/40 border border-emerald-500/30 rounded-xl px-3 py-2 text-sm text-emerald-400 font-bold focus:outline-none focus:border-emerald-400" />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-400">OE Esférico</label>
+                  <input type="text" value={labFormData.OE_ESF || ''} onChange={e => setLabFormData({...labFormData, OE_ESF: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-400">OE Cilíndrico</label>
+                  <input type="text" value={labFormData.OE_CIL || ''} onChange={e => setLabFormData({...labFormData, OE_CIL: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-400">OE Eixo</label>
+                  <input type="text" value={labFormData.OE_EIXO || ''} onChange={e => setLabFormData({...labFormData, OE_EIXO: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                </div>
+              </div>
+
+              <h4 className="text-sm font-bold text-white mt-4 border-b border-white/10 pb-2">Medidas</h4>
+              <div className="grid grid-cols-4 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-400">OD DNP</label>
+                  <input type="text" value={labFormData.OD_DNP || ''} onChange={e => setLabFormData({...labFormData, OD_DNP: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-400">OE DNP</label>
+                  <input type="text" value={labFormData.OE_DNP || ''} onChange={e => setLabFormData({...labFormData, OE_DNP: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-400">OD Altura</label>
+                  <input type="text" value={labFormData.OD_ALT || ''} onChange={e => setLabFormData({...labFormData, OD_ALT: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-400">OE Altura</label>
+                  <input type="text" value={labFormData.OE_ALT || ''} onChange={e => setLabFormData({...labFormData, OE_ALT: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                </div>
+              </div>
+
+              <h4 className="text-sm font-bold text-white mt-4 border-b border-white/10 pb-2">Dados da Armação</h4>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-400">Ponte + Aro</label>
+                  <input type="text" value={labFormData.PONTE_ARO || ''} onChange={e => setLabFormData({...labFormData, PONTE_ARO: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-400">Diagonal Maior</label>
+                  <input type="text" value={labFormData.DIAGONAL_MAIOR || ''} onChange={e => setLabFormData({...labFormData, DIAGONAL_MAIOR: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-400">Altura Vertical</label>
+                  <input type="text" value={labFormData.ALTURA_VERTICAL || ''} onChange={e => setLabFormData({...labFormData, ALTURA_VERTICAL: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-400">Ponte</label>
+                  <input type="text" value={labFormData.PONTE || ''} onChange={e => setLabFormData({...labFormData, PONTE: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-400">Aro</label>
+                  <input type="text" value={labFormData.ARO || ''} onChange={e => setLabFormData({...labFormData, ARO: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-400" />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-5 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setLabModalOrder(null)}
+                  className="px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-xs font-black shadow-lg shadow-fuchsia-500/25 flex items-center gap-2 transition-all"
+                >
+                  <Printer size={16} /> Salvar & Imprimir
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Componentes Invisíveis de Impressão */}
       {osDataForPrint && printClient && (
         <PrintableOS clientData={printClient} osData={osDataForPrint} />
+      )}
+      {osDataForLabPrint && printLabClient && (
+        <PrintableLabOS clientData={printLabClient} osData={osDataForLabPrint} />
       )}
 
       {/* Modal de Impressão de Etiquetas Térmicas (50x30mm) */}

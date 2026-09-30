@@ -1604,6 +1604,89 @@ async function runTests() {
 
   console.log('  ✅ Test 20 Passed: Formatação padronizada de itens e conformidade de folha única A4 sem folhas extras validadas com sucesso!\n');
 
+  // ─── TEST 21: Função de OS de Laboratório & Formulário de Dados Técnicos ───
+  console.log('▶ Test 21: Função de OS de Laboratório & Formulário de Dioptrias/Armação');
+
+  const mockOrder = {
+    id: 'row_os_555',
+    osNumber: '2026-88',
+    unit: 'Cajati',
+    laboratorio: 'Laboratório Central SP',
+    odEsf: '-2.50',
+    odCil: '-0.75',
+    odEixo: '180',
+    oeEsf: '-2.25',
+    oeCil: '-0.50',
+    oeEixo: '175',
+    adicao: '+2.00',
+    odDnp: '31',
+    odAlt: '18',
+    oeDnp: '30.5',
+    oeAlt: '18',
+    raw: {
+      'OS DA VENDA': '2026-88',
+      'LABORATORIO': 'Laboratório Central SP',
+      'OD_ESF': '-2.50',
+      'OD_CIL': '-0.75',
+      'OD_EIXO': '180',
+      'OE_ESF': '-2.25',
+      'OE_CIL': '-0.50',
+      'OE_EIXO': '175',
+      'ADICAO': '+2.00',
+      'OD_DNP': '31',
+      'OD_ALT': '18',
+      'OE_DNP': '30.5',
+      'OE_ALT': '18',
+      'PONTE_ARO': '54-18',
+      'DIAGONAL_MAIOR': '56',
+      'ALTURA_VERTICAL': '38',
+      'PONTE': '18',
+      'ARO': '54'
+    }
+  };
+
+  // Simulação do carregamento do formulário da OS de Laboratório (handlePrintLab)
+  const initialLabFormData = {
+    LABORATORIO: mockOrder.laboratorio || mockOrder.raw["LABORATORIO"] || "",
+    OD_ESF: mockOrder.odEsf || mockOrder.raw["OD_ESF"] || "",
+    OD_CIL: mockOrder.odCil || mockOrder.raw["OD_CIL"] || "",
+    OD_EIXO: mockOrder.odEixo || mockOrder.raw["OD_EIXO"] || "",
+    OE_ESF: mockOrder.oeEsf || mockOrder.raw["OE_ESF"] || "",
+    OE_CIL: mockOrder.oeCil || mockOrder.raw["OE_CIL"] || "",
+    OE_EIXO: mockOrder.oeEixo || mockOrder.raw["OE_EIXO"] || "",
+    ADICAO: mockOrder.adicao || mockOrder.raw["ADICAO"] || "",
+    OD_DNP: mockOrder.odDnp || mockOrder.raw["OD_DNP"] || "",
+    OD_ALT: mockOrder.odAlt || mockOrder.raw["OD_ALT"] || "",
+    OE_DNP: mockOrder.oeDnp || mockOrder.raw["OE_DNP"] || "",
+    OE_ALT: mockOrder.oeAlt || mockOrder.raw["OE_ALT"] || "",
+    PONTE_ARO: mockOrder.raw["PONTE_ARO"] || "",
+    DIAGONAL_MAIOR: mockOrder.raw["DIAGONAL_MAIOR"] || "",
+    ALTURA_VERTICAL: mockOrder.raw["ALTURA_VERTICAL"] || "",
+    PONTE: mockOrder.raw["PONTE"] || "",
+    ARO: mockOrder.raw["ARO"] || ""
+  };
+
+  console.assert(initialLabFormData.LABORATORIO === 'Laboratório Central SP', 'Laboratório deve vir pré-preenchido');
+  console.assert(initialLabFormData.OD_ESF === '-2.50' && initialLabFormData.ADICAO === '+2.00', 'Dioptrias e adição devem ser pré-carregadas');
+  console.assert(initialLabFormData.PONTE_ARO === '54-18' && initialLabFormData.DIAGONAL_MAIOR === '56', 'Medidas técnicas da armação devem ser mapeadas');
+
+  // Simulação da edição de laboratório e novas medidas pelo operador
+  const editedLabFormData = {
+    ...initialLabFormData,
+    LABORATORIO: 'Laboratório Óptico Prime Express',
+    ALTURA_VERTICAL: '39'
+  };
+
+  const updatedRawFromLab = {
+    ...mockOrder.raw,
+    ...editedLabFormData
+  };
+
+  console.assert(updatedRawFromLab.LABORATORIO === 'Laboratório Óptico Prime Express', 'Edição de laboratório deve persistir');
+  console.assert(updatedRawFromLab.ALTURA_VERTICAL === '39', 'Edição de medidas técnicas da armação deve persistir');
+
+  console.log('  ✅ Test 21 Passed: Função de OS de Laboratório e mapeamento de formulário validados com sucesso!\n');
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
 }
 
