@@ -3,12 +3,10 @@
 // Permite que o sistema abra, opere e finalize vendas mesmo sem internet!
 // ══════════════════════════════════════════════════════════════════
 
-const CACHE_NAME = 'yasmin-otica-offline-v1';
+const CACHE_NAME = 'yasmin-otica-offline-v3';
 
-// Recursos essenciais para inicialização da casca do aplicativo (App Shell)
+// Recursos visuais estáticos para a casca do app (ícones e logotipos)
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
   '/favicon.svg',
   '/icons.svg',
   '/logo-yasmin.png',
@@ -17,12 +15,13 @@ const STATIC_ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(STATIC_ASSETS).catch((err) => {
         console.warn('Aviso ao cachear assets estáticos no SW:', err);
       });
-    }).then(() => self.skipWaiting())
+    })
   );
 });
 
@@ -32,6 +31,7 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME) {
+            console.log('[SW] Removendo cache legado:', key);
             return caches.delete(key);
           }
         })
@@ -55,13 +55,20 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Requisições de Navegação (HTML da página)
-  // Estratégia: Network First com Fallback para o index.html em cache se estiver offline
+  // Estratégia: SEMPRE busca da rede primeiro para pegar a versão atualizada com os novos hashes JS
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(async () => {
+      fetch(request).then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const clone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+        }
+        return networkResponse;
+      }).catch(async () => {
+        // Fallback apenas quando REALMENTE estiver sem internet
         const cache = await caches.open(CACHE_NAME);
-        const cachedIndex = await cache.match('/index.html') || await cache.match('/');
-        return cachedIndex || fetch(request);
+        const cached = await cache.match(request) || await cache.match('/index.html') || await cache.match('/');
+        return cached || new Response('Offline', { status: 503, statusText: 'Offline' });
       })
     );
     return;
