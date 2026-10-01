@@ -19,25 +19,37 @@ const AdminUsers = ({ users, setUsers, onBack, data, onDataLoaded, onDownloadExc
       return;
     }
 
+    if (passwordEdit.newPass.trim().length < 4) {
+      alert('A nova senha deve ter no mínimo 4 caracteres.');
+      return;
+    }
+
     setIsProcessing(true);
     try {
+      const cleanUsername = String(username).toLowerCase().trim();
       const hashed = await hashPassword(passwordEdit.newPass.trim());
-      const updated = users.map(u => u.username === username ? { ...u, password: hashed } : u);
+      const nowIso = new Date().toISOString();
+      const updated = users.map(u => {
+        if (u.username.toLowerCase() === cleanUsername) {
+          return { ...u, username: cleanUsername, password: hashed, updatedAt: nowIso };
+        }
+        return u;
+      });
       setUsers(updated);
       localStorage.setItem('users', JSON.stringify(updated));
 
       if (isConfigured) {
-        const targetUser = updated.find(u => u.username === username);
+        const targetUser = updated.find(u => u.username.toLowerCase() === cleanUsername);
         if (targetUser) {
-          await saveDocument('USUARIOS', targetUser, username);
+          await saveDocument('USUARIOS', targetUser, cleanUsername);
         }
       }
 
       setPasswordEdit({ username: '', newPass: '' });
-      alert(`Senha do usuário "${username}" alterada e criptografada com sucesso!`);
+      alert(`✅ Senha do usuário "${username}" alterada e criptografada com sucesso!`);
     } catch (err) {
       console.error('Erro ao atualizar senha:', err);
-      alert('Erro ao criptografar senha.');
+      alert('Erro ao criptografar senha: ' + (err.message || ''));
     } finally {
       setIsProcessing(false);
     }
@@ -173,7 +185,13 @@ const AdminUsers = ({ users, setUsers, onBack, data, onDataLoaded, onDownloadExc
                       </p>
                       
                       {passwordEdit.username === u.username ? (
-                        <div className="flex items-center gap-2 mt-2">
+                        <form 
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            savePassword(u.username);
+                          }} 
+                          className="flex items-center gap-2 mt-2"
+                        >
                           <input 
                             type="password" 
                             placeholder={isMaster ? "Nova senha master..." : "Nova senha..."} 
@@ -181,10 +199,23 @@ const AdminUsers = ({ users, setUsers, onBack, data, onDataLoaded, onDownloadExc
                             onChange={(e) => setPasswordEdit({ ...passwordEdit, newPass: e.target.value })}
                             className="bg-black/60 border border-sky-500/40 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none focus:ring-1 focus:ring-sky-500"
                             autoFocus
+                            disabled={isProcessing}
                           />
-                          <button onClick={() => savePassword(u.username)} className="text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-lg font-bold hover:bg-emerald-500/30 transition-all">Salvar</button>
-                          <button onClick={() => setPasswordEdit({ username: '', newPass: '' })} className="text-xs bg-rose-500/20 text-rose-400 border border-rose-500/30 px-2.5 py-1 rounded-lg font-bold hover:bg-rose-500/30 transition-all">Cancelar</button>
-                        </div>
+                          <button 
+                            type="submit" 
+                            disabled={isProcessing}
+                            className="text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded-lg font-bold hover:bg-emerald-500/30 transition-all disabled:opacity-50"
+                          >
+                            {isProcessing ? 'Salvando...' : 'Salvar'}
+                          </button>
+                          <button 
+                            type="button" 
+                            onClick={() => setPasswordEdit({ username: '', newPass: '' })} 
+                            className="text-xs bg-rose-500/20 text-rose-400 border border-rose-500/30 px-2.5 py-1 rounded-lg font-bold hover:bg-rose-500/30 transition-all"
+                          >
+                            Cancelar
+                          </button>
+                        </form>
                       ) : (
                         <button 
                           onClick={() => setPasswordEdit({ username: u.username, newPass: '' })}

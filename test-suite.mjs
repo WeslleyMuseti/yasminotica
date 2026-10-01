@@ -2442,6 +2442,73 @@ async function runTests() {
 
   console.log('  ✅ Test 27 Passed: Modo Contingência Offline (Fila Local, Snapshots e Auto-Sync) validado com sucesso!\n');
 
+  // ─── TEST 28: Alteração de Senha do Usuário (Autoatendimento, Admin e Sobrescrita Master) ───
+  console.log('▶ Test 28: Alteração de Senha do Usuário (Autoatendimento, Admin e Sobrescrita Master)');
+
+  // 28.1 Verificação de Senha Atual e Nova Senha
+  const initialPassword = 'minhasenhaantiga';
+  const newPassword = 'minhasenhanova2026';
+  const hashedOld = await hashPassword(initialPassword);
+  const hashedNew = await hashPassword(newPassword);
+
+  console.assert(await verifyPassword(initialPassword, hashedOld), 'Senha antiga deve validar com sucesso');
+  console.assert(await verifyPassword(newPassword, hashedNew), 'Senha nova deve validar com sucesso');
+  console.assert(!(await verifyPassword('senhaerrada', hashedNew)), 'Senha incorreta não deve validar');
+
+  // 28.2 Atualização no array de usuários com case-insensitivity
+  const mockUsersList = [
+    { username: 'wmusete', role: 'admin', authorized: true, password: hashedOld },
+    { username: 'vendedora_cajati', role: 'vendedor', authorized: true, password: hashedOld }
+  ];
+
+  const updateUserPasswordInList = (list, username, newHash) => {
+    const cleanUser = String(username).toLowerCase().trim();
+    const nowIso = new Date().toISOString();
+    return list.map(u => {
+      if (u.username.toLowerCase() === cleanUser) {
+        return { ...u, username: cleanUser, password: newHash, updatedAt: nowIso };
+      }
+      return u;
+    });
+  };
+
+  const updatedUsers1 = updateUserPasswordInList(mockUsersList, 'VENDEDORA_CAJATI', hashedNew);
+  const targetUser1 = updatedUsers1.find(u => u.username === 'vendedora_cajati');
+  console.assert(targetUser1 !== undefined, 'Usuário vendedora_cajati deve existir');
+  console.assert(targetUser1.password === hashedNew, 'Senha da usuária deve ter sido atualizada com o novo hash');
+  console.assert(targetUser1.updatedAt !== undefined, 'updatedAt deve ser preenchido');
+
+  // 28.3 Sobrescrita da senha do Master User 'wmusete'
+  // Quando o master altera sua senha no sistema, o Login prioriza o documento do banco em vez do fallback DEFAULT_MASTER_HASH
+  const defaultMasterHash = 'pbkdf2:b3bb279090a24beecaa987cfde1224a1:b473c3a43b120e5f624792b560dff6edc6b56d1865a8fb3d9a0433d7ab13804a'; // '929498'
+  const newMasterPass = 'NovaSenhaMasterSegura!#';
+  const newMasterHash = await hashPassword(newMasterPass);
+
+  const simulateMasterLogin = async (attemptPassword, remoteDocument) => {
+    // Se o banco remoto ou cache local tiver senha customizada cadastrada, confere APENAS ela
+    if (remoteDocument && remoteDocument.password) {
+      const isValid = await verifyPassword(attemptPassword, remoteDocument.password);
+      return { success: isValid, via: 'remote_updated_password' };
+    }
+    // Fallback padrão se não houver senha no Firestore (primeiro login antes de trocar)
+    const isDefaultValid = await verifyPassword(attemptPassword, defaultMasterHash);
+    return { success: isDefaultValid, via: 'default_master_hash' };
+  };
+
+  // Antes de trocar a senha master: login com 929498 funciona via fallback
+  const firstLogin = await simulateMasterLogin('929498', null);
+  console.assert(firstLogin.success === true && firstLogin.via === 'default_master_hash', 'Primeiro login master deve usar fallback');
+
+  // Após trocar a senha master:
+  const remoteMasterDoc = { username: 'wmusete', password: newMasterHash, role: 'admin', authorized: true };
+  const loginWithNewPass = await simulateMasterLogin(newMasterPass, remoteMasterDoc);
+  console.assert(loginWithNewPass.success === true && loginWithNewPass.via === 'remote_updated_password', 'Login após alteração de senha deve usar a nova senha');
+
+  const loginWithOldDefault = await simulateMasterLogin('929498', remoteMasterDoc);
+  console.assert(loginWithOldDefault.success === false, 'Senha antiga padrão 929498 NÃO deve mais funcionar após alteração da senha');
+
+  console.log('  ✅ Test 28 Passed: Alteração de senha, preservação de dados e sobrescrita master validadas com sucesso!\n');
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
 }
 

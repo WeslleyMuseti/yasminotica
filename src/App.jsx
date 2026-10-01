@@ -12,11 +12,12 @@ import ErpOptica from './components/ErpOptica';
 import OSManagement from './components/OSManagement';
 import POSRegister from './components/POSRegister';
 import LoadingScreen from './components/LoadingScreen';
-import { Eye, Upload, Download, RefreshCw, Users, AlertTriangle, Package, UserCog, ClipboardList, LogOut, ShoppingCart, Menu, Wifi, WifiOff } from 'lucide-react';
+import { Eye, Upload, Download, RefreshCw, Users, AlertTriangle, Package, UserCog, ClipboardList, LogOut, ShoppingCart, Menu, Wifi, WifiOff, KeyRound } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as XLSX from 'xlsx';
 import FirebaseSetupScreen from './components/FirebaseSetupScreen';
 import NavigationDrawer from './components/NavigationDrawer';
+import ChangePasswordModal from './components/ChangePasswordModal';
 import { isConfigured, db } from './firebase';
 import { 
   subscribeToCollections, 
@@ -38,6 +39,7 @@ function App() {
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [offlinePendingCount, setOfflinePendingCount] = useState(() => getOfflineQueue().length);
   const [showSyncSuccessToast, setShowSyncSuccessToast] = useState(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
   const [data, setData] = useState(() => {
     try {
@@ -421,14 +423,62 @@ function App() {
         return merged;
       });
       
-      // Update users se vier do banco (se já migrou)
+      // Update users se vier do banco com merge inteligente para nunca apagar usuários locais
       if (newData['USUARIOS'] && newData['USUARIOS'].length > 0) {
-        setUsers(newData['USUARIOS']);
+        setUsers(prevUsers => {
+          const remoteUsers = newData['USUARIOS'];
+          const remoteMap = new Map();
+          remoteUsers.forEach(r => {
+            if (r.username) remoteMap.set(r.username.toLowerCase(), r);
+          });
+          const merged = [...remoteUsers];
+          (prevUsers || []).forEach(localU => {
+            const key = localU.username?.toLowerCase();
+            if (key && !remoteMap.has(key)) {
+              merged.push(localU);
+            }
+          });
+          return merged;
+        });
       }
     });
 
     return () => unsubscribe();
   }, [currentUser]);
+
+  const handleUpdateUserPassword = async (username, newHash) => {
+    const cleanUser = String(username).toLowerCase().trim();
+    const nowIso = new Date().toISOString();
+
+    setUsers(prev => {
+      const updated = prev.map(u => {
+        if (u.username?.toLowerCase() === cleanUser) {
+          return { ...u, username: cleanUser, password: newHash, updatedAt: nowIso };
+        }
+        return u;
+      });
+      localStorage.setItem('users', JSON.stringify(updated));
+      return updated;
+    });
+
+    if (currentUser && currentUser.username?.toLowerCase() === cleanUser) {
+      setCurrentUser(prev => ({ ...prev, password: newHash }));
+    }
+
+    if (isConfigured) {
+      try {
+        const targetUser = users.find(u => u.username?.toLowerCase() === cleanUser) || {
+          username: cleanUser,
+          password: newHash,
+          role: currentUser?.role || 'vendedor',
+          authorized: true
+        };
+        await saveDocument('USUARIOS', { ...targetUser, password: newHash, updatedAt: nowIso }, cleanUser);
+      } catch (e) {
+        console.warn('Aviso ao sincronizar senha com Firestore:', e);
+      }
+    }
+  };
 
   const handleDataLoaded = (loadedData) => {
     // Legacy support para importar arquivo se precisar (opcional)
@@ -892,6 +942,15 @@ function App() {
               </div>
             </button>
 
+            {/* Botão Rápido Alterar Minha Senha */}
+            <button
+              onClick={() => setIsChangePasswordOpen(true)}
+              className="p-2.5 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-sky-400 border border-white/10 rounded-xl transition-all shadow-sm active:scale-95"
+              title="Alterar Minha Senha de Acesso"
+            >
+              <KeyRound size={16} />
+            </button>
+
             {/* Botão Sair */}
             <button
               onClick={handleLogout}
@@ -962,6 +1021,15 @@ function App() {
         currentUser={currentUser}
         onLogout={handleLogout}
         isConfigured={isConfigured}
+        onOpenChangePassword={() => setIsChangePasswordOpen(true)}
+      />
+
+      {/* Modal Universal de Alteração de Senha */}
+      <ChangePasswordModal
+        isOpen={isChangePasswordOpen}
+        onClose={() => setIsChangePasswordOpen(false)}
+        currentUser={currentUser}
+        onPasswordChanged={handleUpdateUserPassword}
       />
 
 

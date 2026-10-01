@@ -10,7 +10,7 @@ import {
   LogOut, 
   ShieldCheck, 
   MapPin, 
-  ChevronRight,
+  KeyRound,
   Eye
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -22,7 +22,8 @@ const NavigationDrawer = ({
   onNavigate,
   currentUser,
   onLogout,
-  isConfigured
+  isConfigured,
+  onOpenChangePassword
 }) => {
   // Fecha com a tecla ESC
   useEffect(() => {
@@ -226,6 +227,19 @@ const NavigationDrawer = ({
                   </div>
                 </div>
               </div>
+
+              {/* Botão de Alteração Rápida de Senha do Usuário */}
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  if (onOpenChangePassword) onOpenChangePassword();
+                }}
+                className="mt-3.5 w-full py-2 px-3 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm"
+              >
+                <KeyRound size={13} className="text-sky-400" />
+                <span>Alterar Minha Senha</span>
+              </button>
             </div>
 
             {/* Lista de Módulos Rolável */}

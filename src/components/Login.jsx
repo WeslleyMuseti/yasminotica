@@ -138,8 +138,31 @@ const Login = ({ onLogin, users, onRegister, onUpgradeUserPassword }) => {
             }
           }
         } else if (isMaster) {
-          // Validação da conta master inicial usando PBKDF2 hash seguro
-          isPassValid = await verifyPassword(password, DEFAULT_MASTER_HASH);
+          // Validação da conta master: primeiro verifica se há senha personalizada no Firestore ou cache local
+          let remoteUser = null;
+          try {
+            remoteUser = await fetchUserDocument(cleanUser);
+          } catch (e) {
+            console.warn('Não foi possível buscar usuário remoto:', e);
+          }
+          const masterTarget = remoteUser || user;
+          const customMasterPass = masterTarget?.password;
+
+          if (customMasterPass) {
+            // Se já possui senha personalizada cadastrada, aceita APENAS a senha personalizada
+            isPassValid = await verifyPassword(password, customMasterPass);
+            if (isPassValid) {
+              user = masterTarget;
+              const updatedUsers = users.some(u => u.username.toLowerCase() === cleanUser)
+                ? users.map(u => u.username.toLowerCase() === cleanUser ? masterTarget : u)
+                : [...users, masterTarget];
+              setUsers(updatedUsers);
+              localStorage.setItem('users', JSON.stringify(updatedUsers));
+            }
+          } else {
+            // Fallback para primeiro acesso usando hash master padrão (senha: 929498)
+            isPassValid = await verifyPassword(password, DEFAULT_MASTER_HASH);
+          }
         }
 
         if (!isPassValid) {
