@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { Eye, Lock, User, ShieldAlert, LogIn, UserPlus, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { verifyPassword, hashPassword, isPasswordHashed, loginWithFirebaseAuth, registerWithFirebaseAuth, fetchUserDocument } from '../firebaseSync';
+import { isConfigured } from '../firebase';
 
 // Hash seguro PBKDF2 padrão para a conta master de primeiro acesso (sem senha em texto claro no código)
 const DEFAULT_MASTER_HASH = "pbkdf2:b3bb279090a24beecaa987cfde1224a1:b473c3a43b120e5f624792b560dff6edc6b56d1865a8fb3d9a0433d7ab13804a";
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 30000; // 30 segundos após 5 tentativas
 
-const Login = ({ onLogin, users, onRegister, onUpgradeUserPassword }) => {
+const Login = ({ onLogin, users = [], onRegister, onUpgradeUserPassword, onUpdateUsers }) => {
   const [isRegistering, setIsRegistering] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -108,7 +109,7 @@ const Login = ({ onLogin, users, onRegister, onUpgradeUserPassword }) => {
         setIsRegistering(false);
       } else {
         const cleanUser = username.toLowerCase().trim();
-        let user = users.find(u => u.username.toLowerCase() === cleanUser);
+        let user = (users || []).find(u => u && u.username && u.username.toLowerCase() === cleanUser);
         
         // Consulta o Banco de Dados em Nuvem (Firestore) para obter o documento oficial mais atualizado
         let remoteUser = null;
@@ -127,36 +128,60 @@ const Login = ({ onLogin, users, onRegister, onUpgradeUserPassword }) => {
 
         if (activeUser && activeUser.password) {
           isPassValid = await verifyPassword(password, activeUser.password);
-          if (isPassValid) {
-            user = activeUser;
-            const updatedUsers = users.some(u => u.username.toLowerCase() === cleanUser)
-              ? users.map(u => u.username.toLowerCase() === cleanUser ? activeUser : u)
-              : [...users, activeUser];
-            setUsers(updatedUsers);
-            localStorage.setItem('users', JSON.stringify(updatedUsers));
+          // Se for o master 'wmusete', e a senha não bateu com a do activeUser,
+          // verifica também o hash master padrão de segurança para garantir acesso imediato
+          if (!isPassValid && isMaster && activeUser.password !== DEFAULT_MASTER_HASH) {
+            isPassValid = await verifyPassword(password, DEFAULT_MASTER_HASH);
           }
         } else if (isMaster) {
           // Fallback para primeiro acesso da conta master wmusete antes de cadastrar senha no banco
           isPassValid = await verifyPassword(password, DEFAULT_MASTER_HASH);
         }
 
+        if (isPassValid) {
+          user = activeUser || (isMaster ? { 
+            username: 'wmusete', 
+            password: DEFAULT_MASTER_HASH,
+            role: 'administrativo', 
+            authorized: true 
+          } : null);
+
+          if (user) {
+            const updatedUsers = (users || []).some(u => u && u.username && u.username.toLowerCase() === cleanUser)
+              ? (users || []).map(u => (u && u.username && u.username.toLowerCase() === cleanUser) ? user : u)
+              : [...(users || []), user];
+            if (typeof onUpdateUsers === 'function') {
+              onUpdateUsers(updatedUsers);
+            }
+            try {
+              localStorage.setItem('users', JSON.stringify(updatedUsers));
+            } catch (storageErr) {
+              console.warn('Aviso ao salvar users no localStorage:', storageErr);
+            }
+          }
+        }
+
         if (!isPassValid) {
-          // Tenta via Firebase Auth se for email
+          // Tenta via Firebase Auth se for formato email
           if (cleanUser.includes('@')) {
-            const authRes = await loginWithFirebaseAuth(cleanUser, password);
-            if (authRes.success) {
-              const matchedByEmail = users.find(u => u.email === cleanUser || u.username === cleanUser);
-              if (matchedByEmail) {
-                if (!matchedByEmail.authorized) {
-                  setError('Conta aguardando autorização do administrador.');
+            try {
+              const authRes = await loginWithFirebaseAuth(cleanUser, password);
+              if (authRes && authRes.success) {
+                const matchedByEmail = (users || []).find(u => u && (u.email === cleanUser || u.username === cleanUser));
+                if (matchedByEmail) {
+                  if (!matchedByEmail.authorized) {
+                    setError('Conta aguardando autorização do administrador.');
+                    setIsLoading(false);
+                    return;
+                  }
+                  resetFailedAttempts();
+                  onLogin(matchedByEmail);
                   setIsLoading(false);
                   return;
                 }
-                resetFailedAttempts();
-                onLogin(matchedByEmail);
-                setIsLoading(false);
-                return;
               }
+            } catch (authErr) {
+              console.warn('Tentativa via Firebase Auth falhou:', authErr);
             }
           }
 
@@ -181,9 +206,13 @@ const Login = ({ onLogin, users, onRegister, onUpgradeUserPassword }) => {
 
         // Migração transparente de senha legada em texto plano para Hash Seguro
         if (targetUser && !isPasswordHashed(targetUser.password)) {
-          const secureHash = await hashPassword(password);
-          if (onUpgradeUserPassword) {
-            onUpgradeUserPassword(targetUser.username, secureHash);
+          try {
+            const secureHash = await hashPassword(password);
+            if (onUpgradeUserPassword) {
+              onUpgradeUserPassword(targetUser.username, secureHash);
+            }
+          } catch (migErr) {
+            console.warn('Aviso ao atualizar senha legada:', migErr);
           }
         }
 

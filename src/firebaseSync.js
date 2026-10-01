@@ -236,8 +236,12 @@ export const fetchUserDocument = async (username) => {
   try {
     const cleanUser = String(username).toLowerCase().trim();
     const docRef = doc(db, 'USUARIOS', cleanUser);
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
+    
+    // Proteção com timeout de 3.5 segundos para garantir que o login não trave caso a rede esteja lenta
+    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), 3500));
+    const docSnap = await Promise.race([getDoc(docRef), timeoutPromise]);
+    
+    if (docSnap && typeof docSnap.exists === 'function' && docSnap.exists()) {
       return { id: docSnap.id, ...docSnap.data() };
     }
     return null;

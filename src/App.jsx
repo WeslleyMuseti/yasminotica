@@ -764,6 +764,7 @@ function App() {
         onUpgradeUserPassword={(uname, newHash) => {
           setUsers(prev => prev.map(u => u.username === uname ? { ...u, password: newHash } : u));
         }}
+        onUpdateUsers={setUsers}
       />
     );
   }

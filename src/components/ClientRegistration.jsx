@@ -145,13 +145,11 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
   const [osDataForPrint, setOsDataForPrint] = useState(null);
   const [profileClientData, setProfileClientData] = useState(null);
   const [isAdding, setIsAdding] = useState(() => initialTab === 'novo');
-  const [isGeneratingOS, setIsGeneratingOS] = useState(false);
   const [editingClientData, setEditingClientData] = useState(null);
 
   useEffect(() => {
     if (initialTab === 'novo') {
       setIsAdding(true);
-      setIsGeneratingOS(false);
       setEditingClientData(null);
     } else if (initialTab && initialTab !== 'novo') {
       setActiveTab(initialTab);
@@ -347,7 +345,6 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
     });
     setDuplicateNameError('');
     setDuplicateCpfError('');
-    setIsGeneratingOS(false);
     setOsClientData(null);
     setProfileClientData(null);
     setIsAdding(true);
@@ -715,7 +712,6 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
     // Pequeno delay para garantir que o componente PrintableOS renderize antes de chamar o print
     setTimeout(() => {
       window.print();
-      setIsGeneratingOS(false);
       setOsClientData(null);
       setTimeout(() => setOsDataForPrint(null), 1000);
     }, 300);
@@ -1800,17 +1796,6 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
         }}
         onGenerateOS={(clientData) => {
           setOsClientData(clientData);
-          setOsFormData({
-            medico: '', dataEntrega: '',
-            lente: clientData['Marca de Lente'] || '',
-            armacao: clientData['Modelo de Armação'] || '',
-            odEsf: '', odCil: '', odEixo: '', odDnp: '', odAlt: '',
-            oeEsf: '', oeCil: '', oeEixo: '', oeDnp: '', oeAlt: '',
-            adicao: '', valorTotal: clientData['Valor Devido'] || '',
-            valorEntrada: '', restante: '', observacoes: '',
-            numeroOS: `OS-${Math.floor(1000 + Math.random() * 9000)}`
-          });
-          setIsGeneratingOS(true);
           setProfileClientData(null);
         }}
         onDeleteSale={(historyIndex) => {
