@@ -65,6 +65,17 @@
         window.location.href = window.location.origin + window.location.pathname + '?v=' + Date.now();
       }
 
+      window.addEventListener('error', function(e) {
+        var msg = (e && e.message) ? e.message.toLowerCase() : '';
+        if (msg.includes('module') || msg.includes('syntaxerror') || msg.includes('unexpected token') || msg.includes('failed to resolve')) {
+          var box = document.getElementById('splash-timeout-box');
+          if (box) {
+            box.style.display = 'block';
+            box.innerHTML = '<div style="background: rgba(239,68,68,0.25); border: 1px solid rgba(239,68,68,0.6); border-radius: 16px; padding: 14px; margin-top: 14px; color: #fca5a5; font-size: 11px; text-align: center;"><p style="font-weight: 800; font-size: 13px; margin: 0 0 6px 0; color: #fee2e2;">⚠️ ATENÇÃO: ARQUIVOS DE DESENVOLVIMENTO DETECTADOS</p><p style="margin: 0 0 8px 0; line-height: 1.4;">Você extraiu o ZIP de código-fonte ao invés do ZIP do site compilado.<br>O navegador não executa arquivos .jsx brutos sem compilação.</p><p style="margin: 0; font-weight: bold; color: #ffffff; background: rgba(0,0,0,0.4); padding: 8px; border-radius: 8px;">Por favor, extraia o arquivo <u>site-hostinger-public_html.zip</u> na pasta public_html.</p></div>';
+          }
+        }
+      });
+
       setTimeout(function() {
         var box = document.getElementById('splash-timeout-box');
         if (box && document.getElementById('splash-status-text')) {
