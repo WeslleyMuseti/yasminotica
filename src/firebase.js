@@ -1,5 +1,10 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager, 
+  getFirestore 
+} from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
@@ -19,7 +24,21 @@ let isConfigured = false;
 
 if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "") {
   app = initializeApp(firebaseConfig);
-  db = getFirestore(app);
+  
+  // 🛡️ MODO OFFLINE / CONTINGÊNCIA: Ativa persistência IndexedDB multi-aba
+  // Garante que todo o sistema (clientes, produtos, vendas, OS e caixa) funcione
+  // perfeitamente mesmo sem internet, salvando no disco e sincronizando ao reconectar.
+  try {
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager()
+      })
+    });
+  } catch (err) {
+    console.warn("Aviso ao ativar cache persistente do Firestore, usando fallback padrão:", err);
+    db = getFirestore(app);
+  }
+
   try {
     auth = getAuth(app);
   } catch (err) {
@@ -29,4 +48,3 @@ if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "") {
 }
 
 export { app, db, auth, isConfigured };
-

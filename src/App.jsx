@@ -12,28 +12,59 @@ import ErpOptica from './components/ErpOptica';
 import OSManagement from './components/OSManagement';
 import POSRegister from './components/POSRegister';
 import LoadingScreen from './components/LoadingScreen';
-import { Eye, Upload, Download, RefreshCw, Users, AlertTriangle, Package, UserCog, ClipboardList, LogOut, ShoppingCart, Menu } from 'lucide-react';
+import { Eye, Upload, Download, RefreshCw, Users, AlertTriangle, Package, UserCog, ClipboardList, LogOut, ShoppingCart, Menu, Wifi, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as XLSX from 'xlsx';
 import FirebaseSetupScreen from './components/FirebaseSetupScreen';
 import NavigationDrawer from './components/NavigationDrawer';
 import { isConfigured, db } from './firebase';
-import { subscribeToCollections, saveDocument, deleteDocument, hashPassword, isPasswordHashed } from './firebaseSync';
+import { 
+  subscribeToCollections, 
+  saveDocument, 
+  deleteDocument, 
+  hashPassword, 
+  isPasswordHashed,
+  getOfflineQueue,
+  processOfflineQueue,
+  saveOfflineSnapshot,
+  loadOfflineSnapshot
+} from './firebaseSync';
 
 // Hash seguro PBKDF2 padrão para primeiro acesso da conta master
 const DEFAULT_MASTER_HASH = "pbkdf2:b3bb279090a24beecaa987cfde1224a1:b473c3a43b120e5f624792b560dff6edc6b56d1865a8fb3d9a0433d7ab13804a";
 
 function App() {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
-  const [data, setData] = useState({
-    'CLIENTES_CADASTRADOS': [],
-    'Registro_Vendas': [],
-    'CAD_LENTES': [],
-    'CAD_ARMACOES': [],
-    'CAD_BRINDES': [],
-    'CONTAS_PAGAR': [],
-    'CONTAS_RECEBER': [],
-    'FLUXO_CAIXA': JSON.parse(localStorage.getItem('YASMIN_FLUXO_CAIXA') || '[]')
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [offlinePendingCount, setOfflinePendingCount] = useState(() => getOfflineQueue().length);
+  const [showSyncSuccessToast, setShowSyncSuccessToast] = useState(false);
+
+  const [data, setData] = useState(() => {
+    try {
+      const backup = loadOfflineSnapshot();
+      if (backup && typeof backup === 'object') {
+        return {
+          'CLIENTES_CADASTRADOS': backup['CLIENTES_CADASTRADOS'] || [],
+          'Registro_Vendas': backup['Registro_Vendas'] || [],
+          'CAD_LENTES': backup['CAD_LENTES'] || [],
+          'CAD_ARMACOES': backup['CAD_ARMACOES'] || [],
+          'CAD_BRINDES': backup['CAD_BRINDES'] || [],
+          'CONTAS_PAGAR': backup['CONTAS_PAGAR'] || [],
+          'CONTAS_RECEBER': backup['CONTAS_RECEBER'] || [],
+          'FLUXO_CAIXA': backup['FLUXO_CAIXA'] || JSON.parse(localStorage.getItem('YASMIN_FLUXO_CAIXA') || '[]')
+        };
+      }
+    } catch {}
+    return {
+      'CLIENTES_CADASTRADOS': [],
+      'Registro_Vendas': [],
+      'CAD_LENTES': [],
+      'CAD_ARMACOES': [],
+      'CAD_BRINDES': [],
+      'CONTAS_PAGAR': [],
+      'CONTAS_RECEBER': [],
+      'FLUXO_CAIXA': JSON.parse(localStorage.getItem('YASMIN_FLUXO_CAIXA') || '[]')
+    };
   });
   const [view, setView] = useState('login'); // login, loading, dashboard, syncing, clients, erp, admin
   const [currentUser, setCurrentUser] = useState(null);
@@ -50,6 +81,49 @@ function App() {
     } catch (e) {}
     return [{ username: 'wmusete', password: DEFAULT_MASTER_HASH, role: 'administrativo', authorized: true }];
   });
+
+  // 🛡️ Monitoramento de Conectividade em Tempo Real & Auto-Sincronização Offline
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      processOfflineQueue();
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+    const handleSyncStatus = (e) => {
+      if (e?.detail) {
+        setOfflinePendingCount(e.detail.pendingCount || 0);
+      }
+    };
+    const handleSyncFinished = () => {
+      setShowSyncSuccessToast(true);
+      setTimeout(() => setShowSyncSuccessToast(false), 5000);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('yasmin-sync-status', handleSyncStatus);
+    window.addEventListener('yasmin-sync-finished', handleSyncFinished);
+
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      processOfflineQueue();
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('yasmin-sync-status', handleSyncStatus);
+      window.removeEventListener('yasmin-sync-finished', handleSyncFinished);
+    };
+  }, []);
+
+  // Salva backup local em tempo real no localStorage para garantia de contingência total
+  useEffect(() => {
+    if (data && Object.keys(data).some(k => Array.isArray(data[k]) && data[k].length > 0)) {
+      saveOfflineSnapshot(data);
+    }
+  }, [data]);
 
   // Migração transparente de senhas legadas em texto plano para Hash Criptográfico PBKDF2
   useEffect(() => {
@@ -711,9 +785,15 @@ function App() {
                   v1.6
                 </span>
               </div>
-              <span className="flex items-center gap-1.5 text-[9px] font-bold text-emerald-400 uppercase tracking-widest mt-0.5">
-                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" /> Dados ao Vivo
-              </span>
+              {isOnline ? (
+                <span className="flex items-center gap-1.5 text-[9px] font-bold text-emerald-400 uppercase tracking-widest mt-0.5">
+                  <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" /> Conectado à Nuvem
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 text-[9px] font-black text-amber-400 uppercase tracking-widest mt-0.5 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/30">
+                  <WifiOff size={10} className="text-amber-400 animate-pulse" /> Modo Offline (Contingência)
+                </span>
+              )}
             </div>
           </div>
 
@@ -823,6 +903,50 @@ function App() {
           </div>
         </div>
       </nav>
+
+      {/* 📶 BANNER VISUAL DE CONTINGÊNCIA OFFLINE */}
+      {!isOnline && (
+        <div className="bg-gradient-to-r from-amber-600 via-amber-700 to-amber-800 text-white px-4 py-2.5 shadow-md flex items-center justify-between text-xs font-semibold z-40 animate-in fade-in slide-in-from-top-2 border-b border-amber-500/30">
+          <div className="max-w-[1550px] mx-auto w-full flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5">
+              <span className="p-1.5 bg-black/25 rounded-lg text-amber-200 flex items-center justify-center shrink-0">
+                <WifiOff size={16} />
+              </span>
+              <div>
+                <span className="font-black uppercase tracking-wider text-[10px] bg-black/40 px-2 py-0.5 rounded-full mr-2 text-amber-200 border border-amber-400/20">
+                  MODO CONTINGÊNCIA ATIVO
+                </span>
+                <span className="text-amber-50">
+                  Sem internet. O sistema continua operando normalmente (Vendas, Caixa, OS e Clientes)! Todos os dados estão protegidos neste computador.
+                </span>
+              </div>
+            </div>
+            {offlinePendingCount > 0 && (
+              <span className="font-mono font-bold bg-white text-amber-950 px-2.5 py-1 rounded-full text-[11px] shrink-0 shadow-sm flex items-center gap-1.5 self-start sm:self-auto">
+                <span className="w-2 h-2 rounded-full bg-amber-600 animate-ping" />
+                {offlinePendingCount} alteraç{offlinePendingCount > 1 ? 'ões pendentes' : 'ão pendente'} de envio
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ⚡ TOAST FLUTUANTE DE SINCRONIZAÇÃO BEM-SUCEDIDA */}
+      {showSyncSuccessToast && (
+        <div className="fixed bottom-6 right-6 z-[99999] bg-slate-900 border border-emerald-500/50 text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3.5 animate-in fade-in slide-in-from-bottom-4 backdrop-blur-xl">
+          <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+            <Wifi size={18} />
+          </div>
+          <div>
+            <h4 className="font-black text-xs uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+              <span>Conexão Restabelecida!</span>
+            </h4>
+            <p className="text-[11px] text-slate-300">
+              Todas as operações offline foram sincronizadas com a nuvem com sucesso.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Menu Hamburguer Lateral (Navigation Drawer) */}
       <NavigationDrawer

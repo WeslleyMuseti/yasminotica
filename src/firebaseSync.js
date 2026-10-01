@@ -61,11 +61,132 @@ export const subscribeToCollections = (onDataUpdate) => {
   };
 };
 
+// ══════════════════════════════════════════════════════════════════
+// 0. GERENCIADOR DE FILA OFFLINE & CONTINGÊNCIA (OFFLINE-FIRST)
+// ══════════════════════════════════════════════════════════════════
+export const OFFLINE_QUEUE_KEY = 'YASMIN_OFFLINE_SYNC_QUEUE';
+export const OFFLINE_BACKUP_KEY = 'YASMIN_OFFLINE_DATA_BACKUP';
+
+export const getOfflineQueue = () => {
+  try {
+    return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]');
+  } catch {
+    return [];
+  }
+};
+
+export const enqueueOfflineOp = (type, collectionName, id, data) => {
+  try {
+    const queue = getOfflineQueue();
+    const op = {
+      id: `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      timestamp: new Date().toISOString(),
+      type, // 'save', 'delete', 'decrement_stock'
+      collectionName,
+      docId: String(id),
+      data
+    };
+    queue.push(op);
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+    notifySyncStatus(queue.length);
+    return op;
+  } catch (e) {
+    console.warn('Erro ao enfileirar operação offline:', e);
+  }
+};
+
+export const clearOfflineQueue = () => {
+  try {
+    localStorage.removeItem(OFFLINE_QUEUE_KEY);
+    notifySyncStatus(0);
+  } catch {}
+};
+
+export const notifySyncStatus = (pendingCount) => {
+  if (typeof window !== 'undefined') {
+    const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+    window.dispatchEvent(new CustomEvent('yasmin-sync-status', {
+      detail: { pendingCount, isOnline }
+    }));
+  }
+};
+
+export const processOfflineQueue = async () => {
+  if (!db || (typeof navigator !== 'undefined' && !navigator.onLine)) return 0;
+  const queue = getOfflineQueue();
+  if (queue.length === 0) {
+    notifySyncStatus(0);
+    return 0;
+  }
+
+  const remaining = [];
+  let processed = 0;
+
+  for (const op of queue) {
+    try {
+      if (op.type === 'save') {
+        const docRef = doc(db, op.collectionName, op.docId);
+        await setDoc(docRef, op.data, { merge: true });
+        processed++;
+      } else if (op.type === 'delete') {
+        const docRef = doc(db, op.collectionName, op.docId);
+        await deleteDoc(docRef);
+        processed++;
+      } else if (op.type === 'decrement_stock') {
+        const docRef = doc(db, op.collectionName, op.docId);
+        await updateDoc(docRef, {
+          ESTOQUE: increment(-op.data.quantity),
+          updatedAt: new Date().toISOString()
+        });
+        processed++;
+      }
+    } catch (err) {
+      console.warn(`[Sync Offline] Falha ao sincronizar item pendente ${op.collectionName}/${op.docId}:`, err);
+      remaining.push(op);
+    }
+  }
+
+  localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(remaining));
+  notifySyncStatus(remaining.length);
+
+  if (processed > 0 && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('yasmin-sync-finished', {
+      detail: { processedCount: processed, remainingCount: remaining.length }
+    }));
+  }
+  return processed;
+};
+
+export const saveOfflineSnapshot = (dataObj) => {
+  if (!dataObj || typeof dataObj !== 'object') return;
+  try {
+    localStorage.setItem(OFFLINE_BACKUP_KEY, JSON.stringify(dataObj));
+  } catch (e) {
+    console.warn('Aviso ao salvar snapshot offline no localStorage:', e);
+  }
+};
+
+export const loadOfflineSnapshot = () => {
+  try {
+    const raw = localStorage.getItem(OFFLINE_BACKUP_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+};
+
+// Auto-processa quando o navegador detecta retorno de conexão
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    processOfflineQueue();
+  });
+}
+
 /**
- * Salva ou atualiza um documento no Firestore
+ * Salva ou atualiza um documento no Firestore (com suporte offline automático)
  */
 export const saveDocument = async (collectionName, dataObj, customId = null) => {
-  if (!db || !dataObj) return;
+  if (!dataObj) return;
   const id = String(customId || dataObj.id || dataObj['_id'] || (Date.now().toString() + Math.random().toString(36).substring(2, 9)));
   
   const cleanData = { ...dataObj };
@@ -74,18 +195,37 @@ export const saveDocument = async (collectionName, dataObj, customId = null) => 
     if (cleanData[key] === undefined) cleanData[key] = null;
   });
 
-  const docRef = doc(db, collectionName, id);
-  await setDoc(docRef, cleanData, { merge: true });
+  if (db) {
+    try {
+      const docRef = doc(db, collectionName, id);
+      await setDoc(docRef, cleanData, { merge: true });
+    } catch (err) {
+      console.warn(`[Modo Offline] Documento ${collectionName}/${id} salvo no cache local e enfileirado:`, err);
+      enqueueOfflineOp('save', collectionName, id, cleanData);
+    }
+  } else {
+    enqueueOfflineOp('save', collectionName, id, cleanData);
+  }
   return id;
 };
 
 /**
- * Exclui um documento do Firestore
+ * Exclui um documento do Firestore (com suporte offline automático)
  */
 export const deleteDocument = async (collectionName, id) => {
-  if (!db || !id) return;
-  const docRef = doc(db, collectionName, String(id));
-  await deleteDoc(docRef);
+  if (!id) return;
+  const docId = String(id);
+  if (db) {
+    try {
+      const docRef = doc(db, collectionName, docId);
+      await deleteDoc(docRef);
+    } catch (err) {
+      console.warn(`[Modo Offline] Exclusão de ${collectionName}/${docId} registrada na fila offline:`, err);
+      enqueueOfflineOp('delete', collectionName, docId, null);
+    }
+  } else {
+    enqueueOfflineOp('delete', collectionName, docId, null);
+  }
 };
 
 /**
@@ -177,8 +317,9 @@ export const decrementStockAtomically = async (collectionName, docId, quantity =
       });
       return { success: true, fallback: true };
     } catch (fallbackErr) {
-      console.error(`Erro crítico no decremento atômico de ${collectionName}/${id}:`, fallbackErr);
-      return { success: false, error: fallbackErr };
+      console.warn(`[Modo Offline] Fallback no Firestore falhou para ${collectionName}/${id}, registrando decremento na fila offline:`, fallbackErr);
+      enqueueOfflineOp('decrement_stock', collectionName, id, { quantity: qtyToSubtract });
+      return { success: true, offlineQueue: true };
     }
   }
 };

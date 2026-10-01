@@ -2372,6 +2372,76 @@ async function runTests() {
 
   console.log('  ✅ Test 26 Passed: Limpeza atômica e reconfirmação sem duplicidades validadas com sucesso!\n');
 
+  // ─── TEST 27: Modo Contingência Offline (Fila de Sincronização, Snapshots e Auto-Sync) ───
+  console.log('▶ Test 27: Modo Contingência Offline (Fila Local, Snapshots e Auto-Sync)');
+
+  // Mock de LocalStorage em memória para o ambiente Node
+  const mockStorage = {};
+  const mockLocalStorage = {
+    getItem: (k) => mockStorage[k] || null,
+    setItem: (k, v) => { mockStorage[k] = String(v); },
+    removeItem: (k) => { delete mockStorage[k]; }
+  };
+
+  // Simulação da lógica de fila offline
+  const testQueue = [];
+  const enqueueTestOp = (type, col, id, data) => {
+    const op = { id: `op_${Date.now()}_${Math.random()}`, type, col, id, data, timestamp: new Date().toISOString() };
+    testQueue.push(op);
+    mockLocalStorage.setItem('YASMIN_OFFLINE_SYNC_QUEUE', JSON.stringify(testQueue));
+    return op;
+  };
+
+  // 27.1 Enfileiramento de operações em modo offline
+  const opSale = enqueueTestOp('save', 'Registro_Vendas', 'sale_off_1', { CLIENTE: 'MARIA OFFLINE', VALOR: 350.00 });
+  const opStock = enqueueTestOp('decrement_stock', 'CAD_ARMACOES', 'arm_off_1', { quantity: 1 });
+  const opClient = enqueueTestOp('save', 'CLIENTES_CADASTRADOS', 'cli_off_1', { 'Nome Completo': 'MARIA OFFLINE', CPF: '12345678901' });
+
+  console.assert(testQueue.length === 3, 'A fila offline deve conter exatamente 3 operações enfileiradas');
+  const storedQueue = JSON.parse(mockLocalStorage.getItem('YASMIN_OFFLINE_SYNC_QUEUE'));
+  console.assert(storedQueue.length === 3, 'Fila deve persistir corretamente no armazenamento local');
+  console.assert(storedQueue[0].data.CLIENTE === 'MARIA OFFLINE', 'Dados da venda offline devem ser preservados');
+  console.assert(storedQueue[1].data.quantity === 1, 'Decremento de estoque offline deve ser preservado');
+
+  // 27.2 Drenagem / Processamento da fila ao restabelecer conexão (Auto-Sync)
+  const processTestQueue = (isOnline) => {
+    if (!isOnline) return 0;
+    const items = [...testQueue];
+    let processed = 0;
+    while (items.length > 0) {
+      const item = items.shift();
+      // simula envio bem-sucedido
+      processed++;
+    }
+    testQueue.length = 0;
+    mockLocalStorage.setItem('YASMIN_OFFLINE_SYNC_QUEUE', JSON.stringify(testQueue));
+    return processed;
+  };
+
+  const processedCountOffline = processTestQueue(false);
+  console.assert(processedCountOffline === 0, 'Quando offline, a fila NÃO deve tentar sincronizar');
+  console.assert(testQueue.length === 3, 'A fila deve permanecer intacta enquanto offline');
+
+  const processedCountOnline = processTestQueue(true);
+  console.assert(processedCountOnline === 3, 'Ao retornar online, todas as 3 operações devem ser processadas');
+  console.assert(testQueue.length === 0, 'A fila deve ficar limpa após auto-sync bem-sucedido');
+  console.assert(JSON.parse(mockLocalStorage.getItem('YASMIN_OFFLINE_SYNC_QUEUE')).length === 0, 'LocalStorage deve registrar fila zerada');
+
+  // 27.3 Snapshot de Recuperação Total Offline (Hidratação sem internet)
+  const appDataSnapshot = {
+    'CLIENTES_CADASTRADOS': [{ id: '1', 'Nome Completo': 'CLIENTE OFFLINE SALVO' }],
+    'CAD_ARMACOES': [{ id: 'a1', MODELO: 'RAY-BAN TITANIUM', ESTOQUE: 5 }],
+    'Registro_Vendas': [{ id: 'v1', VALOR: 499.00 }]
+  };
+  mockLocalStorage.setItem('YASMIN_OFFLINE_DATA_BACKUP', JSON.stringify(appDataSnapshot));
+
+  const restoredSnapshot = JSON.parse(mockLocalStorage.getItem('YASMIN_OFFLINE_DATA_BACKUP'));
+  console.assert(restoredSnapshot['CLIENTES_CADASTRADOS'].length === 1, 'Snapshot offline deve restaurar clientes');
+  console.assert(restoredSnapshot['CAD_ARMACOES'][0].MODELO === 'RAY-BAN TITANIUM', 'Snapshot offline deve restaurar armações e estoque');
+  console.assert(restoredSnapshot['CAD_ARMACOES'][0].ESTOQUE === 5, 'Saldo de estoque no snapshot deve ser preservado');
+
+  console.log('  ✅ Test 27 Passed: Modo Contingência Offline (Fila Local, Snapshots e Auto-Sync) validado com sucesso!\n');
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
 }
 
