@@ -629,8 +629,8 @@ const CashManagementModal = ({
 
   return (
     <>
-      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-        <div className="bg-[#0b1120] border border-white/10 rounded-3xl p-6 sm:p-8 max-w-xl w-full shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+        <div className="bg-[#0b1120] border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-7 max-w-lg w-full shadow-2xl space-y-5 sm:space-y-6 max-h-[90vh] overflow-y-auto erp-scroll">
           
           {/* Header */}
           <div className="flex items-center justify-between border-b border-white/10 pb-4">

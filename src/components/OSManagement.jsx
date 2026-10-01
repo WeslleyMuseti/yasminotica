@@ -1040,8 +1040,8 @@ const OSManagement = ({
                 {isAdmin ? 'Painel Administrativo' : 'Atendimento & Vendas'}
               </span>
             </div>
-            <h1 className="text-3xl font-black text-white tracking-tight flex items-center gap-3 mt-1">
-              <ClipboardList className="text-pink-400" size={32} />
+            <h1 className="text-xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2 sm:gap-3 mt-1">
+              <ClipboardList className="text-pink-400 shrink-0" size={28} />
               Gestão de Ordens de Serviço (OS)
             </h1>
             <p className="text-slate-400 text-xs mt-0.5">
@@ -1051,8 +1051,8 @@ const OSManagement = ({
         </div>
 
         {/* Filtro por Loja / Unidade */}
-        <div className="flex items-center gap-1.5 bg-black/40 p-1.5 rounded-2xl border border-white/10 self-start md:self-auto">
-          <span className="text-xs font-bold text-slate-400 px-2 flex items-center gap-1">
+        <div className="flex items-center gap-1.5 bg-black/40 p-1.5 rounded-2xl border border-white/10 self-start md:self-auto overflow-x-auto erp-scroll max-w-full">
+          <span className="text-xs font-bold text-slate-400 px-2 flex items-center gap-1 shrink-0">
             <MapPin size={13} className="text-pink-400" /> Loja:
           </span>
           {[
@@ -1065,7 +1065,7 @@ const OSManagement = ({
             <button
               key={u.id}
               onClick={() => setSelectedUnit(u.id)}
-              className={"px-3 py-1.5 rounded-xl text-xs font-black transition-all " + (
+              className={"px-3 py-1.5 rounded-xl text-xs font-black transition-all shrink-0 " + (
                 selectedUnit === u.id
                   ? "bg-pink-500 text-white shadow-lg shadow-pink-500/25"
                   : "text-slate-400 hover:text-white hover:bg-white/5"
@@ -1078,12 +1078,12 @@ const OSManagement = ({
       </div>
 
       {/* ─── CARDS DE STATUS COM CORES PADRÃO (AZUL, VERDE, AMARELA E VERMELHA) ─── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+      <div className="flex overflow-x-auto snap-x pb-2 sm:grid sm:grid-cols-3 lg:grid-cols-7 gap-2.5 sm:gap-3 erp-scroll">
         
         {/* Total Geral */}
         <div 
           onClick={() => setSelectedStatusFilter("ALL")}
-          className={"glass-card p-4 rounded-2xl cursor-pointer transition-all border " + (
+          className={"glass-card p-4 rounded-2xl cursor-pointer transition-all border shrink-0 min-w-[150px] sm:min-w-0 snap-start " + (
             selectedStatusFilter === "ALL" ? "border-sky-500 ring-2 ring-sky-500/30" : "border-white/5 hover:border-white/20"
           )}
         >
@@ -1098,7 +1098,7 @@ const OSManagement = ({
         {/* Azul: Aguardando Confirmação */}
         <div 
           onClick={() => setSelectedStatusFilter("Aguardando Confirmação")}
-          className={"glass-card p-4 rounded-2xl cursor-pointer transition-all border " + (
+          className={"glass-card p-4 rounded-2xl cursor-pointer transition-all border shrink-0 min-w-[150px] sm:min-w-0 snap-start " + (
             selectedStatusFilter === "Aguardando Confirmação" 
               ? "border-sky-500 ring-2 ring-sky-500/40 bg-sky-500/10 shadow-[0_0_15px_rgba(14,165,233,0.25)]" 
               : "border-white/5 hover:border-sky-500/30"
@@ -1117,7 +1117,7 @@ const OSManagement = ({
         {/* Vermelho: No Laboratório */}
         <div 
           onClick={() => setSelectedStatusFilter("No Laboratório")}
-          className={"glass-card p-4 rounded-2xl cursor-pointer transition-all border " + (
+          className={"glass-card p-4 rounded-2xl cursor-pointer transition-all border shrink-0 min-w-[150px] sm:min-w-0 snap-start " + (
             selectedStatusFilter === "No Laboratório" ? "border-rose-500 ring-2 ring-rose-500/30" : "border-white/5 hover:border-white/20"
           )}
         >
@@ -1134,7 +1134,7 @@ const OSManagement = ({
         {/* Amarelo: Em Produção */}
         <div 
           onClick={() => setSelectedStatusFilter("Em Produção")}
-          className={"glass-card p-4 rounded-2xl cursor-pointer transition-all border " + (
+          className={"glass-card p-4 rounded-2xl cursor-pointer transition-all border shrink-0 min-w-[150px] sm:min-w-0 snap-start " + (
             selectedStatusFilter === "Em Produção" ? "border-amber-500 ring-2 ring-amber-500/30" : "border-white/5 hover:border-white/20"
           )}
         >
@@ -1151,7 +1151,7 @@ const OSManagement = ({
         {/* Amarelo: Pronto para Retirada */}
         <div 
           onClick={() => setSelectedStatusFilter("Pronto para Retirada")}
-          className={"glass-card p-4 rounded-2xl cursor-pointer transition-all border " + (
+          className={"glass-card p-4 rounded-2xl cursor-pointer transition-all border shrink-0 min-w-[150px] sm:min-w-0 snap-start " + (
             selectedStatusFilter === "Pronto para Retirada" ? "border-yellow-500 ring-2 ring-yellow-500/30" : "border-white/5 hover:border-white/20"
           )}
         >
@@ -1168,7 +1168,7 @@ const OSManagement = ({
         {/* Verde: Entregue */}
         <div 
           onClick={() => setSelectedStatusFilter("Entregue")}
-          className={"glass-card p-4 rounded-2xl cursor-pointer transition-all border " + (
+          className={"glass-card p-4 rounded-2xl cursor-pointer transition-all border shrink-0 min-w-[150px] sm:min-w-0 snap-start " + (
             selectedStatusFilter === "Entregue" ? "border-emerald-500 ring-2 ring-emerald-500/30" : "border-white/5 hover:border-white/20"
           )}
         >
@@ -1185,7 +1185,7 @@ const OSManagement = ({
         {/* Vermelho Alerta: Atrasadas */}
         <div 
           onClick={() => setSelectedStatusFilter("DELAYED")}
-          className={"glass-card p-4 rounded-2xl cursor-pointer transition-all border " + (
+          className={"glass-card p-4 rounded-2xl cursor-pointer transition-all border shrink-0 min-w-[150px] sm:min-w-0 snap-start " + (
             selectedStatusFilter === "DELAYED" ? "border-red-500 ring-2 ring-red-500/40 bg-red-500/10" : "border-red-500/30 hover:border-red-500/50"
           )}
         >
@@ -2254,8 +2254,8 @@ const OSManagement = ({
 
       {/* ─── MODAL DE CONFERÊNCIA FINANCEIRA & APROVAÇÃO DE OS (GERAÇÃO DE DUPLICATAS) ─── */}
       {approvalModalOrder && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-[#0f172a] border border-sky-500/40 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl space-y-5 animate-in zoom-in-95 duration-200 relative">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-[#0f172a] border border-sky-500/40 rounded-3xl p-5 sm:p-8 max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl space-y-5 animate-in zoom-in-95 duration-200 relative erp-scroll">
             
             {/* Cabeçalho */}
             <div className="flex items-center justify-between pb-3 border-b border-white/10">
@@ -2434,8 +2434,8 @@ const OSManagement = ({
 
       {/* ─── MODAL DE BAIXA / CONFIRMAR DATA DE ENTREGA AO CLIENTE ─── */}
       {deliveryModalOrder && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-[#0f172a] border border-emerald-500/30 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-[#0f172a] border border-emerald-500/30 rounded-3xl p-5 sm:p-8 max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200 erp-scroll">
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-lg shadow-emerald-500/20">
@@ -2527,8 +2527,8 @@ const OSManagement = ({
 
       {/* Modal Formulário Lab */}
       {labModalOrder && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
-          <div className="bg-[#0f172a] border border-fuchsia-500/30 rounded-3xl p-6 sm:p-8 max-w-2xl w-full shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200 my-8">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-[#0f172a] border border-fuchsia-500/30 rounded-3xl p-5 sm:p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200 my-4 sm:my-8 erp-scroll">
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-fuchsia-500/20 border border-fuchsia-500/30 flex items-center justify-center text-fuchsia-400 shadow-lg shadow-fuchsia-500/20">
@@ -2556,7 +2556,7 @@ const OSManagement = ({
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">Laboratório</label>
                   <input type="text" readOnly={isVendedor} value={labFormData.LABORATORIO || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, LABORATORIO: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />
@@ -2564,7 +2564,7 @@ const OSManagement = ({
               </div>
 
               <h4 className="text-sm font-bold text-white mt-4 border-b border-white/10 pb-2">Prescrição / Dioptria</h4>
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">OD Esférico</label>
                   <input type="text" readOnly={isVendedor} value={labFormData.OD_ESF || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, OD_ESF: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />
@@ -2597,7 +2597,7 @@ const OSManagement = ({
               </div>
 
               <h4 className="text-sm font-bold text-white mt-4 border-b border-white/10 pb-2">Medidas</h4>
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">OD DNP</label>
                   <input type="text" readOnly={isVendedor} value={labFormData.OD_DNP || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, OD_DNP: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />
@@ -2617,7 +2617,7 @@ const OSManagement = ({
               </div>
 
               <h4 className="text-sm font-bold text-white mt-4 border-b border-white/10 pb-2">Dados da Armação</h4>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400">Ponte + Aro</label>
                   <input type="text" readOnly={isVendedor} value={labFormData.PONTE_ARO || ''} onChange={e => !isVendedor && setLabFormData({...labFormData, PONTE_ARO: e.target.value})} className={`w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:outline-none ${isVendedor ? 'opacity-80 cursor-default' : 'focus:border-fuchsia-400'}`} />

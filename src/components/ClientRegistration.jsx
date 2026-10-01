@@ -728,18 +728,18 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
       className="max-w-[1400px] mx-auto"
     >
       {/* Barra Superior Profissional SaaS (Clean & Enterprise) */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 bg-slate-900/90 border border-slate-800 p-5 rounded-2xl shadow-xl backdrop-blur-md">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 bg-slate-900/90 border border-slate-800 p-3.5 sm:p-5 rounded-2xl shadow-xl backdrop-blur-md">
         <div className="flex items-center gap-3.5">
           <button 
             onClick={onBack}
-            className="p-2.5 bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 transition-all rounded-xl text-slate-300 hover:text-white"
+            className="p-2.5 bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 transition-all rounded-xl text-slate-300 hover:text-white shrink-0"
             title="Voltar"
           >
             <ArrowLeft size={18} />
           </button>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white uppercase">Gestão de Clientes &amp; Financeiro</h2>
+              <h2 className="text-lg sm:text-2xl font-bold tracking-tight text-white uppercase">Gestão de Clientes &amp; Financeiro</h2>
               <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md">
                 ERP Sincronizado
               </span>
@@ -751,10 +751,10 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
         {!isAdding && (
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             {/* Tabs de Filtro */}
-            <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
+            <div className="flex overflow-x-auto erp-scroll bg-slate-950 p-1 rounded-xl border border-slate-800 shrink-0">
               <button 
                 onClick={() => setActiveTab('todos')} 
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 ${
                   activeTab === 'todos' 
                     ? 'bg-slate-800 text-white shadow-sm' 
                     : 'text-slate-400 hover:text-slate-200'
@@ -764,7 +764,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
               </button>
               <button 
                 onClick={() => setActiveTab('em-dia')} 
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
                   activeTab === 'em-dia' 
                     ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' 
                     : 'text-slate-400 hover:text-slate-200'
@@ -775,7 +775,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
               </button>
               <button 
                 onClick={() => setActiveTab('inadimplentes')} 
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
                   activeTab === 'inadimplentes' 
                     ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' 
                     : 'text-slate-400 hover:text-slate-200'
@@ -791,7 +791,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
                 setEditingClientData(null);
                 setIsAdding(true);
               }}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl font-bold transition-all shadow-md shadow-sky-600/20 text-xs"
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl font-bold transition-all shadow-md shadow-sky-600/20 text-xs shrink-0"
             >
               <PlusCircle size={15} /> Novo Cliente
             </button>
@@ -801,7 +801,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
 
       {/* KPI Cards Financeiros (Visíveis na listagem) */}
       {!isAdding && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-3.5 mb-6">
           <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total de Clientes</p>
@@ -853,7 +853,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.98 }}
-            className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl"
+            className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl"
           >
             {filteredData.length > 0 ? (
               <>
@@ -891,7 +891,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.98 }}
-            className="bg-slate-900/95 border border-slate-800 p-8 rounded-2xl shadow-2xl relative max-w-4xl mx-auto"
+            className="bg-slate-900/95 border border-slate-800 p-4 sm:p-8 rounded-2xl shadow-2xl relative max-w-4xl mx-auto"
           >
             {success ? (
               <motion.div 
@@ -1667,7 +1667,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
 
                 </div>
 
-                <div className="pt-6 mt-6 border-t border-white/5 flex flex-wrap items-center justify-between gap-4">
+                <div className="pt-6 mt-6 border-t border-white/5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4">
                   {editingClientData && ['admin', 'administrativo'].includes(currentUser?.role) && onDeleteClient && (
                     <button 
                       type="button"
@@ -1679,13 +1679,13 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
                           setEditingClientData(null);
                         }
                       }}
-                      className="px-5 py-3 rounded-xl font-bold bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white border border-rose-500/20 transition-all flex items-center gap-2"
+                      className="w-full sm:w-auto px-5 py-3 rounded-xl font-bold bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white border border-rose-500/20 transition-all flex items-center justify-center gap-2"
                     >
                       <Trash2 size={16} /> Excluir Cliente
                     </button>
                   )}
 
-                  <div className="flex items-center gap-4 ml-auto">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4 sm:ml-auto w-full sm:w-auto">
                     {clientsData.length > 0 && (
                       <button 
                         type="button"
@@ -1693,7 +1693,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
                           setIsAdding(false);
                           setEditingClientData(null);
                         }}
-                        className="px-6 py-3 rounded-xl font-bold text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+                        className="w-full sm:w-auto px-6 py-3 rounded-xl font-bold text-slate-400 hover:text-white hover:bg-white/5 transition-all text-center"
                       >
                         Cancelar
                       </button>
@@ -1701,7 +1701,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
                     <button 
                       type="submit"
                       disabled={isSubmitting}
-                      className="px-6 py-3 bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-400 hover:to-indigo-400 text-white rounded-xl font-black transition-all flex items-center gap-2 shadow-lg shadow-sky-500/25 disabled:opacity-50"
+                      className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-400 hover:to-indigo-400 text-white rounded-xl font-black transition-all flex items-center justify-center gap-2 shadow-lg shadow-sky-500/25 disabled:opacity-50"
                     >
                       {isSubmitting ? (
                         <>

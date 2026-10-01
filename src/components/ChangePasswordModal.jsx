@@ -77,7 +77,7 @@ const ChangePasswordModal = ({ isOpen, onClose, currentUser, onPasswordChanged }
 
   return createPortal(
     <AnimatePresence>
-      <div className="fixed inset-0 z-[100000] flex items-center justify-center p-4">
+      <div className="fixed inset-0 z-[100000] flex items-center justify-center p-3 sm:p-4">
         {/* Backdrop */}
         <motion.div
           initial={{ opacity: 0 }}
@@ -92,7 +92,7 @@ const ChangePasswordModal = ({ isOpen, onClose, currentUser, onPasswordChanged }
           initial={{ opacity: 0, scale: 0.95, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 15 }}
-          className="relative w-full max-w-md bg-slate-900 border border-white/15 rounded-3xl p-6 sm:p-7 shadow-2xl z-10 text-white"
+          className="relative w-full max-w-lg bg-slate-900 border border-white/15 rounded-2xl sm:rounded-3xl p-4 sm:p-7 shadow-2xl z-10 text-white max-h-[90vh] overflow-y-auto erp-scroll"
         >
           {/* Header */}
           <div className="flex items-center justify-between pb-4 border-b border-white/10">

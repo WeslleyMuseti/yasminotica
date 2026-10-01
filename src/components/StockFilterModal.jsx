@@ -311,20 +311,20 @@ export default function StockFilterModal({
         initial={{ opacity: 0, scale: 0.95, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 15 }}
-        className="w-full max-w-5xl bg-slate-900/95 border border-white/10 rounded-3xl shadow-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col"
+        className="w-full max-w-lg lg:max-w-5xl bg-slate-900/95 border border-white/10 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden my-auto max-h-[90vh] flex flex-col"
       >
         {/* CABEÇALHO DO MODAL */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-slate-800/40 shrink-0">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-white/10 bg-slate-800/40 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-slate-950 font-black shadow-lg shadow-emerald-500/20">
-              <Filter size={22} />
+            <div className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-slate-950 font-black shadow-lg shadow-emerald-500/20 shrink-0">
+              <Filter size={20} />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-xl font-black text-white uppercase tracking-tight">
+                <h2 className="text-lg sm:text-xl font-black text-white uppercase tracking-tight">
                   Filtros &amp; Relatórios de Estoque
                 </h2>
-                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-black uppercase tracking-wider">
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-black uppercase tracking-wider shrink-0">
                   {type === 'armacoes' ? 'Armações' : type === 'brindes' ? 'Brindes' : 'Lentes'}
                 </span>
               </div>
@@ -336,7 +336,7 @@ export default function StockFilterModal({
 
           <button
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-white/10 transition-colors"
+            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-white/10 transition-colors shrink-0"
             title="Fechar Modal"
           >
             <X size={20} />
@@ -344,7 +344,7 @@ export default function StockFilterModal({
         </div>
 
         {/* ÁREA DE ROLAGEM COM FILTROS E GRÁFICOS */}
-        <div className="p-6 overflow-y-auto space-y-6 flex-1 pr-4">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-4 sm:space-y-6 flex-1 pr-2 sm:pr-4 erp-scroll">
           {/* PRESETS INTELIGENTES RÁPIDOS */}
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -778,7 +778,7 @@ export default function StockFilterModal({
         </AnimatePresence>
 
         {/* RODAPÉ DO MODAL COM AS AÇÕES REQUISITADAS */}
-        <div className="px-6 py-4 border-t border-white/10 bg-slate-800/40 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-t border-white/10 bg-slate-800/40 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2 text-xs text-slate-400 font-semibold">
             <span>{filteredItems.length} de {items.length} itens selecionados</span>
             {isFiltered && (

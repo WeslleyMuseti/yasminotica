@@ -602,27 +602,27 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
       {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
         <div className="flex items-center gap-2">
           <span className="text-xs font-black uppercase tracking-widest text-slate-400">
             {filtered.length.toLocaleString()} registros
           </span>
           {search && <span className="text-xs text-sky-400 font-bold">· filtrado</span>}
         </div>
-        <div className="relative">
+        <div className="relative w-full sm:w-auto">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
           <input
             type="text"
             placeholder="Pesquisar..."
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(1); }}
-            className="pl-8 pr-4 py-2 text-sm bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-sky-500/50 w-64"
+            className="pl-8 pr-4 py-2 text-sm bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-sky-500/50 w-full sm:w-64"
           />
         </div>
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto rounded-2xl border border-white/5">
+      <div className="overflow-x-auto rounded-2xl border border-white/5 erp-scroll">
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="bg-white/5 border-b border-white/5">
@@ -922,7 +922,7 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between pt-2">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
           <span className="text-xs text-slate-500 font-bold">
             Página {page} de {totalPages}
           </span>

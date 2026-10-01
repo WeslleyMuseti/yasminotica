@@ -196,16 +196,16 @@ export default function ProductTransferModal({
         initial={{ opacity: 0, scale: 0.95, y: 15 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95 }}
-        className="w-full max-w-4xl bg-slate-900/95 border border-white/10 rounded-3xl shadow-2xl overflow-hidden my-auto print:border-none print:shadow-none print:bg-white print:text-black"
+        className="w-full max-w-lg lg:max-w-4xl bg-slate-900/95 border border-white/10 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden my-auto max-h-[90vh] flex flex-col print:border-none print:shadow-none print:bg-white print:text-black"
       >
         {/* MODAL HEADER */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-white/10 bg-slate-800/50 print:hidden">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-4 sm:py-5 border-b border-white/10 bg-slate-800/50 print:hidden shrink-0">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-2xl bg-gradient-to-br from-indigo-500 to-sky-500 text-white shadow-lg shadow-indigo-500/20">
-              <ArrowLeftRight size={22} />
+            <div className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl bg-gradient-to-br from-indigo-500 to-sky-500 text-white shadow-lg shadow-indigo-500/20 shrink-0">
+              <ArrowLeftRight size={20} />
             </div>
             <div>
-              <h2 className="text-xl font-black text-white uppercase tracking-tight flex items-center gap-2">
+              <h2 className="text-lg sm:text-xl font-black text-white uppercase tracking-tight flex items-center gap-2">
                 Transferência de Mercadorias entre Lojas
               </h2>
               <p className="text-xs text-slate-400 font-semibold">
@@ -215,7 +215,7 @@ export default function ProductTransferModal({
           </div>
           <button
             onClick={handleResetAndClose}
-            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-white/10 transition-colors"
+            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-white/10 transition-colors shrink-0"
           >
             <X size={20} />
           </button>
@@ -223,7 +223,7 @@ export default function ProductTransferModal({
 
         {/* TELA DE COMPROVANTE (PÓS SUCESSO) */}
         {completedTransfer ? (
-          <div className="p-6 md:p-8 space-y-6">
+          <div className="p-4 sm:p-8 space-y-6 overflow-y-auto erp-scroll flex-1">
             <div className="text-center space-y-2 print:hidden">
               <div className="inline-flex p-3 bg-emerald-500/20 text-emerald-400 rounded-full border border-emerald-500/30">
                 <CheckCircle2 size={36} />
@@ -334,7 +334,7 @@ export default function ProductTransferModal({
           </div>
         ) : (
           /* FORMULÁRIO DE SELEÇÃO E TRANSFERÊNCIA */
-          <div className="p-6 space-y-6">
+          <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 overflow-y-auto erp-scroll flex-1">
             {/* ETAPA 1: TIPO DE PRODUTO & LOJAS */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* TIPO */}
@@ -613,11 +613,11 @@ export default function ProductTransferModal({
             )}
 
             {/* BOTÕES DO FORMULÁRIO */}
-            <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-4 border-t border-white/10 shrink-0">
               <button
                 type="button"
                 onClick={handleResetAndClose}
-                className="px-5 py-2.5 rounded-xl font-bold text-slate-400 hover:text-white hover:bg-white/5 transition-all text-sm"
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl font-bold text-slate-400 hover:text-white hover:bg-white/5 transition-all text-sm text-center"
               >
                 Cancelar
               </button>
@@ -625,7 +625,7 @@ export default function ProductTransferModal({
                 type="button"
                 disabled={!selectedProduct || originStock <= 0 || transferQty <= 0 || isSubmitting}
                 onClick={handleSubmitTransfer}
-                className={`px-6 py-2.5 rounded-xl font-black text-white text-sm flex items-center gap-2 shadow-lg transition-all ${
+                className={`w-full sm:w-auto px-6 py-2.5 rounded-xl font-black text-white text-sm flex items-center justify-center gap-2 shadow-lg transition-all ${
                   !selectedProduct || originStock <= 0 || transferQty <= 0 || isSubmitting
                     ? 'bg-slate-700 text-slate-400 cursor-not-allowed opacity-50'
                     : 'bg-gradient-to-r from-indigo-500 to-sky-500 hover:from-indigo-400 hover:to-sky-400 shadow-indigo-500/25'

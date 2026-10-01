@@ -488,21 +488,21 @@ const EditOSModal = ({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-[99990] flex items-center justify-center p-3 sm:p-6 bg-slate-950/85 backdrop-blur-md overflow-y-auto">
+      <div className="fixed inset-0 z-[99990] flex items-center justify-center p-2.5 sm:p-6 bg-slate-950/85 backdrop-blur-md overflow-y-auto">
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 15 }}
-          className="relative w-full max-w-4xl bg-slate-900 border border-slate-700/80 rounded-3xl shadow-2xl overflow-hidden my-auto flex flex-col max-h-[92vh]"
+          className="relative w-full max-w-lg lg:max-w-4xl bg-slate-900 border border-slate-700/80 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden my-auto flex flex-col max-h-[90vh]"
         >
           {/* Cabeçalho do Modal */}
-          <div className="p-5 sm:p-6 border-b border-slate-800 bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 flex items-center justify-between gap-4 shrink-0">
-            <div className="flex items-center gap-3.5">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-pink-500 to-rose-600 flex items-center justify-center text-white shadow-lg shadow-pink-500/25">
-                <ClipboardList size={24} />
+          <div className="p-4 sm:p-6 border-b border-slate-800 bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 flex items-center justify-between gap-3 sm:gap-4 shrink-0">
+            <div className="flex items-center gap-3 sm:gap-3.5">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-pink-500 to-rose-600 flex items-center justify-center text-white shadow-lg shadow-pink-500/25 shrink-0">
+                <ClipboardList size={22} />
               </div>
               <div>
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
                   <span className="text-[10px] font-black uppercase tracking-widest bg-pink-500/20 text-pink-400 border border-pink-500/30 px-2.5 py-0.5 rounded-full">
                     Edição de OS
                   </span>
@@ -511,10 +511,10 @@ const EditOSModal = ({
                   </span>
                   <span className="text-[10px] font-black uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
-                    Semáforo Azul (Reconfirmação Obrigatória)
+                    Semáforo Azul
                   </span>
                 </div>
-                <h3 className="text-xl font-black text-white tracking-tight mt-0.5 flex items-center gap-2">
+                <h3 className="text-lg sm:text-xl font-black text-white tracking-tight mt-0.5 flex items-center gap-2">
                   <span>{clientName}</span>
                   {clientCPF && (
                     <span className="text-xs font-normal text-slate-400">({clientCPF})</span>
@@ -526,19 +526,19 @@ const EditOSModal = ({
             <button
               type="button"
               onClick={onClose}
-              className="p-2.5 rounded-2xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all"
+              className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all shrink-0"
               title="Fechar (ESC)"
             >
-              <X size={20} />
+              <X size={18} />
             </button>
           </div>
 
           {/* Abas de Navegação Interna */}
-          <div className="px-6 pt-3 pb-0 bg-slate-950/60 border-b border-slate-800 flex items-center gap-2 shrink-0 overflow-x-auto">
+          <div className="px-3 sm:px-6 pt-2 sm:pt-3 pb-0 bg-slate-950/60 border-b border-slate-800 flex items-center gap-2 shrink-0 overflow-x-auto erp-scroll whitespace-nowrap">
             <button
               type="button"
               onClick={() => setActiveTab('geral')}
-              className={`px-4 py-2.5 rounded-t-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 border-b-2 ${
+              className={`px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-t-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 border-b-2 shrink-0 ${
                 activeTab === 'geral'
                   ? 'text-pink-400 border-pink-500 bg-slate-900'
                   : 'text-slate-400 border-transparent hover:text-white hover:bg-slate-900/50'
@@ -551,7 +551,7 @@ const EditOSModal = ({
             <button
               type="button"
               onClick={() => setActiveTab('receita')}
-              className={`px-4 py-2.5 rounded-t-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 border-b-2 ${
+              className={`px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-t-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 border-b-2 shrink-0 ${
                 activeTab === 'receita'
                   ? 'text-sky-400 border-sky-500 bg-slate-900'
                   : 'text-slate-400 border-transparent hover:text-white hover:bg-slate-900/50'
@@ -564,7 +564,7 @@ const EditOSModal = ({
             <button
               type="button"
               onClick={() => setActiveTab('financeiro')}
-              className={`px-4 py-2.5 rounded-t-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 border-b-2 ${
+              className={`px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-t-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 border-b-2 shrink-0 ${
                 activeTab === 'financeiro'
                   ? 'text-emerald-400 border-emerald-500 bg-slate-900'
                   : 'text-slate-400 border-transparent hover:text-white hover:bg-slate-900/50'
@@ -576,7 +576,7 @@ const EditOSModal = ({
           </div>
 
           {/* Conteúdo do Formulário */}
-          <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-6 flex-1 custom-scrollbar">
+          <form onSubmit={handleSubmit} className="p-4 sm:p-6 overflow-y-auto space-y-5 sm:space-y-6 flex-1 custom-scrollbar">
             
             {/* ─── ABA 1: GERAL (PRODUTOS & PRAZOS) ─── */}
             {activeTab === 'geral' && (
@@ -726,7 +726,7 @@ const EditOSModal = ({
                     <span className="w-2 h-2 rounded-full bg-sky-400" />
                     Olho Direito (OD)
                   </h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 sm:gap-3">
                     <div>
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Esférico</label>
                       <input
@@ -786,7 +786,7 @@ const EditOSModal = ({
                     <span className="w-2 h-2 rounded-full bg-indigo-400" />
                     Olho Esquerdo (OE)
                   </h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 sm:gap-3">
                     <div>
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Esférico</label>
                       <input
@@ -947,7 +947,7 @@ const EditOSModal = ({
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
                     {[
                       { id: 'dinheiro', label: '💵 Dinheiro' },
                       { id: 'pix', label: '⚡ PIX' },
@@ -1183,25 +1183,25 @@ const EditOSModal = ({
             )}
 
             {/* Rodapé de Ações */}
-            <div className="pt-4 border-t border-slate-800 flex items-center justify-between gap-3 shrink-0 flex-wrap">
-              <div className="flex items-center gap-2 text-xs font-mono font-bold text-slate-400">
+            <div className="pt-4 border-t border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center justify-between sm:justify-start gap-2 text-xs font-mono font-bold text-slate-400">
                 <span>Total: <strong className="text-emerald-400">{fmtMoeda(totalFinal)}</strong></span>
                 <span>•</span>
                 <span>Lançado: <strong className={isFullyCovered ? "text-emerald-400" : "text-amber-400"}>{fmtMoeda(covered)}</strong></span>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold transition-all"
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold transition-all text-center"
                 >
                   Cancelar
                 </button>
 
                 <button
                   type="submit"
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-pink-500/25 flex items-center gap-2 active:scale-95"
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-pink-500/25 flex items-center justify-center gap-2 active:scale-95"
                 >
                   <Save size={16} />
                   <span>Salvar Alterações da OS</span>

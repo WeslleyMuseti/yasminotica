@@ -11,7 +11,8 @@ import {
   ShieldCheck, 
   MapPin, 
   KeyRound,
-  Eye
+  Eye,
+  ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -155,7 +156,7 @@ const NavigationDrawer = ({
             animate={{ x: 0 }}
             exit={{ x: '-100%' }}
             transition={{ type: 'spring', damping: 28, stiffness: 280 }}
-            className="relative w-full max-w-[340px] sm:max-w-[380px] bg-slate-950/95 border-r border-white/10 shadow-2xl flex flex-col h-full z-10 backdrop-blur-2xl"
+            className="relative w-[85vw] max-w-[340px] sm:max-w-[380px] bg-slate-950/95 border-r border-white/10 shadow-2xl flex flex-col h-full z-10 backdrop-blur-2xl"
           >
             {/* Cabeçalho do Menu Lateral */}
             <div className="p-5 border-b border-white/10 flex items-center justify-between bg-gradient-to-r from-slate-900/90 to-slate-950/90">

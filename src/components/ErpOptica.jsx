@@ -1084,11 +1084,11 @@ const ErpOptica = ({
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-[1400px] mx-auto space-y-8">
       {/* Cabeçalho */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-slate-900/90 border border-slate-800 p-5 rounded-3xl shadow-xl backdrop-blur-md">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-slate-900/90 border border-slate-800 p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl shadow-xl backdrop-blur-md">
+        <div className="flex items-center gap-3 sm:gap-4">
           <button
             onClick={onBack}
-            className="p-2.5 glass-card hover:bg-white/10 transition-all rounded-xl text-slate-400 hover:text-white shadow-lg"
+            className="p-2.5 glass-card hover:bg-white/10 transition-all rounded-xl text-slate-400 hover:text-white shadow-lg shrink-0"
           >
             <ArrowLeft size={20} />
           </button>
@@ -1097,23 +1097,24 @@ const ErpOptica = ({
               <span className="px-2.5 py-0.5 rounded-full bg-sky-500/10 text-sky-400 text-[10px] font-black uppercase tracking-widest border border-sky-500/20">Módulo ERP</span>
               <span className="text-xs text-slate-400 font-bold">Ótica e Financeiro</span>
             </div>
-            <h2 className="text-3xl font-black title-gradient uppercase mt-1">Gestão de Ótica &amp; Financeiro</h2>
+            <h2 className="text-xl sm:text-3xl font-black title-gradient uppercase mt-1">Gestão de Ótica &amp; Financeiro</h2>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
           {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes') && (
             <button
               onClick={() => setIsStockFilterModalOpen(true)}
-              className={`flex items-center gap-2 px-4 py-2.5 border font-black rounded-xl shadow-lg transition-all text-sm active:scale-95 ${
+              className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 border font-black rounded-xl shadow-lg transition-all text-xs sm:text-sm active:scale-95 ${
                 appliedStockFilter
                   ? 'bg-gradient-to-r from-emerald-600/40 to-teal-600/40 border-emerald-400 text-emerald-100 ring-2 ring-emerald-500/30'
                   : 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-500/40 text-emerald-300 hover:text-white'
               }`}
               title={`Filtros & Relatórios de Estoque (${activeTab === 'armacoes' ? 'Armações' : activeTab === 'brindes' ? 'Brindes' : 'Lentes'})`}
             >
-              <Filter size={16} className="text-emerald-400" />
-              <span>Filtros de Estoque ({activeTab === 'armacoes' ? 'Armações' : activeTab === 'brindes' ? 'Brindes' : 'Lentes'})</span>
+              <Filter size={15} className="text-emerald-400 shrink-0" />
+              <span className="hidden sm:inline">Filtros de Estoque ({activeTab === 'armacoes' ? 'Armações' : activeTab === 'brindes' ? 'Brindes' : 'Lentes'})</span>
+              <span className="sm:hidden">Filtros</span>
               {appliedStockFilter && (
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               )}
@@ -1122,18 +1123,21 @@ const ErpOptica = ({
           {(activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes') && (
             <button
               onClick={() => setIsTransferModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-indigo-600/30 to-sky-600/30 hover:from-indigo-600/50 hover:to-sky-600/50 border border-indigo-500/40 hover:border-indigo-400 text-indigo-200 hover:text-white font-black rounded-xl shadow-lg transition-all text-sm"
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-gradient-to-r from-indigo-600/30 to-sky-600/30 hover:from-indigo-600/50 hover:to-sky-600/50 border border-indigo-500/40 hover:border-indigo-400 text-indigo-200 hover:text-white font-black rounded-xl shadow-lg transition-all text-xs sm:text-sm active:scale-95"
             >
-              <ArrowLeftRight size={16} className="text-indigo-400" />
-              <span>Transferir Estoque</span>
+              <ArrowLeftRight size={15} className="text-indigo-400 shrink-0" />
+              <span className="hidden sm:inline">Transferir Estoque</span>
+              <span className="sm:hidden">Transferir</span>
             </button>
           )}
           {!isAdding && activeTab !== 'fluxo_caixa' && activeTab !== 'transferencias' && (
             <button
               onClick={() => setIsAdding(true)}
-              className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-black rounded-xl shadow-lg shadow-sky-500/25 transition-all text-sm"
+              className="flex items-center gap-1.5 sm:gap-2 px-3.5 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-black rounded-xl shadow-lg shadow-sky-500/25 transition-all text-xs sm:text-sm active:scale-95"
             >
-              <PlusCircle size={16} /> Novo Registro
+              <PlusCircle size={15} className="shrink-0" />
+              <span className="hidden sm:inline">Novo Registro</span>
+              <span className="sm:hidden">Novo</span>
             </button>
           )}
         </div>
@@ -1173,139 +1177,139 @@ const ErpOptica = ({
       )}
 
       {/* Navegação Secundária em Abas */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 gap-3">
+      <div className="flex overflow-x-auto pb-2 sm:grid sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2.5 sm:gap-3 erp-scroll">
         <button
           onClick={() => { setActiveTab('lentes'); setIsAdding(false); }}
-          className={`flex items-center gap-3 p-4 rounded-2xl transition-all border ${
+          className={`flex items-center gap-3 p-3.5 sm:p-4 rounded-2xl transition-all border shrink-0 min-w-[145px] sm:min-w-0 ${
             activeTab === 'lentes'
               ? 'bg-sky-500/20 border-sky-500 text-white shadow-lg shadow-sky-500/10'
               : 'glass-card border-white/5 text-slate-400 hover:bg-white/5 hover:text-white'
           }`}
         >
-          <div className={`p-3 rounded-xl ${activeTab === 'lentes' ? 'bg-sky-500 text-white' : 'bg-white/5 text-sky-400'}`}>
+          <div className={`p-2.5 sm:p-3 rounded-xl shrink-0 ${activeTab === 'lentes' ? 'bg-sky-500 text-white' : 'bg-white/5 text-sky-400'}`}>
             <Eye size={20} />
           </div>
           <div className="text-left">
-            <p className="text-xs font-black uppercase tracking-widest opacity-60">Estoque</p>
+            <p className="text-[10px] sm:text-xs font-black uppercase tracking-widest opacity-60">Estoque</p>
             <p className="font-black text-sm">Lentes</p>
           </div>
         </button>
 
         <button
           onClick={() => { setActiveTab('armacoes'); setIsAdding(false); }}
-          className={`flex items-center gap-3 p-4 rounded-2xl transition-all border ${
+          className={`flex items-center gap-3 p-3.5 sm:p-4 rounded-2xl transition-all border shrink-0 min-w-[145px] sm:min-w-0 ${
             activeTab === 'armacoes'
               ? 'bg-fuchsia-500/20 border-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/10'
               : 'glass-card border-white/5 text-slate-400 hover:bg-white/5 hover:text-white'
           }`}
         >
-          <div className={`p-3 rounded-xl ${activeTab === 'armacoes' ? 'bg-fuchsia-500 text-white' : 'bg-white/5 text-fuchsia-400'}`}>
+          <div className={`p-2.5 sm:p-3 rounded-xl shrink-0 ${activeTab === 'armacoes' ? 'bg-fuchsia-500 text-white' : 'bg-white/5 text-fuchsia-400'}`}>
             <Glasses size={20} />
           </div>
           <div className="text-left">
-            <p className="text-xs font-black uppercase tracking-widest opacity-60">Estoque</p>
+            <p className="text-[10px] sm:text-xs font-black uppercase tracking-widest opacity-60">Estoque</p>
             <p className="font-black text-sm">Armações</p>
           </div>
         </button>
 
         <button
           onClick={() => { setActiveTab('brindes'); setIsAdding(false); }}
-          className={`flex items-center gap-3 p-4 rounded-2xl transition-all border ${
+          className={`flex items-center gap-3 p-3.5 sm:p-4 rounded-2xl transition-all border shrink-0 min-w-[145px] sm:min-w-0 ${
             activeTab === 'brindes'
               ? 'bg-pink-500/20 border-pink-500 text-white shadow-lg shadow-pink-500/10'
               : 'glass-card border-white/5 text-slate-400 hover:bg-white/5 hover:text-white'
           }`}
         >
-          <div className={`p-3 rounded-xl ${activeTab === 'brindes' ? 'bg-pink-500 text-white' : 'bg-white/5 text-pink-400'}`}>
+          <div className={`p-2.5 sm:p-3 rounded-xl shrink-0 ${activeTab === 'brindes' ? 'bg-pink-500 text-white' : 'bg-white/5 text-pink-400'}`}>
             <Gift size={20} />
           </div>
           <div className="text-left">
-            <p className="text-xs font-black uppercase tracking-widest opacity-60">Estoque</p>
+            <p className="text-[10px] sm:text-xs font-black uppercase tracking-widest opacity-60">Estoque</p>
             <p className="font-black text-sm">Brindes</p>
           </div>
         </button>
 
         <button
           onClick={() => { setActiveTab('vouchers'); setIsAdding(false); }}
-          className={`flex items-center gap-3 p-4 rounded-2xl transition-all border ${
+          className={`flex items-center gap-3 p-3.5 sm:p-4 rounded-2xl transition-all border shrink-0 min-w-[145px] sm:min-w-0 ${
             activeTab === 'vouchers'
               ? 'bg-gradient-to-br from-amber-500/20 to-fuchsia-500/20 border-amber-400 text-white shadow-lg shadow-amber-500/10'
               : 'glass-card border-white/5 text-slate-400 hover:bg-white/5 hover:text-white'
           }`}
         >
-          <div className={`p-3 rounded-xl ${activeTab === 'vouchers' ? 'bg-gradient-to-r from-amber-500 to-fuchsia-500 text-white' : 'bg-white/5 text-amber-400'}`}>
+          <div className={`p-2.5 sm:p-3 rounded-xl shrink-0 ${activeTab === 'vouchers' ? 'bg-gradient-to-r from-amber-500 to-fuchsia-500 text-white' : 'bg-white/5 text-amber-400'}`}>
             <Ticket size={20} />
           </div>
           <div className="text-left">
-            <p className="text-xs font-black uppercase tracking-widest opacity-60">Promoções</p>
+            <p className="text-[10px] sm:text-xs font-black uppercase tracking-widest opacity-60">Promoções</p>
             <p className="font-black text-sm">Vouchers</p>
           </div>
         </button>
 
         <button
           onClick={() => { setActiveTab('receber'); setIsAdding(false); }}
-          className={`flex items-center gap-3 p-4 rounded-2xl transition-all border ${
+          className={`flex items-center gap-3 p-3.5 sm:p-4 rounded-2xl transition-all border shrink-0 min-w-[145px] sm:min-w-0 ${
             activeTab === 'receber'
               ? 'bg-emerald-500/20 border-emerald-500 text-white shadow-lg shadow-emerald-500/10'
               : 'glass-card border-white/5 text-slate-400 hover:bg-white/5 hover:text-white'
           }`}
         >
-          <div className={`p-3 rounded-xl ${activeTab === 'receber' ? 'bg-emerald-500 text-white' : 'bg-white/5 text-emerald-400'}`}>
+          <div className={`p-2.5 sm:p-3 rounded-xl shrink-0 ${activeTab === 'receber' ? 'bg-emerald-500 text-white' : 'bg-white/5 text-emerald-400'}`}>
             <TrendingUp size={20} />
           </div>
           <div className="text-left">
-            <p className="text-xs font-black uppercase tracking-widest opacity-60">Financeiro</p>
+            <p className="text-[10px] sm:text-xs font-black uppercase tracking-widest opacity-60">Financeiro</p>
             <p className="font-black text-sm">A Receber</p>
           </div>
         </button>
 
         <button
           onClick={() => { setActiveTab('pagar'); setIsAdding(false); }}
-          className={`flex items-center gap-3 p-4 rounded-2xl transition-all border ${
+          className={`flex items-center gap-3 p-3.5 sm:p-4 rounded-2xl transition-all border shrink-0 min-w-[145px] sm:min-w-0 ${
             activeTab === 'pagar'
               ? 'bg-rose-500/20 border-rose-500 text-white shadow-lg shadow-rose-500/10'
               : 'glass-card border-white/5 text-slate-400 hover:bg-white/5 hover:text-white'
           }`}
         >
-          <div className={`p-3 rounded-xl ${activeTab === 'pagar' ? 'bg-rose-500 text-white' : 'bg-white/5 text-rose-400'}`}>
+          <div className={`p-2.5 sm:p-3 rounded-xl shrink-0 ${activeTab === 'pagar' ? 'bg-rose-500 text-white' : 'bg-white/5 text-rose-400'}`}>
             <TrendingDown size={20} />
           </div>
           <div className="text-left">
-            <p className="text-xs font-black uppercase tracking-widest opacity-60">Financeiro</p>
+            <p className="text-[10px] sm:text-xs font-black uppercase tracking-widest opacity-60">Financeiro</p>
             <p className="font-black text-sm">A Pagar</p>
           </div>
         </button>
 
         <button
           onClick={() => { setActiveTab('transferencias'); setIsAdding(false); }}
-          className={`flex items-center gap-3 p-4 rounded-2xl transition-all border ${
+          className={`flex items-center gap-3 p-3.5 sm:p-4 rounded-2xl transition-all border shrink-0 min-w-[145px] sm:min-w-0 ${
             activeTab === 'transferencias'
               ? 'bg-indigo-500/20 border-indigo-500 text-white shadow-lg shadow-indigo-500/10'
               : 'glass-card border-white/5 text-slate-400 hover:bg-white/5 hover:text-white'
           }`}
         >
-          <div className={`p-3 rounded-xl ${activeTab === 'transferencias' ? 'bg-indigo-500 text-white' : 'bg-white/5 text-indigo-400'}`}>
+          <div className={`p-2.5 sm:p-3 rounded-xl shrink-0 ${activeTab === 'transferencias' ? 'bg-indigo-500 text-white' : 'bg-white/5 text-indigo-400'}`}>
             <Truck size={20} />
           </div>
           <div className="text-left">
-            <p className="text-xs font-black uppercase tracking-widest opacity-60">Logística</p>
+            <p className="text-[10px] sm:text-xs font-black uppercase tracking-widest opacity-60">Logística</p>
             <p className="font-black text-sm">Transferências</p>
           </div>
         </button>
 
         <button
           onClick={() => { setActiveTab('fluxo_caixa'); setIsAdding(false); }}
-          className={`flex items-center gap-3 p-4 rounded-2xl transition-all border ${
+          className={`flex items-center gap-3 p-3.5 sm:p-4 rounded-2xl transition-all border shrink-0 min-w-[145px] sm:min-w-0 ${
             activeTab === 'fluxo_caixa'
               ? 'bg-purple-500/20 border-purple-500 text-white shadow-lg shadow-purple-500/10'
               : 'glass-card border-white/5 text-slate-400 hover:bg-white/5 hover:text-white'
           }`}
         >
-          <div className={`p-3 rounded-xl ${activeTab === 'fluxo_caixa' ? 'bg-purple-500 text-white' : 'bg-white/5 text-purple-400'}`}>
+          <div className={`p-2.5 sm:p-3 rounded-xl shrink-0 ${activeTab === 'fluxo_caixa' ? 'bg-purple-500 text-white' : 'bg-white/5 text-purple-400'}`}>
             <History size={20} />
           </div>
           <div className="text-left">
-            <p className="text-xs font-black uppercase tracking-widest opacity-60">Tesouraria & PDV</p>
+            <p className="text-[10px] sm:text-xs font-black uppercase tracking-widest opacity-60">Tesouraria & PDV</p>
             <p className="font-black text-sm">Histórico Caixa</p>
           </div>
         </button>
@@ -1313,7 +1317,7 @@ const ErpOptica = ({
 
       {/* Cartões Estatísticos da Aba Ativa */}
       {activeTab === 'vouchers' ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
           <div className="glass-card p-5 rounded-2xl border border-white/5 space-y-1">
             <div className="flex items-center justify-between text-slate-400 text-xs font-bold uppercase tracking-wider">
               <span>Total de Vouchers</span>
@@ -1380,7 +1384,8 @@ const ErpOptica = ({
                     title="Abrir Painel de Filtros Inteligentes & Relatórios"
                   >
                     <Filter size={14} />
-                    <span>Painel de Filtros &amp; Relatórios ⚡</span>
+                    <span className="hidden sm:inline">Painel de Filtros &amp; Relatórios ⚡</span>
+                    <span className="sm:hidden">Filtros ⚡</span>
                   </button>
                   <button
                     type="button"
@@ -1437,7 +1442,8 @@ const ErpOptica = ({
                     title="Transferir produtos entre lojas"
                   >
                     <ArrowLeftRight size={13} />
-                    <span>Transferir entre Lojas</span>
+                    <span className="hidden sm:inline">Transferir entre Lojas</span>
+                    <span className="sm:hidden">Transferir</span>
                   </button>
                   {selectedStockCity !== 'ALL' && (
                     <button
@@ -1453,7 +1459,7 @@ const ErpOptica = ({
               </div>
 
               {/* Botões / Pills de cada Cidade / Filial */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-0.5">
+              <div className="flex overflow-x-auto pb-1.5 sm:grid sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-0.5 erp-scroll">
                 {[
                   { id: 'ALL', label: 'Todas as Lojas', badge: `${stockDistributionByCity.totalItems} mod · ${stockDistributionByCity.totalUnits} un` },
                   { id: 'Central', label: 'Central (Todas)', badge: `${stockDistributionByCity.stores['Central']?.items || 0} mod · ${stockDistributionByCity.stores['Central']?.units || 0} un` },
@@ -1468,7 +1474,7 @@ const ErpOptica = ({
                       key={store.id}
                       type="button"
                       onClick={() => setSelectedStockCity(store.id)}
-                      className={`flex flex-col text-left p-2.5 rounded-xl border transition-all ${
+                      className={`flex flex-col text-left p-2.5 rounded-xl border transition-all shrink-0 min-w-[130px] sm:min-w-0 ${
                         isSelected
                           ? 'bg-sky-500/20 border-sky-400 text-white shadow-md shadow-sky-500/10 ring-1 ring-sky-400/50'
                           : 'bg-white/[0.03] hover:bg-white/[0.08] text-slate-300 border-white/5 hover:border-white/15'
@@ -1488,7 +1494,7 @@ const ErpOptica = ({
             </div>
           )}
 
-          <div className={`grid gap-6 ${activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes' ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4' : 'grid-cols-1 md:grid-cols-3'}`}>
+          <div className={`grid gap-4 sm:gap-6 ${activeTab === 'lentes' || activeTab === 'armacoes' || activeTab === 'brindes' ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3'}`}>
           {activeTab === 'lentes' && (
             <>
               <div className="glass-card p-6 border-l-4 border-l-sky-500">

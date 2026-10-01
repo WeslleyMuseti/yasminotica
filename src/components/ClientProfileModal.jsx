@@ -444,19 +444,19 @@ const ClientProfileModal = ({
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 20 }}
             onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-4xl bg-[#0b1120] border border-white/10 rounded-[2rem] shadow-2xl overflow-hidden flex flex-col my-auto max-h-[92vh]"
+            className="relative w-full max-w-lg lg:max-w-4xl bg-[#0b1120] border border-white/10 rounded-2xl sm:rounded-[2rem] shadow-2xl overflow-hidden flex flex-col my-auto max-h-[90vh]"
           >
             {/* Header com Efeito Vidro */}
-            <div className="relative p-6 sm:p-7 border-b border-white/5 bg-gradient-to-b from-white/5 to-transparent flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center z-10 shrink-0">
+            <div className="relative p-4 sm:p-7 border-b border-white/5 bg-gradient-to-b from-white/5 to-transparent flex flex-col sm:flex-row gap-3 sm:gap-4 justify-between items-start sm:items-center z-10 shrink-0">
               <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-px bg-gradient-to-r from-transparent via-sky-500/50 to-transparent" />
               
-              <div className="flex items-center gap-4 w-full">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-sky-500/20 to-indigo-500/20 flex items-center justify-center border border-sky-500/30 shadow-[0_0_30px_rgba(56,189,248,0.15)] shrink-0">
-                  {isEditing ? <Edit2 className="text-sky-400" size={26} /> : <User className="text-sky-400" size={28} />}
+              <div className="flex items-center gap-3 sm:gap-4 w-full">
+                <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br from-sky-500/20 to-indigo-500/20 flex items-center justify-center border border-sky-500/30 shadow-[0_0_30px_rgba(56,189,248,0.15)] shrink-0">
+                  {isEditing ? <Edit2 className="text-sky-400" size={22} /> : <User className="text-sky-400" size={24} />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight truncate">
+                    <h2 className="text-lg sm:text-2xl md:text-3xl font-black text-white tracking-tight truncate">
                       {isEditing ? 'Editar Cadastro' : (currentClient['Nome Completo'] || currentClient['NOME'] || 'Cliente Sem Nome')}
                     </h2>
                     {isEditing && (
@@ -478,7 +478,7 @@ const ClientProfileModal = ({
                     <button
                       onClick={handleStatusToggle}
                       title="Clique para alternar o status manualmente se necessário"
-                      className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-black transition-all border ${
+                      className={`flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs font-black transition-all border ${
                         realFinancials.statusReal === 'Em dia'
                           ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
                           : realFinancials.statusReal === 'Pendente'
@@ -487,11 +487,11 @@ const ClientProfileModal = ({
                       }`}
                     >
                       {realFinancials.statusReal === 'Em dia' ? <CheckCircle size={13}/> : <AlertTriangle size={13}/>}
-                      {realFinancials.statusReal.toUpperCase()}
+                      <span className="hidden sm:inline">{realFinancials.statusReal.toUpperCase()}</span>
                     </button>
                   )}
 
-                  <button onClick={onClose} className="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 rounded-full transition-all bg-white/5 border border-white/10">
+                  <button onClick={onClose} className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 rounded-full transition-all bg-white/5 border border-white/10">
                     <X size={18} />
                   </button>
                 </div>
@@ -511,7 +511,7 @@ const ClientProfileModal = ({
             )}
 
             {/* Body */}
-            <div className="p-6 sm:p-8 overflow-y-auto custom-scrollbar bg-black/20 flex-1 space-y-6">
+            <div className="p-4 sm:p-8 overflow-y-auto custom-scrollbar bg-black/20 flex-1 space-y-6 erp-scroll">
 
               {/* ─── MODO EDIÇÃO INTERNO NO MODAL ─── */}
               {isEditing ? (
@@ -998,7 +998,7 @@ const ClientProfileModal = ({
                 /* ─── MODO VISUALIZAÇÃO PADRÃO DO PERFIL ─── */
                 <>
                   {/* Cards de Resumo Formatados */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5 mb-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-3.5 mb-6">
                     <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col justify-center hover:border-amber-500/30 transition-all">
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1 flex items-center gap-1.5">
                         <CreditCard size={13} className="text-amber-400"/> CPF / CNPJ
@@ -1053,7 +1053,7 @@ const ClientProfileModal = ({
                       </p>
                     </div>
 
-                    <div className="col-span-2 bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+                    <div className="col-span-1 sm:col-span-2 bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5 flex items-center gap-1.5">
                           <DollarSign size={13} className="text-emerald-400"/> Saldo Devedor em Aberto (ERP)

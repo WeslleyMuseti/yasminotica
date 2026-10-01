@@ -12,7 +12,7 @@ import ErpOptica from './components/ErpOptica';
 import OSManagement from './components/OSManagement';
 import POSRegister from './components/POSRegister';
 import LoadingScreen from './components/LoadingScreen';
-import { Eye, Upload, Download, RefreshCw, Users, AlertTriangle, Package, UserCog, ClipboardList, LogOut, ShoppingCart, Menu, Wifi, WifiOff, KeyRound } from 'lucide-react';
+import { Eye, Upload, Download, RefreshCw, Users, AlertTriangle, Package, UserCog, ClipboardList, LogOut, ShoppingCart, Menu, Wifi, WifiOff, KeyRound, Building } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as XLSX from 'xlsx';
 import FirebaseSetupScreen from './components/FirebaseSetupScreen';
@@ -800,55 +800,66 @@ function App() {
   // ─── DASHBOARD ─────────────────────────────────────────────────
   return (
     <div className="min-h-screen">
-      {/* Navbar estática no topo com design moderno SaaS */}
+      {/* Navbar estática no topo com design moderno SaaS e suporte completo a mobile e tablet */}
       <nav className="relative z-40 border-b border-white/10 bg-slate-950/95 shadow-2xl">
-        <div className="max-w-[1550px] mx-auto px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3">
+        <div className="max-w-[1550px] mx-auto px-2 sm:px-4 lg:px-6 py-2 sm:py-2.5 flex items-center justify-between gap-1.5 sm:gap-3">
           
-          {/* Lado Esquerdo: Botão Hamburguer + Logo e Identidade */}
-          <div className="flex items-center gap-2.5 sm:gap-3.5 shrink-0">
+          {/* Lado Esquerdo: Botão Hamburguer + Logo + Título + Badge de Loja + Status Conexão */}
+          <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
             {/* Botão Hamburguer do Menu Lateral */}
             <button
               type="button"
               onClick={() => setIsDrawerOpen(true)}
-              className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-white/5 hover:bg-white/10 text-white border border-white/10 transition-all shadow-sm active:scale-95 group"
+              className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl sm:rounded-2xl bg-white/5 hover:bg-white/10 text-white border border-white/10 transition-all shadow-sm active:scale-95 group shrink-0"
               title="Abrir Menu Lateral (ESC fecha)"
             >
-              <Menu size={20} className="text-sky-400 group-hover:rotate-12 transition-transform" />
-              <span className="text-xs font-black uppercase tracking-wider hidden sm:inline">Menu</span>
+              <Menu size={18} className="text-sky-400 group-hover:rotate-12 transition-transform sm:w-5 sm:h-5" />
+              <span className="text-xs font-black uppercase tracking-wider hidden md:inline">Menu</span>
             </button>
 
             {/* Logo */}
             <div 
               onClick={() => setIsDrawerOpen(true)}
-              className="h-11 px-3 bg-white rounded-2xl flex items-center justify-center shadow-lg shadow-black/40 border border-white/40 ring-1 ring-white/10 transition-transform hover:scale-105 cursor-pointer"
+              className="h-8 sm:h-10 md:h-11 px-1.5 sm:px-2.5 md:px-3 bg-white rounded-xl sm:rounded-2xl flex items-center justify-center shadow-lg shadow-black/40 border border-white/40 ring-1 ring-white/10 transition-transform hover:scale-105 cursor-pointer shrink-0"
               title="Clique para abrir o Menu"
             >
-              <img src="/logo-yasmin.png" alt="Yasmin Ótica" className="h-7 w-auto object-contain" />
+              <img src="/logo-yasmin.png" alt="Yasmin Ótica" className="h-4 sm:h-6 md:h-7 w-auto object-contain" />
             </div>
 
-            <div className="hidden md:block">
-              <div className="flex items-center gap-2">
-                <span className="text-base font-black tracking-tight text-white uppercase">
+            {/* Título do Aplicativo (visível em todos os tamanhos) */}
+            <div className="flex flex-col justify-center min-w-0">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="text-xs sm:text-base font-black tracking-tight text-white uppercase truncate">
                   Yasmin <span className="text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-indigo-400">Ótica</span>
                 </span>
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 bg-white/5 border border-white/10 px-2 py-0.5 rounded-full">
+                <span className="hidden sm:inline-block text-[10px] font-black uppercase tracking-wider text-slate-400 bg-white/5 border border-white/10 px-2 py-0.5 rounded-full">
                   v1.6
                 </span>
               </div>
+              {/* Status Conectado ou Offline */}
               {isOnline ? (
-                <span className="flex items-center gap-1.5 text-[9px] font-bold text-emerald-400 uppercase tracking-widest mt-0.5">
-                  <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" /> Conectado à Nuvem
+                <span className="hidden sm:flex items-center gap-1.5 text-[9px] font-bold text-emerald-400 uppercase tracking-widest mt-0.5">
+                  <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" /> Conectado
                 </span>
               ) : (
-                <span className="flex items-center gap-1.5 text-[9px] font-black text-amber-400 uppercase tracking-widest mt-0.5 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/30">
-                  <WifiOff size={10} className="text-amber-400 animate-pulse" /> Modo Offline (Contingência)
+                <span className="flex items-center gap-1 text-[8px] sm:text-[9px] font-black text-amber-400 uppercase tracking-widest mt-0.5 bg-amber-500/10 px-1.5 sm:px-2 py-0.5 rounded-full border border-amber-500/30">
+                  <WifiOff size={10} className="text-amber-400 animate-pulse" /> Offline
                 </span>
               )}
+            </div>
+
+            {/* Store Badge (Unidade / Filial) */}
+            <div 
+              className="flex items-center gap-1 px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-lg sm:rounded-xl bg-white/[0.04] border border-white/10 text-emerald-400 text-[9px] sm:text-xs font-bold uppercase tracking-wider shrink-0"
+              title={`Loja: ${currentUser?.city || 'Todas as Lojas'}`}
+            >
+              <Building size={11} className="text-emerald-400 shrink-0" />
+              <span className="truncate max-w-[60px] sm:max-w-[80px] md:max-w-none">{currentUser?.city || 'Todas as Lojas'}</span>
             </div>
           </div>
 
           {/* Centro: Indicador Visual do Módulo Ativo */}
-          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-white/[0.04] border border-white/5 shrink-0">
+          <div className="hidden xl:flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-white/[0.04] border border-white/5 shrink-0">
             <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Módulo:</span>
             {view === 'pos' && (
               <span className="text-xs font-black text-emerald-400 flex items-center gap-1.5">
@@ -882,58 +893,58 @@ function App() {
             )}
           </div>
 
-          {/* Lado Direito: Atalho do Caixa + Avatar do Usuário + Sair */}
-          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
-            {/* Atalho Rápido para o Caixa (PDV) */}
+          {/* Lado Direito: Ações Rápidas + Avatar do Usuário + Sair */}
+          <div className="flex items-center gap-1 sm:gap-2 md:gap-2.5 shrink-0">
+            {/* Quick Action: Caixa (PDV) */}
             {view !== 'pos' && (
               <button
                 onClick={() => setView('pos')}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 transition-all shadow-sm active:scale-95"
+                className="hidden md:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl text-xs font-black bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 transition-all shadow-sm active:scale-95"
                 title="Acessar Caixa (PDV)"
               >
                 <ShoppingCart size={14} />
-                <span>Caixa</span>
+                <span className="hidden lg:inline">Caixa</span>
               </button>
             )}
 
-            {/* Atalho Rápido para Clientes se estiver no Caixa */}
+            {/* Quick Action: Clientes */}
             {view === 'pos' && (
               <button
                 onClick={() => {
                   setClientInitialTab('todos');
                   setView('clients');
                 }}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black bg-fuchsia-500/15 hover:bg-fuchsia-500/25 text-fuchsia-400 border border-fuchsia-500/30 transition-all shadow-sm active:scale-95"
+                className="hidden md:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl text-xs font-black bg-fuchsia-500/15 hover:bg-fuchsia-500/25 text-fuchsia-400 border border-fuchsia-500/30 transition-all shadow-sm active:scale-95"
                 title="Acessar Clientes"
               >
                 <Users size={14} />
-                <span>Clientes</span>
+                <span className="hidden lg:inline">Clientes</span>
               </button>
             )}
 
-            {/* Atalho Rápido para Gestão de OS */}
+            {/* Quick Action: Gestão de OS */}
             {view !== 'os-management' && (
               <button
                 onClick={() => setView('os-management')}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black bg-pink-500/15 hover:bg-pink-500/25 text-pink-400 border border-pink-500/30 transition-all shadow-sm active:scale-95"
+                className="hidden md:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl text-xs font-black bg-pink-500/15 hover:bg-pink-500/25 text-pink-400 border border-pink-500/30 transition-all shadow-sm active:scale-95"
                 title="Acessar Gestão de Ordens de Serviço"
               >
                 <ClipboardList size={14} />
-                <span>Gestão de OS</span>
+                <span className="hidden lg:inline">Gestão de OS</span>
               </button>
             )}
 
             {/* Chip do Usuário Logado (abre o menu lateral) */}
             <button
               onClick={() => setIsDrawerOpen(true)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 transition-all text-left group"
+              className="flex items-center gap-1.5 sm:gap-2 px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-xl sm:rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 transition-all text-left group shrink-0"
               title="Abrir Menu e Perfil"
             >
-              <div className="w-7 h-7 rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-500 flex items-center justify-center text-white font-black text-[11px] shadow-sm">
+              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg sm:rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-500 flex items-center justify-center text-white font-black text-[10px] sm:text-[11px] shadow-sm">
                 {String(currentUser?.username || 'U').substring(0, 1).toUpperCase()}
               </div>
               <div className="hidden sm:block text-left pr-1">
-                <p className="text-xs font-black text-white leading-tight truncate max-w-[90px]">
+                <p className="text-xs font-black text-white leading-tight truncate max-w-[85px] md:max-w-[100px]">
                   {currentUser?.username || 'Usuário'}
                 </p>
                 <p className="text-[9px] text-slate-400 uppercase font-bold leading-none">
@@ -945,19 +956,19 @@ function App() {
             {/* Botão Rápido Alterar Minha Senha */}
             <button
               onClick={() => setIsChangePasswordOpen(true)}
-              className="p-2.5 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-sky-400 border border-white/10 rounded-xl transition-all shadow-sm active:scale-95"
+              className="p-1.5 sm:p-2.5 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-sky-400 border border-white/10 rounded-xl transition-all shadow-sm active:scale-95 shrink-0"
               title="Alterar Minha Senha de Acesso"
             >
-              <KeyRound size={16} />
+              <KeyRound size={15} className="sm:w-4 sm:h-4" />
             </button>
 
             {/* Botão Sair */}
             <button
               onClick={handleLogout}
-              className="p-2.5 bg-rose-500/10 hover:bg-rose-500 hover:text-white text-rose-400 border border-rose-500/20 hover:border-rose-500 rounded-xl transition-all shadow-sm active:scale-95"
+              className="p-1.5 sm:p-2.5 bg-rose-500/10 hover:bg-rose-500 hover:text-white text-rose-400 border border-rose-500/20 hover:border-rose-500 rounded-xl transition-all shadow-sm active:scale-95 shrink-0"
               title="Sair do Sistema"
             >
-              <LogOut size={16} />
+              <LogOut size={15} className="sm:w-4 sm:h-4" />
             </button>
           </div>
         </div>
@@ -1034,7 +1045,7 @@ function App() {
 
 
       {/* Conteúdo do Dashboard */}
-      <div className="max-w-[1400px] mx-auto px-6 py-8">
+      <div className="max-w-[1400px] mx-auto px-3 sm:px-6 py-4 sm:py-8">
         {view === 'pos' ? (
           <POSRegister
             data={data}

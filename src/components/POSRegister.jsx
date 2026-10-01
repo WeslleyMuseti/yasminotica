@@ -75,6 +75,7 @@ const POSRegister = ({
 
   // Carrinho de Compras
   const [cart, setCart] = useState([]);
+  const [mobileTab, setMobileTab] = useState('produtos'); // 'produtos' | 'carrinho'
   const [productCategory, setProductCategory] = useState('armacoes'); // 'mais_vendidos', 'armacoes', 'lentes', 'todos', 'avulso'
   const [productSearch, setProductSearch] = useState('');
   const [selectedCityStock, setSelectedCityStock] = useState('TODAS');
@@ -1271,18 +1272,18 @@ const POSRegister = ({
       )}
 
       {/* ─── CABEÇALHO DO CAIXA ───────────────────────────────────── */}
-      <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900/90 border border-slate-800 p-5 rounded-3xl shadow-xl backdrop-blur-md">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
-            <ShoppingCart size={24} />
+      <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4 bg-slate-900/90 border border-slate-800 p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl shadow-xl backdrop-blur-md">
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20 shrink-0">
+            <ShoppingCart size={20} className="sm:w-6 sm:h-6" />
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-black text-white uppercase tracking-tight flex items-center gap-2">
+              <h1 className="text-lg sm:text-xl font-black text-white uppercase tracking-tight flex items-center gap-2">
                 Frente de Caixa <span className="text-emerald-400">PDV</span>
               </h1>
             </div>
-            <p className="text-xs text-slate-400 font-bold">Vendas ágeis com emissão de recibo e baixa no estoque ERP</p>
+            <p className="text-[11px] sm:text-xs text-slate-400 font-bold">Vendas ágeis com emissão de recibo e baixa no estoque ERP</p>
           </div>
         </div>
 
@@ -1295,7 +1296,7 @@ const POSRegister = ({
       </div>
 
       {/* ─── BARRA DE CONTROLE DE CAIXA, TURNO & SANGRIA (MULTI-LOJA) ─── */}
-      <div className="bg-slate-900/95 border border-slate-800/90 p-3.5 sm:p-4 rounded-3xl shadow-2xl backdrop-blur-xl">
+      <div className="bg-slate-900/95 border border-slate-800/90 p-3 sm:p-4 rounded-2xl sm:rounded-3xl shadow-2xl backdrop-blur-xl">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4">
           
           {/* LADO ESQUERDO: SELETOR DE LOJA & STATUS DO TURNO */}
@@ -1343,12 +1344,12 @@ const POSRegister = ({
           </div>
 
           {/* LADO DIREITO: GAVETA & BOTÕES DE AÇÕES DE CAIXA */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex overflow-x-auto pb-1 sm:flex-wrap items-center gap-2 erp-scroll max-w-full">
             
             {/* Gaveta Dinheiro em Espécie */}
             <div 
               onClick={() => setCashModalState({ isOpen: true, type: 'EXTRATO' })}
-              className="h-10 bg-slate-950/90 hover:bg-black border border-emerald-500/40 hover:border-emerald-400 px-3.5 rounded-xl flex items-center gap-2.5 cursor-pointer transition-all group shadow-sm active:scale-95 whitespace-nowrap"
+              className="h-10 bg-slate-950/90 hover:bg-black border border-emerald-500/40 hover:border-emerald-400 px-3.5 rounded-xl flex items-center gap-2.5 cursor-pointer transition-all group shadow-sm active:scale-95 whitespace-nowrap shrink-0"
               title="Clique para ver o extrato detalhado do turno"
             >
               <Wallet size={15} className="text-emerald-400 shrink-0" />
@@ -1364,7 +1365,7 @@ const POSRegister = ({
             <button
               type="button"
               onClick={() => setIsHistoryModalOpen(true)}
-              className="h-10 flex items-center gap-1.5 px-3 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 hover:border-indigo-400/50 rounded-xl text-xs font-black transition-all shadow-sm active:scale-95 whitespace-nowrap"
+              className="h-10 flex items-center gap-1.5 px-3 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 hover:border-indigo-400/50 rounded-xl text-xs font-black transition-all shadow-sm active:scale-95 whitespace-nowrap shrink-0"
               title="Consultar histórico detalhado de movimentações e reimprimir comprovantes"
             >
               <History size={14} className="text-indigo-400 shrink-0" />
@@ -1375,7 +1376,7 @@ const POSRegister = ({
             <button
               type="button"
               onClick={() => setCashModalState({ isOpen: true, type: 'SUPRIMENTO' })}
-              className="h-10 flex items-center gap-1.5 px-3 bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 hover:border-sky-400/50 rounded-xl text-xs font-black transition-all shadow-sm active:scale-95 whitespace-nowrap"
+              className="h-10 flex items-center gap-1.5 px-3 bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 hover:border-sky-400/50 rounded-xl text-xs font-black transition-all shadow-sm active:scale-95 whitespace-nowrap shrink-0"
               title="Inserir reforço de moedas ou cédulas de troco na gaveta"
             >
               <ArrowUpRight size={14} className="text-sky-400 shrink-0" />
@@ -1386,7 +1387,7 @@ const POSRegister = ({
             <button
               type="button"
               onClick={() => setCashModalState({ isOpen: true, type: 'SANGRIA' })}
-              className="h-10 flex items-center gap-1.5 px-3 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 hover:border-rose-400/50 rounded-xl text-xs font-black transition-all shadow-sm active:scale-95 whitespace-nowrap"
+              className="h-10 flex items-center gap-1.5 px-3 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 hover:border-rose-400/50 rounded-xl text-xs font-black transition-all shadow-sm active:scale-95 whitespace-nowrap shrink-0"
               title="Realizar retirada de dinheiro da gaveta para cofre ou despesa"
             >
               <ArrowDownRight size={14} className="text-rose-400 shrink-0" />
@@ -1397,7 +1398,7 @@ const POSRegister = ({
             <button
               type="button"
               onClick={() => setCashModalState({ isOpen: true, type: 'EXTRATO' })}
-              className="h-10 flex items-center gap-1.5 px-3 bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 hover:border-purple-400/50 rounded-xl text-xs font-black transition-all shadow-sm active:scale-95 whitespace-nowrap"
+              className="h-10 flex items-center gap-1.5 px-3 bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 hover:border-purple-400/50 rounded-xl text-xs font-black transition-all shadow-sm active:scale-95 whitespace-nowrap shrink-0"
               title="Exibir resumo financeiro e faturamento por forma de pagamento"
             >
               <FileText size={14} className="text-purple-400 shrink-0" />
@@ -1409,7 +1410,7 @@ const POSRegister = ({
               <button
                 type="button"
                 onClick={() => setCashModalState({ isOpen: true, type: 'FECHAMENTO' })}
-                className="h-10 flex items-center gap-1.5 px-3.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 hover:border-amber-400/50 rounded-xl text-xs font-black transition-all shadow-sm active:scale-95 whitespace-nowrap"
+                className="h-10 flex items-center gap-1.5 px-3.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 hover:border-amber-400/50 rounded-xl text-xs font-black transition-all shadow-sm active:scale-95 whitespace-nowrap shrink-0"
                 title="Fechar turno com conferência cega e relatório Z"
               >
                 <Lock size={14} className="text-amber-400 shrink-0" />
@@ -1419,7 +1420,7 @@ const POSRegister = ({
               <button
                 type="button"
                 onClick={() => setCashModalState({ isOpen: true, type: 'ABERTURA' })}
-                className="h-10 flex items-center gap-2 px-5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black rounded-xl text-xs shadow-lg shadow-emerald-500/20 transition-all active:scale-95 whitespace-nowrap"
+                className="h-10 flex items-center gap-2 px-5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black rounded-xl text-xs shadow-lg shadow-emerald-500/20 transition-all active:scale-95 whitespace-nowrap shrink-0"
                 title="Abrir turno e lançar fundo inicial de troco"
               >
                 <Unlock size={15} />
@@ -1449,14 +1450,42 @@ const POSRegister = ({
         )}
       </div>
 
+      {/* ─── ALTERNADOR DE VISUALIZAÇÃO EM DISPOSITIVOS MÓVEIS (< 1024px) ─── */}
+      <div className="lg:hidden flex items-center bg-slate-900 border border-slate-800 p-1.5 rounded-2xl shadow-xl">
+        <button
+          type="button"
+          onClick={() => setMobileTab('produtos')}
+          className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
+            mobileTab === 'produtos'
+              ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black shadow-md'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Package size={15} />
+          <span>1. Catálogo &amp; Cliente</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobileTab('carrinho')}
+          className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
+            mobileTab === 'carrinho'
+              ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black shadow-md'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <ShoppingCart size={15} />
+          <span>2. Carrinho &amp; Caixa ({cart.reduce((a, b) => a + b.qtd, 0)})</span>
+        </button>
+      </div>
+
       {/* ─── GRID PRINCIPAL DO CAIXA ──────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
         {/* ─── COLUNA DA ESQUERDA: CLIENTE & ESTOQUE ERP (7 cols) ──── */}
-        <div className="lg:col-span-7 space-y-6">
+        <div className={`lg:col-span-7 space-y-6 ${mobileTab === 'carrinho' ? 'hidden lg:block' : 'block'}`}>
 
           {/* 1. SELEÇÃO DE CLIENTE */}
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-lg">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
                 <User size={16} className="text-sky-400" />
@@ -1590,18 +1619,18 @@ const POSRegister = ({
           </div>
 
           {/* 2. CATÁLOGO DE ESTOQUE ERP */}
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-lg space-y-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-lg space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
                 <Package size={16} className="text-amber-400" />
                 2. Produtos do Estoque ERP
               </h2>
 
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex overflow-x-auto pb-1.5 sm:flex-wrap items-center gap-1.5 erp-scroll">
                 <button
                   type="button"
                   onClick={() => setProductCategory('mais_vendidos')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${productCategory === 'mais_vendidos' ? 'bg-amber-400 text-slate-950 font-black shadow-md shadow-amber-400/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${productCategory === 'mais_vendidos' ? 'bg-amber-400 text-slate-950 font-black shadow-md shadow-amber-400/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
                 >
                   <Star size={13} className={productCategory === 'mais_vendidos' ? 'text-slate-950 fill-slate-950' : 'text-amber-400'} />
                   ⭐ Destaques / Populares
@@ -1609,35 +1638,35 @@ const POSRegister = ({
                 <button
                   type="button"
                   onClick={() => setProductCategory('armacoes')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${productCategory === 'armacoes' ? 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${productCategory === 'armacoes' ? 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
                 >
                   👓 Armações ({erpArmacoes.length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setProductCategory('lentes')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${productCategory === 'lentes' ? 'bg-indigo-500 text-white font-black shadow-lg shadow-indigo-500/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${productCategory === 'lentes' ? 'bg-indigo-500 text-white font-black shadow-lg shadow-indigo-500/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
                 >
                   🔬 Lentes ({erpLentes.length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setProductCategory('brindes')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${productCategory === 'brindes' ? 'bg-pink-600 text-white font-black shadow-lg shadow-pink-600/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${productCategory === 'brindes' ? 'bg-pink-600 text-white font-black shadow-lg shadow-pink-600/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
                 >
                   🎁 Brindes ({erpBrindes.length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setProductCategory('todos')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${productCategory === 'todos' ? 'bg-sky-600 text-white font-black shadow-md shadow-sky-600/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${productCategory === 'todos' ? 'bg-sky-600 text-white font-black shadow-md shadow-sky-600/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
                 >
                   📦 Todos ({erpArmacoes.length + erpLentes.length + erpBrindes.length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setProductCategory('avulso')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${productCategory === 'avulso' ? 'bg-emerald-500 text-slate-950 font-black shadow-lg shadow-emerald-500/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${productCategory === 'avulso' ? 'bg-emerald-500 text-slate-950 font-black shadow-lg shadow-emerald-500/20' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
                 >
                   ➕ Item Avulso
                 </button>
@@ -1647,7 +1676,7 @@ const POSRegister = ({
             {productCategory !== 'avulso' ? (
               <>
                 <div className="space-y-2">
-                  <div className="flex flex-wrap sm:flex-nowrap gap-2">
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <div className="relative flex-1">
                       <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                       <input
@@ -1660,7 +1689,7 @@ const POSRegister = ({
                     </div>
 
                     {isVendor ? (
-                      <div className="bg-slate-950 border border-emerald-500/30 rounded-xl px-3 py-2 text-xs text-emerald-400 font-bold shrink-0 flex items-center gap-1.5">
+                      <div className="bg-slate-950 border border-emerald-500/30 rounded-xl px-3 py-2 text-xs text-emerald-400 font-bold shrink-0 flex items-center justify-between sm:justify-start gap-1.5">
                         <span>Estoque {selectedPOSCity}</span>
                         <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.2 rounded font-bold">Unidade Fixa</span>
                       </div>
@@ -1680,8 +1709,8 @@ const POSRegister = ({
                   </div>
 
                   {/* Atalhos Rápidos de Marcas / Categorias Populares */}
-                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                    <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Filtro Rápido:</span>
+                  <div className="flex overflow-x-auto pb-1 sm:flex-wrap items-center gap-1.5 pt-0.5 erp-scroll">
+                    <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider shrink-0">Filtro Rápido:</span>
                     {(productCategory === 'brindes'
                       ? ['Estojo', 'Flanela', 'Limpa-Lentes', 'Cordão', 'Kit', 'Spray']
                       : ['Ray-Ban', 'Oakley', 'Vogue', 'Armani', 'Crizal', 'Transitions', 'Varilux', 'Solar']
@@ -1712,7 +1741,7 @@ const POSRegister = ({
                 </div>
 
                 <div 
-                  className="grid grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto pr-2 erp-scroll"
+                  className={`grid grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto pr-2 erp-scroll ${cart.length > 0 ? 'pb-24 lg:pb-2' : ''}`}
                   style={{ maxHeight: '520px' }}
                 >
                   {filteredProducts.slice(0, 100).map((prod, idx) => {
@@ -1851,9 +1880,20 @@ const POSRegister = ({
 
 
         {/* ─── COLUNA DA DIREITA: CARRINHO & PAGAMENTO (5 cols) ────── */}
-        <div className="lg:col-span-5 space-y-6">
+        <div id="pos-cart-section" className={`lg:col-span-5 space-y-6 ${mobileTab === 'produtos' ? 'hidden lg:block' : 'block'}`}>
 
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-6 shadow-xl space-y-6">
+            {/* Botão de Retorno no Modo Mobile */}
+            <div className="lg:hidden pb-1">
+              <button
+                type="button"
+                onClick={() => setMobileTab('produtos')}
+                className="w-full py-2.5 px-3 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95"
+              >
+                &larr; Continuar Escolhendo Produtos
+              </button>
+            </div>
+
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <h2 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
                 <ShoppingCart size={16} className="text-emerald-400" />
@@ -2068,7 +2108,7 @@ const POSRegister = ({
               )}
 
               {/* SELEÇÃO DO MÉTODO DESTE LANÇAMENTO */}
-              <div className="grid grid-cols-3 gap-1.5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1.5 sm:gap-2">
                 {[
                   { id: 'dinheiro', label: '💵 Dinheiro' },
                   { id: 'pix', label: '⚡ PIX' },
@@ -2080,7 +2120,7 @@ const POSRegister = ({
                     key={p.id}
                     type="button"
                     onClick={() => setCurrentMethod(p.id)}
-                    className={`py-2 rounded-xl text-xs font-bold transition-all border ${
+                    className={`min-h-[42px] py-2 px-1 rounded-xl text-xs font-bold transition-all border flex items-center justify-center text-center ${
                       currentMethod === p.id
                         ? 'bg-emerald-500 text-slate-950 border-emerald-400 font-black shadow-lg shadow-emerald-500/20'
                         : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
@@ -2093,9 +2133,9 @@ const POSRegister = ({
 
               {/* CAMPOS ESPECÍFICOS DO MÉTODO SELECIONADO */}
               <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs text-slate-400 font-bold">Valor deste Pagamento:</span>
-                  <div className="relative flex-1 max-w-[140px]">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
+                  <span className="text-xs text-slate-400 font-bold shrink-0">Valor deste Pagamento:</span>
+                  <div className="relative w-full sm:w-auto sm:flex-1 sm:max-w-[140px]">
                     <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-bold">R$</span>
                     <input
                       type="text"
@@ -2107,7 +2147,7 @@ const POSRegister = ({
                         if (v > 0) setPaymentInputVal(v.toFixed(2).replace('.', ','));
                       }}
                       placeholder={(remaining > 0 ? remaining : totalFinal).toFixed(2).replace('.', ',')}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl py-1.5 pl-8 pr-2.5 text-right text-xs text-white font-bold focus:outline-none focus:border-emerald-500/50"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl py-2 sm:py-1.5 pl-8 pr-2.5 text-right text-xs text-white font-bold focus:outline-none focus:border-emerald-500/50"
                     />
                   </div>
                 </div>
@@ -2115,9 +2155,9 @@ const POSRegister = ({
                 {/* Se for Dinheiro */}
                 {currentMethod === 'dinheiro' && (
                   <div className="space-y-2 pt-2 border-t border-slate-900">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs text-slate-400 font-bold">Valor Entregue pelo Cliente:</span>
-                      <div className="relative flex-1 max-w-[140px]">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
+                      <span className="text-xs text-slate-400 font-bold shrink-0">Valor Entregue pelo Cliente:</span>
+                      <div className="relative w-full sm:w-auto sm:flex-1 sm:max-w-[140px]">
                         <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-bold">R$</span>
                         <input
                           type="text"
@@ -2129,7 +2169,7 @@ const POSRegister = ({
                             if (v > 0) setCashTendered(v.toFixed(2).replace('.', ','));
                           }}
                           placeholder={(cleanVal(paymentInputVal) || (remaining > 0 ? remaining : totalFinal)).toFixed(2).replace('.', ',')}
-                          className="w-full bg-slate-900 border border-slate-700 rounded-xl py-1.5 pl-8 pr-2.5 text-right text-xs text-white font-bold focus:outline-none focus:border-emerald-500/50"
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl py-2 sm:py-1.5 pl-8 pr-2.5 text-right text-xs text-white font-bold focus:outline-none focus:border-emerald-500/50"
                         />
                       </div>
                     </div>
@@ -2322,6 +2362,35 @@ const POSRegister = ({
 
       </div>
 
+      {/* ─── BARRA FLUTUANTE INFERIOR DO CARRINHO EM DISPOSITIVOS MÓVEIS ─── */}
+      {mobileTab === 'produtos' && cart.length > 0 && (
+        <div className="lg:hidden fixed bottom-3 left-3 right-3 z-30 animate-in slide-in-from-bottom-3 duration-200">
+          <button
+            type="button"
+            onClick={() => {
+              setMobileTab('carrinho');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className="w-full bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-slate-950 font-black py-3 px-4 rounded-2xl shadow-2xl flex items-center justify-between border border-emerald-400/50 active:scale-95 transition-transform"
+          >
+            <div className="flex items-center gap-2">
+              <span className="p-1.5 rounded-xl bg-slate-950/20 text-slate-950">
+                <ShoppingCart size={16} />
+              </span>
+              <span className="text-xs uppercase tracking-wide font-black">
+                {cart.reduce((a, b) => a + b.qtd, 0)} {cart.reduce((a, b) => a + b.qtd, 0) === 1 ? 'item' : 'itens'} no carrinho
+              </span>
+            </div>
+            <div className="flex items-center gap-2 font-mono">
+              <span className="text-sm font-black">{fmtMoeda(totalFinal)}</span>
+              <span className="text-[10px] font-black uppercase bg-slate-950 text-emerald-400 px-2 py-1 rounded-lg shadow-sm">
+                Finalizar &rarr;
+              </span>
+            </div>
+          </button>
+        </div>
+      )}
+
       {/* ─── MODAL DE SUCESSO & IMPRESSÃO ─────────────────────────── */}
       {completedSale && (
         <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
@@ -2459,8 +2528,8 @@ const POSRegister = ({
 
       {/* ─── MODAL DE CADASTRO RÁPIDO DE CLIENTE (SEM PERDER O CARRINHO) ─── */}
       {isQuickClientModalOpen && (
-        <div className="fixed inset-0 z-[9990] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
-          <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden p-6 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-[9990] flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md">
+          <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden p-4 sm:p-6 space-y-4 sm:space-y-5 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
             {/* Cabeçalho */}
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div className="flex items-center gap-3">
