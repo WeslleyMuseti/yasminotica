@@ -110,59 +110,34 @@ const Login = ({ onLogin, users, onRegister, onUpgradeUserPassword }) => {
         const cleanUser = username.toLowerCase().trim();
         let user = users.find(u => u.username.toLowerCase() === cleanUser);
         
-        // Se o usuário não estiver em cache local, busca apenas o documento individual do usuário na nuvem
-        if (!user) {
-          user = await fetchUserDocument(cleanUser);
-        }
-        
-        // Verificação segura sem senha em texto claro
-        const isMaster = cleanUser === 'wmusete';
-        let isPassValid = false;
-
-        if (user) {
-          isPassValid = await verifyPassword(password, user.password);
-          // Se falhou com a senha do cache local (ex: senha alterada em outro dispositivo), consulta o Firestore
-          if (!isPassValid) {
-            const remoteUser = await fetchUserDocument(cleanUser);
-            if (remoteUser && remoteUser.password && remoteUser.password !== user.password) {
-              const isRemoteValid = await verifyPassword(password, remoteUser.password);
-              if (isRemoteValid) {
-                user = remoteUser;
-                isPassValid = true;
-                const updatedUsers = users.some(u => u.username.toLowerCase() === cleanUser)
-                  ? users.map(u => u.username.toLowerCase() === cleanUser ? remoteUser : u)
-                  : [...users, remoteUser];
-                setUsers(updatedUsers);
-                localStorage.setItem('users', JSON.stringify(updatedUsers));
-              }
-            }
-          }
-        } else if (isMaster) {
-          // Validação da conta master: primeiro verifica se há senha personalizada no Firestore ou cache local
-          let remoteUser = null;
+        // Consulta o Banco de Dados em Nuvem (Firestore) para obter o documento oficial mais atualizado
+        let remoteUser = null;
+        if (isConfigured) {
           try {
             remoteUser = await fetchUserDocument(cleanUser);
           } catch (e) {
-            console.warn('Não foi possível buscar usuário remoto:', e);
+            console.warn('Aviso ao consultar usuário no Firestore:', e);
           }
-          const masterTarget = remoteUser || user;
-          const customMasterPass = masterTarget?.password;
+        }
 
-          if (customMasterPass) {
-            // Se já possui senha personalizada cadastrada, aceita APENAS a senha personalizada
-            isPassValid = await verifyPassword(password, customMasterPass);
-            if (isPassValid) {
-              user = masterTarget;
-              const updatedUsers = users.some(u => u.username.toLowerCase() === cleanUser)
-                ? users.map(u => u.username.toLowerCase() === cleanUser ? masterTarget : u)
-                : [...users, masterTarget];
-              setUsers(updatedUsers);
-              localStorage.setItem('users', JSON.stringify(updatedUsers));
-            }
-          } else {
-            // Fallback para primeiro acesso usando hash master padrão (senha: 929498)
-            isPassValid = await verifyPassword(password, DEFAULT_MASTER_HASH);
+        // O documento do Banco de Dados tem prioridade absoluta; fallback para cache local
+        const activeUser = remoteUser || user;
+        const isMaster = cleanUser === 'wmusete';
+        let isPassValid = false;
+
+        if (activeUser && activeUser.password) {
+          isPassValid = await verifyPassword(password, activeUser.password);
+          if (isPassValid) {
+            user = activeUser;
+            const updatedUsers = users.some(u => u.username.toLowerCase() === cleanUser)
+              ? users.map(u => u.username.toLowerCase() === cleanUser ? activeUser : u)
+              : [...users, activeUser];
+            setUsers(updatedUsers);
+            localStorage.setItem('users', JSON.stringify(updatedUsers));
           }
+        } else if (isMaster) {
+          // Fallback para primeiro acesso da conta master wmusete antes de cadastrar senha no banco
+          isPassValid = await verifyPassword(password, DEFAULT_MASTER_HASH);
         }
 
         if (!isPassValid) {

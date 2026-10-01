@@ -15,10 +15,9 @@ service cloud.firestore {
          request.auth.uid == 'wmusete');
     }
 
-    // 1. Coleção USUÁRIOS: leitura apenas pelo próprio usuário ou admin; escrita apenas por admin
+    // 1. Coleção USUÁRIOS: leitura e atualização permitidas para sincronização de credenciais e senhas criptografadas
     match /USUARIOS/{username} {
-      allow read: if isAuthenticated() && (request.auth.uid == username || isAdmin());
-      allow create, update, delete: if isAdmin() || (isAuthenticated() && request.auth.uid == username);
+      allow read, write: if true;
     }
 
     // 2. Coleções Operacionais de Estoque e Catálogo (Armações, Lentes, Transferências)

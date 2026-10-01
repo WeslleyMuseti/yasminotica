@@ -28,7 +28,8 @@ import {
   getOfflineQueue,
   processOfflineQueue,
   saveOfflineSnapshot,
-  loadOfflineSnapshot
+  loadOfflineSnapshot,
+  syncUserPasswordToFirestore
 } from './firebaseSync';
 
 // Hash seguro PBKDF2 padrão para primeiro acesso da conta master
@@ -152,7 +153,10 @@ function App() {
     localStorage.setItem('users', JSON.stringify(users));
     if (isConfigured && currentUser && ['admin', 'administrativo'].includes(currentUser.role)) {
       users.forEach(u => {
-        saveDocument('USUARIOS', u, u.username);
+        if (u.username) {
+          const cleanUser = String(u.username).toLowerCase().trim();
+          saveDocument('USUARIOS', { ...u, id: cleanUser, username: cleanUser }, cleanUser);
+        }
       });
     }
   }, [users, currentUser]);
@@ -423,22 +427,43 @@ function App() {
         return merged;
       });
       
-      // Update users se vier do banco com merge inteligente para nunca apagar usuários locais
+      // Update users se vier do banco com merge inteligente e desduplicação por username
       if (newData['USUARIOS'] && newData['USUARIOS'].length > 0) {
         setUsers(prevUsers => {
           const remoteUsers = newData['USUARIOS'];
-          const remoteMap = new Map();
-          remoteUsers.forEach(r => {
-            if (r.username) remoteMap.set(r.username.toLowerCase(), r);
-          });
-          const merged = [...remoteUsers];
+          const userMap = new Map();
+
+          // 1. Carrega usuários locais primeiro
           (prevUsers || []).forEach(localU => {
-            const key = localU.username?.toLowerCase();
-            if (key && !remoteMap.has(key)) {
-              merged.push(localU);
+            if (localU.username) {
+              const k = localU.username.toLowerCase().trim();
+              userMap.set(k, { ...localU, username: k, id: k });
             }
           });
-          return merged;
+
+          // 2. Mescla com os remotos comparando updatedAt
+          remoteUsers.forEach(r => {
+            if (!r.username) return;
+            const key = r.username.toLowerCase().trim();
+            const existing = userMap.get(key);
+            if (!existing) {
+              userMap.set(key, { ...r, id: key, username: key });
+            } else {
+              const remoteTime = r.updatedAt ? new Date(r.updatedAt).getTime() : 0;
+              const localTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+              // Se o registro remoto for mais recente ou igual, atualiza
+              if (remoteTime >= localTime) {
+                userMap.set(key, { ...existing, ...r, id: key, username: key });
+              } else {
+                // Registro local mais recente: mantém o local
+                userMap.set(key, existing);
+              }
+            }
+          });
+
+          const deduplicated = Array.from(userMap.values());
+          localStorage.setItem('users', JSON.stringify(deduplicated));
+          return deduplicated;
         });
       }
     });
@@ -448,35 +473,40 @@ function App() {
 
   const handleUpdateUserPassword = async (username, newHash) => {
     const cleanUser = String(username).toLowerCase().trim();
-    const nowIso = new Date().toISOString();
+    const targetUser = (users || []).find(u => u.username?.toLowerCase().trim() === cleanUser) || {
+      username: cleanUser,
+      role: currentUser?.role || 'vendedor',
+      city: currentUser?.city || '',
+      authorized: true
+    };
 
+    // 1. Atualiza estado e cache local imediatamente
     setUsers(prev => {
+      const nowIso = new Date().toISOString();
       const updated = prev.map(u => {
-        if (u.username?.toLowerCase() === cleanUser) {
+        if (u.username?.toLowerCase().trim() === cleanUser) {
           return { ...u, username: cleanUser, password: newHash, updatedAt: nowIso };
         }
         return u;
       });
+      if (!updated.some(u => u.username?.toLowerCase().trim() === cleanUser)) {
+        updated.push({ ...targetUser, username: cleanUser, password: newHash, updatedAt: nowIso });
+      }
       localStorage.setItem('users', JSON.stringify(updated));
       return updated;
     });
 
-    if (currentUser && currentUser.username?.toLowerCase() === cleanUser) {
+    if (currentUser && currentUser.username?.toLowerCase().trim() === cleanUser) {
       setCurrentUser(prev => ({ ...prev, password: newHash }));
     }
 
-    if (isConfigured) {
-      try {
-        const targetUser = users.find(u => u.username?.toLowerCase() === cleanUser) || {
-          username: cleanUser,
-          password: newHash,
-          role: currentUser?.role || 'vendedor',
-          authorized: true
-        };
-        await saveDocument('USUARIOS', { ...targetUser, password: newHash, updatedAt: nowIso }, cleanUser);
-      } catch (e) {
-        console.warn('Aviso ao sincronizar senha com Firestore:', e);
-      }
+    // 2. Grava e sincroniza diretamente no Firestore (Banco de Dados em Nuvem)
+    try {
+      const syncResult = await syncUserPasswordToFirestore(cleanUser, newHash, targetUser);
+      return syncResult;
+    } catch (e) {
+      console.warn('Aviso ao sincronizar senha com Firestore:', e);
+      return { success: true, savedInCloud: false };
     }
   };
 

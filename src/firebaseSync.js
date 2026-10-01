@@ -247,6 +247,78 @@ export const fetchUserDocument = async (username) => {
   }
 };
 
+/**
+ * Salva e sincroniza a senha criptografada de um usuário diretamente no Firestore (banco de dados em nuvem)
+ * e no armazenamento local (localStorage/cache).
+ */
+export const syncUserPasswordToFirestore = async (username, newHashedPassword, additionalUserData = {}) => {
+  if (!username || !newHashedPassword) {
+    throw new Error('Nome de usuário e hash de senha são obrigatórios.');
+  }
+
+  const cleanUser = String(username).toLowerCase().trim();
+  const nowIso = new Date().toISOString();
+
+  const userDoc = {
+    id: cleanUser,
+    username: cleanUser,
+    password: newHashedPassword,
+    role: additionalUserData.role || 'vendedor',
+    city: additionalUserData.city || '',
+    authorized: additionalUserData.authorized !== false,
+    updatedAt: nowIso
+  };
+
+  let savedInCloud = false;
+
+  // 1. Salva diretamente no Firestore (coleção USUARIOS com ID = cleanUser)
+  if (db) {
+    try {
+      const docRef = doc(db, 'USUARIOS', cleanUser);
+      await setDoc(docRef, userDoc, { merge: true });
+      savedInCloud = true;
+      console.log(`[Firestore] ✅ Senha do usuário "${cleanUser}" gravada com sucesso no Firestore!`);
+    } catch (err) {
+      console.warn(`[Firestore Offline] Erro ao gravar diretamente no Firestore, adicionando à fila offline:`, err);
+      enqueueOfflineOp('save', 'USUARIOS', cleanUser, userDoc);
+    }
+  } else {
+    enqueueOfflineOp('save', 'USUARIOS', cleanUser, userDoc);
+  }
+
+  // 2. Se existia documento com outro ID para o mesmo usuário no Firestore, limpa a duplicata antiga
+  if (additionalUserData.id && String(additionalUserData.id).toLowerCase().trim() !== cleanUser) {
+    try {
+      if (db) {
+        await deleteDoc(doc(db, 'USUARIOS', String(additionalUserData.id)));
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // 3. Atualiza cache local no localStorage
+  try {
+    const localUsers = JSON.parse(localStorage.getItem('users') || '[]');
+    let found = false;
+    const updatedLocal = localUsers.map(u => {
+      if (u.username && String(u.username).toLowerCase().trim() === cleanUser) {
+        found = true;
+        return { ...u, ...userDoc };
+      }
+      return u;
+    });
+    if (!found) {
+      updatedLocal.push(userDoc);
+    }
+    localStorage.setItem('users', JSON.stringify(updatedLocal));
+  } catch (e) {
+    console.warn('Aviso ao sincronizar localStorage:', e);
+  }
+
+  return { success: true, savedInCloud, userDoc };
+};
+
 // ══════════════════════════════════════════════════════════════════
 // 1. TRANSAÇÕES ATÔMICAS DE ESTOQUE (CONCORRÊNCIA MULTILOJA)
 // ══════════════════════════════════════════════════════════════════

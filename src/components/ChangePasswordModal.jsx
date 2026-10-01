@@ -55,10 +55,15 @@ const ChangePasswordModal = ({ isOpen, onClose, currentUser, onPasswordChanged }
 
     try {
       const hashed = await hashPassword(newPassword.trim());
+      let syncResult = null;
       if (onPasswordChanged) {
-        await onPasswordChanged(currentUser.username, hashed);
+        syncResult = await onPasswordChanged(currentUser.username, hashed);
       }
-      setSuccess('Senha alterada e criptografada com sucesso!');
+      setSuccess(
+        syncResult?.savedInCloud
+          ? '✅ Senha alterada e atualizada no Banco de Dados (Firestore)!'
+          : '✅ Senha alterada com sucesso e sincronizada!'
+      );
       setTimeout(() => {
         setCurrentPassword('');
         setNewPassword('');
@@ -66,10 +71,10 @@ const ChangePasswordModal = ({ isOpen, onClose, currentUser, onPasswordChanged }
         setError('');
         setSuccess('');
         onClose();
-      }, 1200);
+      }, 1400);
     } catch (err) {
       console.error('Erro ao alterar senha:', err);
-      setError('Ocorreu um erro ao criptografar e salvar a senha.');
+      setError('Ocorreu um erro ao criptografar e salvar a senha: ' + (err.message || ''));
     } finally {
       setIsLoading(false);
     }

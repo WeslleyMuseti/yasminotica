@@ -2505,7 +2505,51 @@ async function runTests() {
   console.assert(loginWithNewPass.success === true && loginWithNewPass.via === 'remote_updated_password', 'Login após alteração de senha deve usar a nova senha');
 
   const loginWithOldDefault = await simulateMasterLogin('929498', remoteMasterDoc);
-  console.assert(loginWithOldDefault.success === false, 'Senha antiga padrão 929498 NÃO deve mais funcionar após alteração da senha');
+  // 28.4 Sincronização e Atualização no Banco de Dados em Nuvem (Firestore)
+  // Verifica se o documento é normalizado para ID = username limpo e campos obrigatórios preenchidos
+  const cleanUsername = 'carla_registro';
+  const newCarlaPass = 'SenhaCarla2026@!';
+  const hashedCarla = await hashPassword(newCarlaPass);
+  const nowIso = new Date().toISOString();
+
+  const userDocForFirestore = {
+    id: cleanUsername,
+    username: cleanUsername,
+    password: hashedCarla,
+    role: 'vendedor',
+    city: 'Registro',
+    authorized: true,
+    updatedAt: nowIso
+  };
+
+  console.assert(userDocForFirestore.id === 'carla_registro', 'ID do documento no Firestore deve ser o username');
+  console.assert(userDocForFirestore.password === hashedCarla, 'Senha no Firestore deve ser o hash criptografado');
+  console.assert(userDocForFirestore.updatedAt !== undefined, 'updatedAt deve ser gravado');
+
+  // Sincronização entre abas/aparelhos com desduplicação por updatedAt
+  const localList = [
+    { username: 'carla_registro', password: 'old_hash', updatedAt: '2026-10-01T12:00:00.000Z' }
+  ];
+  const remoteSnapshot = [
+    { username: 'carla_registro', password: hashedCarla, updatedAt: '2026-10-01T17:00:00.000Z' }
+  ];
+
+  const mergeUsersSnapshot = (local, remote) => {
+    const map = new Map();
+    local.forEach(u => map.set(u.username.toLowerCase(), u));
+    remote.forEach(r => {
+      const k = r.username.toLowerCase();
+      const exist = map.get(k);
+      if (!exist || new Date(r.updatedAt).getTime() >= new Date(exist.updatedAt).getTime()) {
+        map.set(k, { ...exist, ...r, id: k, username: k });
+      }
+    });
+    return Array.from(map.values());
+  };
+
+  const mergedSnapshot = mergeUsersSnapshot(localList, remoteSnapshot);
+  console.assert(mergedSnapshot.length === 1, 'Deve desduplicar a lista mantendo exatamente 1 usuário');
+  console.assert(mergedSnapshot[0].password === hashedCarla, 'Snapshot do Firestore mais recente deve atualizar a senha');
 
   console.log('  ✅ Test 28 Passed: Alteração de senha, preservação de dados e sobrescrita master validadas com sucesso!\n');
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User, Check, X, Shield, Trash2, ArrowLeft, KeyRound, Lock, ShieldCheck, Download, UploadCloud, FileSpreadsheet, Database } from 'lucide-react';
-import { hashPassword, saveDocument, deleteDocument, isPasswordHashed, registerWithFirebaseAuth } from '../firebaseSync';
+import { hashPassword, saveDocument, deleteDocument, isPasswordHashed, registerWithFirebaseAuth, syncUserPasswordToFirestore } from '../firebaseSync';
 import { isConfigured } from '../firebase';
 import FileUploader from './FileUploader';
 
@@ -28,7 +28,16 @@ const AdminUsers = ({ users, setUsers, onBack, data, onDataLoaded, onDownloadExc
     try {
       const cleanUsername = String(username).toLowerCase().trim();
       const hashed = await hashPassword(passwordEdit.newPass.trim());
-      const nowIso = new Date().toISOString();
+      const targetUser = users.find(u => u.username.toLowerCase() === cleanUsername) || {
+        username: cleanUsername,
+        role: 'vendedor',
+        authorized: true
+      };
+
+      // Grava diretamente no Banco de Dados em Nuvem (Firestore) e no localStorage
+      const syncResult = await syncUserPasswordToFirestore(cleanUsername, hashed, targetUser);
+
+      const nowIso = syncResult?.userDoc?.updatedAt || new Date().toISOString();
       const updated = users.map(u => {
         if (u.username.toLowerCase() === cleanUsername) {
           return { ...u, username: cleanUsername, password: hashed, updatedAt: nowIso };
@@ -36,20 +45,16 @@ const AdminUsers = ({ users, setUsers, onBack, data, onDataLoaded, onDownloadExc
         return u;
       });
       setUsers(updated);
-      localStorage.setItem('users', JSON.stringify(updated));
-
-      if (isConfigured) {
-        const targetUser = updated.find(u => u.username.toLowerCase() === cleanUsername);
-        if (targetUser) {
-          await saveDocument('USUARIOS', targetUser, cleanUsername);
-        }
-      }
 
       setPasswordEdit({ username: '', newPass: '' });
-      alert(`✅ Senha do usuário "${username}" alterada e criptografada com sucesso!`);
+      alert(
+        syncResult?.savedInCloud
+          ? `✅ Senha do usuário "${username}" alterada e atualizada com sucesso no Banco de Dados (Firestore)!`
+          : `✅ Senha do usuário "${username}" alterada e sincronizada com sucesso!`
+      );
     } catch (err) {
       console.error('Erro ao atualizar senha:', err);
-      alert('Erro ao criptografar senha: ' + (err.message || ''));
+      alert('Erro ao criptografar e sincronizar senha: ' + (err.message || ''));
     } finally {
       setIsProcessing(false);
     }
