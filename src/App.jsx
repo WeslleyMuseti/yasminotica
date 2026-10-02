@@ -109,6 +109,14 @@ function App() {
     window.addEventListener('yasmin-sync-status', handleSyncStatus);
     window.addEventListener('yasmin-sync-finished', handleSyncFinished);
 
+    // Limpeza de emergência preventiva para desocupar a cota de 5MB do localStorage
+    try {
+      const backupRaw = localStorage.getItem('YASMIN_OFFLINE_DATA_BACKUP');
+      if (backupRaw && backupRaw.length > 500000) {
+        localStorage.removeItem('YASMIN_OFFLINE_DATA_BACKUP');
+      }
+    } catch {}
+
     if (typeof navigator !== 'undefined' && navigator.onLine) {
       processOfflineQueue();
     }
