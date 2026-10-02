@@ -121,7 +121,15 @@ function App() {
       processOfflineQueue();
     }
 
+    // Auto-tentativa periódica a cada 60s se houver itens pendentes na fila de contingência
+    const autoSyncInterval = setInterval(() => {
+      if (typeof navigator !== 'undefined' && navigator.onLine && getOfflineQueue().length > 0) {
+        processOfflineQueue();
+      }
+    }, 60000);
+
     return () => {
+      clearInterval(autoSyncInterval);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('yasmin-sync-status', handleSyncStatus);
