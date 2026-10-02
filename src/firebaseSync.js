@@ -214,7 +214,7 @@ if (typeof window !== 'undefined') {
 }
 
 /**
- * Salva ou atualiza um documento no Firestore (com suporte offline automático)
+ * Salva ou atualiza um documento no Firestore (com suporte offline automático e timeout seguro)
  */
 export const saveDocument = async (collectionName, dataObj, customId = null) => {
   if (!dataObj) return;
@@ -229,7 +229,11 @@ export const saveDocument = async (collectionName, dataObj, customId = null) => 
   if (db) {
     try {
       const docRef = doc(db, collectionName, id);
-      await setDoc(docRef, cleanData, { merge: true });
+      const setPromise = setDoc(docRef, cleanData, { merge: true });
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout de escrita Firestore')), 3000)
+      );
+      await Promise.race([setPromise, timeoutPromise]);
     } catch (err) {
       console.warn(`[Modo Offline] Documento ${collectionName}/${id} salvo no cache local e enfileirado:`, err);
       enqueueOfflineOp('save', collectionName, id, cleanData);
@@ -241,7 +245,7 @@ export const saveDocument = async (collectionName, dataObj, customId = null) => 
 };
 
 /**
- * Exclui um documento do Firestore (com suporte offline automático)
+ * Exclui um documento do Firestore (com suporte offline automático e timeout seguro)
  */
 export const deleteDocument = async (collectionName, id) => {
   if (!id) return;
@@ -249,7 +253,11 @@ export const deleteDocument = async (collectionName, id) => {
   if (db) {
     try {
       const docRef = doc(db, collectionName, docId);
-      await deleteDoc(docRef);
+      const delPromise = deleteDoc(docRef);
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout de exclusão Firestore')), 3000)
+      );
+      await Promise.race([delPromise, timeoutPromise]);
     } catch (err) {
       console.warn(`[Modo Offline] Exclusão de ${collectionName}/${docId} registrada na fila offline:`, err);
       enqueueOfflineOp('delete', collectionName, docId, null);
@@ -372,7 +380,7 @@ export const decrementStockAtomically = async (collectionName, docId, quantity =
   const qtyToSubtract = Math.max(1, parseInt(quantity, 10) || 1);
 
   try {
-    const transactionResult = await runTransaction(db, async (transaction) => {
+    const txPromise = runTransaction(db, async (transaction) => {
       const docSnap = await transaction.get(docRef);
       if (!docSnap.exists()) {
         throw new Error(`Doc ${id} não existe no Firestore`);
@@ -409,6 +417,11 @@ export const decrementStockAtomically = async (collectionName, docId, quantity =
       return { success: true, previousStock: currentStock, newStock };
     });
 
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Timeout de transação atômica Firestore')), 2500)
+    );
+
+    const transactionResult = await Promise.race([txPromise, timeoutPromise]);
     return transactionResult;
   } catch (err) {
     if (err.code === 'INSUFFICIENT_STOCK') {

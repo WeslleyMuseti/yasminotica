@@ -22,6 +22,20 @@ let db = null;
 let auth = null;
 let isConfigured = false;
 
+// Limpeza preventiva de chaves corrompidas de mutações do Firestore no WebStorage
+if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+  try {
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && (k.startsWith('firestore_mutations') || k.startsWith('firestore_clients') || k === 'YASMIN_OFFLINE_DATA_BACKUP')) {
+        keysToRemove.push(k);
+      }
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+  } catch (e) {}
+}
+
 if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "") {
   app = initializeApp(firebaseConfig);
   
@@ -36,7 +50,11 @@ if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "") {
     });
   } catch (err) {
     console.warn("Aviso ao ativar cache persistente do Firestore, usando fallback padrão:", err);
-    db = getFirestore(app);
+    try {
+      db = getFirestore(app);
+    } catch (fallbackErr) {
+      console.warn("Aviso no fallback do Firestore:", fallbackErr);
+    }
   }
 
   try {

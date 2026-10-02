@@ -39,6 +39,14 @@ const fmtMoeda = (v) => `R$ ${Number(cleanVal(v) || 0).toLocaleString('pt-BR', {
 
 const parseCurrency = cleanVal;
 
+const withTimeout = (promise, ms = 2500) => {
+  if (!promise || typeof promise.then !== 'function') return Promise.resolve(promise);
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout de sincronização do banco')), ms))
+  ]);
+};
+
 const POSRegister = ({
   data = {},
   clientsData = [],
@@ -1053,149 +1061,152 @@ const POSRegister = ({
       vendedor: currentUser?.username || 'Caixa'
     };
 
-    try {
-      // 1. Salvar Venda no Firebase (protegido contra falhas de rede)
-      if (onAddSale) {
-        try {
-          await onAddSale(newSale);
-        } catch (saleErr) {
-          console.warn('Aviso ao registrar venda no banco de dados:', saleErr);
-        }
-      }
+    // 🛡️ 1. ABERTURA INSTANTÂNEA E GARANTIDA DO MODAL DE COMPROVANTE & ORDEM DE SERVIÇO
+    setSavedClientForOS(clientForOS);
+    setCompletedSale(finalSaleData);
 
-      // 1.1 Atualizar uso dos Cupons/Vouchers se aplicados
-      if (appliedVouchers.length > 0 && onUpdateRow) {
-        for (const v of appliedVouchers) {
+    // 2. Limpar formulário de venda e carrinho do operador
+    setCart([]);
+    setPayments([]);
+    setDiscountInput('');
+    setCashTendered('');
+    setPaymentInputVal('');
+    setAppliedVouchers([]);
+    setVoucherCodeInput('');
+    setVoucherError('');
+    setIsFinalizingSale(false);
+
+    // 3. Sincronização em background protegida com withTimeout para não prender a interface
+    (async () => {
+      try {
+        // 1. Salvar Venda no Firebase (protegido contra falhas de rede)
+        if (onAddSale) {
           try {
-            const currentUsed = parseInt(v.QUANTIDADE_USADA || v.quantidade_usada || 0, 10);
-            const totalQtd = parseInt(v.QUANTIDADE_TOTAL || v.quantidade_total || 0, 10);
-            const nextUsed = currentUsed + 1;
-            const isEsgotado = totalQtd > 0 && nextUsed >= totalQtd;
+            await withTimeout(onAddSale(newSale), 3000);
+          } catch (saleErr) {
+            console.warn('Aviso ao registrar venda no banco de dados:', saleErr);
+          }
+        }
 
-            const updatedVoucher = {
-              ...v,
-              QUANTIDADE_USADA: nextUsed,
-              quantidade_usada: nextUsed,
-              STATUS: isEsgotado ? 'Esgotado' : (v.STATUS || v.status || 'Ativo'),
-              status: isEsgotado ? 'Esgotado' : (v.STATUS || v.status || 'Ativo')
+        // 1.1 Atualizar uso dos Cupons/Vouchers se aplicados
+        if (appliedVouchers.length > 0 && onUpdateRow) {
+          for (const v of appliedVouchers) {
+            try {
+              const currentUsed = parseInt(v.QUANTIDADE_USADA || v.quantidade_usada || 0, 10);
+              const totalQtd = parseInt(v.QUANTIDADE_TOTAL || v.quantidade_total || 0, 10);
+              const nextUsed = currentUsed + 1;
+              const isEsgotado = totalQtd > 0 && nextUsed >= totalQtd;
+
+              const updatedVoucher = {
+                ...v,
+                QUANTIDADE_USADA: nextUsed,
+                quantidade_usada: nextUsed,
+                STATUS: isEsgotado ? 'Esgotado' : (v.STATUS || v.status || 'Ativo'),
+                status: isEsgotado ? 'Esgotado' : (v.STATUS || v.status || 'Ativo')
+              };
+              await withTimeout(onUpdateRow('VOUCHERS', v, updatedVoucher), 3000);
+            } catch (vErr) {
+              console.warn('Aviso ao atualizar cupom/voucher:', vErr);
+            }
+          }
+        }
+
+        // 2. Baixar Estoque dos Itens Vendidos no ERP (Transações Atômicas no Firestore)
+        for (const item of cart) {
+          if (item.rawProduct && (item.type === 'armacoes' || item.type === 'lentes' || item.type === 'brindes' || item.type === 'geral')) {
+            let sheetName = 'CAD_ARMACOES';
+            if (item.type === 'lentes') sheetName = 'CAD_LENTES';
+            else if (item.type === 'brindes') sheetName = 'CAD_BRINDES';
+            else if (item.type === 'geral') sheetName = 'ESTOQUE';
+
+            const currentStock = parseInt(item.rawProduct['ESTOQUE'] || item.rawProduct['EM ESTOQUE'] || 0, 10);
+            const updatedStock = Math.max(0, currentStock - item.qtd);
+            const updatedProduct = {
+              ...item.rawProduct,
+              'ESTOQUE': updatedStock,
+              ...(item.rawProduct['EM ESTOQUE'] !== undefined ? { 'EM ESTOQUE': updatedStock } : {})
             };
-            await onUpdateRow('VOUCHERS', v, updatedVoucher);
-          } catch (vErr) {
-            console.warn('Aviso ao atualizar cupom/voucher:', vErr);
-          }
-        }
-      }
 
-      // 2. Baixar Estoque dos Itens Vendidos no ERP (Transações Atômicas no Firestore)
-      for (const item of cart) {
-        if (item.rawProduct && (item.type === 'armacoes' || item.type === 'lentes' || item.type === 'brindes' || item.type === 'geral')) {
-          let sheetName = 'CAD_ARMACOES';
-          if (item.type === 'lentes') sheetName = 'CAD_LENTES';
-          else if (item.type === 'brindes') sheetName = 'CAD_BRINDES';
-          else if (item.type === 'geral') sheetName = 'ESTOQUE';
-
-          const currentStock = parseInt(item.rawProduct['ESTOQUE'] || item.rawProduct['EM ESTOQUE'] || 0, 10);
-          const updatedStock = Math.max(0, currentStock - item.qtd);
-          const updatedProduct = {
-            ...item.rawProduct,
-            'ESTOQUE': updatedStock,
-            ...(item.rawProduct['EM ESTOQUE'] !== undefined ? { 'EM ESTOQUE': updatedStock } : {})
-          };
-
-          // Baixa atômica no banco de dados em nuvem
-          const targetDocId = item.rawProduct.id || item.rawProduct._id;
-          if (targetDocId) {
-            try {
-              await decrementStockAtomically(sheetName, targetDocId, item.qtd);
-            } catch (stockErr) {
-              console.warn('Aviso no decremento atômico de estoque:', stockErr);
-            }
-          }
-
-          if (onUpdateRow) {
-            try {
-              await onUpdateRow(sheetName, item.rawProduct, updatedProduct);
-            } catch (rowErr) {
-              console.warn('Aviso ao atualizar saldo de estoque local:', rowErr);
-            }
-          }
-        }
-      }
-
-      // 3. Se houver parcelas de Boleto em venda que NÃO envolve confecção de OS (itens gerais sem armação/lente),
-      // registrar em CONTAS_RECEBER. Caso haja armação ou lente, a geração das duplicatas fica retida
-      // na OS (Semáforo Azul) até a conferência e liberação financeira pela administração!
-      const hasOpticalItems = cart.some(i => i.type === 'armacoes' || i.type === 'lentes');
-      if (!hasOpticalItems) {
-        for (const pay of effectivePayments) {
-          if ((pay.metodo === 'carne' || pay.metodo === 'boleto') && pay.parcelas && pay.parcelas.length > 0 && onAddRow) {
-            for (const p of pay.parcelas) {
+            // Baixa atômica no banco de dados em nuvem
+            const targetDocId = item.rawProduct.id || item.rawProduct._id;
+            if (targetDocId) {
               try {
-                await onAddRow('CONTAS_RECEBER', {
-                  'CLIENTE_ID': clientId,
-                  'CLIENTE_CPF': clientCpf,
-                  'CPF': clientCpf,
-                  'CLIENTE': clientName,
-                  'NOME CLIENTE': clientName,
-                  'DOCUMENTO': `BOLETO ${p.numero}/${p.totalParcelas} - PDV`,
-                  'VALOR': typeof p.valor === 'number' ? p.valor.toFixed(2).replace('.', ',') : String(p.valor || '0,00'),
-                  'DATA_VENCIMENTO': p.vencimento,
-                  'DATA VENCIMENTO': p.vencimento,
-                  'STATUS': 'Pendente',
-                  'CIDADE': city,
-                  'MEIO_PAGAMENTO': 'Boleto Bancário / Carnê',
-                  'DESCRICAO': `Venda PDV - Parcela ${p.numero}/${p.totalParcelas} (${descricaoItens})`
-                });
-              } catch (crErr) {
-                console.warn('Aviso ao registrar parcela em CONTAS_RECEBER:', crErr);
+                await withTimeout(decrementStockAtomically(sheetName, targetDocId, item.qtd), 3000);
+              } catch (stockErr) {
+                console.warn('Aviso no decremento atômico de estoque:', stockErr);
+              }
+            }
+
+            if (onUpdateRow) {
+              try {
+                await withTimeout(onUpdateRow(sheetName, item.rawProduct, updatedProduct), 3000);
+              } catch (rowErr) {
+                console.warn('Aviso ao atualizar saldo de estoque local:', rowErr);
               }
             }
           }
         }
-      }
 
-      // 4. Registrar Movimentações no FLUXO_CAIXA em tempo real com rastreabilidade de cliente
-      if (onAddRow) {
-        for (const pay of effectivePayments) {
-          try {
-            await onAddRow('FLUXO_CAIXA', {
-              id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-              tipo: 'VENDA',
-              dataHora: new Date().toISOString(),
-              data: todayStr,
-              unidade: city,
-              operador: currentUser?.username || 'Caixa',
-              valor: cleanVal(pay.valor),
-              formaPagamento: String(pay.metodo || 'DINHEIRO').toUpperCase(),
-              motivo: `Venda PDV - ${clientName}`,
-              detalhes: descricaoItens,
-              CLIENTE_ID: clientId,
-              CLIENTE_CPF: clientCpf,
-              CPF: clientCpf
-            });
-          } catch (fcErr) {
-            console.warn('Aviso ao registrar movimentação no FLUXO_CAIXA:', fcErr);
+        // 3. Se houver parcelas de Boleto em venda que NÃO envolve confecção de OS (itens gerais sem armação/lente),
+        // registrar em CONTAS_RECEBER. Caso haja armação ou lente, a geração das duplicatas fica retida
+        // na OS (Semáforo Azul) até a conferência e liberação financeira pela administração!
+        const hasOpticalItems = cart.some(i => i.type === 'armacoes' || i.type === 'lentes');
+        if (!hasOpticalItems) {
+          for (const pay of effectivePayments) {
+            if ((pay.metodo === 'carne' || pay.metodo === 'boleto') && pay.parcelas && pay.parcelas.length > 0 && onAddRow) {
+              for (const p of pay.parcelas) {
+                try {
+                  await withTimeout(onAddRow('CONTAS_RECEBER', {
+                    'CLIENTE_ID': clientId,
+                    'CLIENTE_CPF': clientCpf,
+                    'CPF': clientCpf,
+                    'CLIENTE': clientName,
+                    'NOME CLIENTE': clientName,
+                    'DOCUMENTO': `BOLETO ${p.numero}/${p.totalParcelas} - PDV`,
+                    'VALOR': typeof p.valor === 'number' ? p.valor.toFixed(2).replace('.', ',') : String(p.valor || '0,00'),
+                    'DATA_VENCIMENTO': p.vencimento,
+                    'DATA VENCIMENTO': p.vencimento,
+                    'STATUS': 'Pendente',
+                    'CIDADE': city,
+                    'MEIO_PAGAMENTO': 'Boleto Bancário / Carnê',
+                    'DESCRICAO': `Venda PDV - Parcela ${p.numero}/${p.totalParcelas} (${descricaoItens})`
+                  }), 3000);
+                } catch (crErr) {
+                  console.warn('Aviso ao registrar parcela em CONTAS_RECEBER:', crErr);
+                }
+              }
+            }
           }
         }
-      }
-    } catch (unexpectedErr) {
-      console.warn('Aviso na rotina de sincronização da venda:', unexpectedErr);
-    } finally {
-      // 🛡️ GARANTIA TOTAL: Prepara Comprovante & Modal de Sucesso incondicionalmente
-      setSavedClientForOS(clientForOS);
-      setCompletedSale(finalSaleData);
 
-      // Limpar formulário de venda
-      setCart([]);
-      setPayments([]);
-      setDiscountInput('');
-      setCashTendered('');
-      setPaymentInputVal('');
-      setAppliedVouchers([]);
-      setVoucherCodeInput('');
-      setVoucherError('');
-      setIsFinalizingSale(false);
-    }
+        // 4. Registrar Movimentações no FLUXO_CAIXA em tempo real com rastreabilidade de cliente
+        if (onAddRow) {
+          for (const pay of effectivePayments) {
+            try {
+              await withTimeout(onAddRow('FLUXO_CAIXA', {
+                id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+                tipo: 'VENDA',
+                dataHora: new Date().toISOString(),
+                data: todayStr,
+                unidade: city,
+                operador: currentUser?.username || 'Caixa',
+                valor: cleanVal(pay.valor),
+                formaPagamento: String(pay.metodo || 'DINHEIRO').toUpperCase(),
+                motivo: `Venda PDV - ${clientName}`,
+                detalhes: descricaoItens,
+                CLIENTE_ID: clientId,
+                CLIENTE_CPF: clientCpf,
+                CPF: clientCpf
+              }), 3000);
+            } catch (fcErr) {
+              console.warn('Aviso ao registrar movimentação no FLUXO_CAIXA:', fcErr);
+            }
+          }
+        }
+      } catch (unexpectedErr) {
+        console.warn('Aviso na rotina de sincronização da venda:', unexpectedErr);
+      }
+    })();
   };
 
   // ─── SALVAMENTO DA OS GERADA PELO MODAL PADRÃO ──────────────────
