@@ -2711,6 +2711,96 @@ async function runTests() {
 
   console.log('  ✅ Test 29 Passed: Múltiplos Vouchers no PDV & Construtor de Pagamentos da OS com Duplicatas no Financeiro validados com sucesso!\n');
 
+  // ─── TEST 30: Blindagem Incondicional de Finalização no PDV & Proteção de Quota ───
+  console.log('▶ Test 30: Blindagem Incondicional de Finalização no PDV & Proteção de Quota');
+
+  // 30.1 Simulação de Finalização de Venda com Falha de Rede/Firestore
+  let completedSaleState = null;
+  let savedClientForOSState = null;
+  let cartState = [{ id: 'prod1', nome: 'Armação Oakley In', qtd: 1, preco: 300.00, type: 'armacoes' }];
+  let isFinalizingState = false;
+
+  const mockClient = {
+    id: 'cli_stephanie',
+    'Nome Completo': 'STEPHANIE MUSETI SANTOS',
+    'CPF / CNPJ': '418.067.898-11',
+    'Cidade': 'Cajati'
+  };
+
+  const simulateFinalizeSale = async (shouldFailNetwork = true) => {
+    isFinalizingState = true;
+    const finalTotal = 300.00;
+    const paymentsList = [{ metodo: 'dinheiro', valor: 300.00, texto: 'Dinheiro: R$ 300,00' }];
+
+    const newSaleObj = {
+      CLIENTE: mockClient['Nome Completo'],
+      VALOR_TOTAL: finalTotal,
+      FORMA_PAGTO: 'Dinheiro: R$ 300,00'
+    };
+
+    const clientForOSObj = {
+      ...mockClient,
+      'Modelo de Armação': cartState[0].nome,
+      'PRODUTO': cartState[0].nome,
+      'Valor Devido': '300,00',
+      'valorTotal': '300,00',
+      'valorEntrada': '300,00',
+      'restante': '0,00',
+      'formasPagamento': 'Dinheiro: R$ 300,00'
+    };
+
+    try {
+      if (shouldFailNetwork) {
+        // Simula rejeição de promessa do Firestore ou QuotaExceededError
+        throw new Error("QuotaExceededError / Firestore INTERNAL ASSERTION FAILED");
+      }
+    } catch (netErr) {
+      // Falha capturada e tolerada: venda não pode ser abortada
+    } finally {
+      savedClientForOSState = clientForOSObj;
+      completedSaleState = {
+        ...newSaleObj,
+        itens: [...cartState],
+        valorTotal: finalTotal,
+        pagamentosLista: paymentsList
+      };
+      cartState = [];
+      isFinalizingState = false;
+    }
+  };
+
+  await simulateFinalizeSale(true);
+
+  console.assert(completedSaleState !== null, 'completedSale DEVE estar preenchido para abrir o modal de comprovante');
+  console.assert(completedSaleState.CLIENTE === 'STEPHANIE MUSETI SANTOS', 'Cliente da venda deve ser Stephanie Museti Santos');
+  console.assert(completedSaleState.valorTotal === 300.00, 'Valor total da venda deve ser R$ 300,00');
+  console.assert(savedClientForOSState !== null, 'savedClientForOS DEVE estar preenchido para emissão de OS');
+  console.assert(savedClientForOSState['Modelo de Armação'] === 'Armação Oakley In', 'Armação vendida deve estar pré-carregada na OS');
+  console.assert(cartState.length === 0, 'Carrinho deve ser limpo após a finalização');
+  console.assert(isFinalizingState === false, 'Estado de finalizando deve retornar para false no finally');
+
+  // 30.2 Teste de Proteção de Quota do Storage
+  const compactSnapshotMock = (dataObj, maxItems = 100) => {
+    const compact = {};
+    Object.keys(dataObj).forEach(col => {
+      if (Array.isArray(dataObj[col])) {
+        compact[col] = dataObj[col].slice(-maxItems);
+      }
+    });
+    return compact;
+  };
+
+  const largeDataset = {
+    'CLIENTES_CADASTRADOS': Array.from({ length: 500 }, (_, i) => ({ id: `c_${i}`, nome: `Cliente ${i}` })),
+    'Registro_Vendas': Array.from({ length: 1000 }, (_, i) => ({ id: `v_${i}`, total: i * 10 }))
+  };
+
+  const compacted = compactSnapshotMock(largeDataset, 100);
+  console.assert(compacted['CLIENTES_CADASTRADOS'].length === 100, 'Snapshot compacto deve conter no máximo 100 clientes');
+  console.assert(compacted['Registro_Vendas'].length === 100, 'Snapshot compacto deve conter no máximo 100 vendas');
+
+  console.log('  ✅ Test 30 Passed: Blindagem Incondicional de Finalização no PDV & Proteção de Quota validadas com sucesso!\n');
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
 }
 

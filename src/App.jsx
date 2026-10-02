@@ -121,11 +121,13 @@ function App() {
     };
   }, []);
 
-  // Salva backup local em tempo real no localStorage para garantia de contingência total
+  // Salva backup local seguro no localStorage para garantia de contingência total (com debounce)
   useEffect(() => {
-    if (data && Object.keys(data).some(k => Array.isArray(data[k]) && data[k].length > 0)) {
+    if (!data || !Object.keys(data).some(k => Array.isArray(data[k]) && data[k].length > 0)) return;
+    const timer = setTimeout(() => {
       saveOfflineSnapshot(data);
-    }
+    }, 2500);
+    return () => clearTimeout(timer);
   }, [data]);
 
   // Migração transparente de senhas legadas em texto plano para Hash Criptográfico PBKDF2

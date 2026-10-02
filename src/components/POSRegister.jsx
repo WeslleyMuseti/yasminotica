@@ -6,7 +6,7 @@ import {
   Sparkles, RefreshCw, X, ShieldCheck, Calendar, Phone,
   UserPlus, ClipboardList, Glasses, Layers, Tag, Check,
   Lock, Unlock, ArrowDownRight, ArrowUpRight, Building, Wallet, History, Receipt,
-  Ticket, Percent, AlertOctagon, Star, Gift
+  Ticket, Percent, AlertOctagon, Star, Gift, Loader2
 } from 'lucide-react';
 import PrintableOS from './PrintableOS';
 import PrintableReceipt from './PrintableReceipt';
@@ -123,6 +123,7 @@ const POSRegister = ({
   // Estado de Sucesso / Pós-Venda
   const [completedSale, setCompletedSale] = useState(null);
   const [savedClientForOS, setSavedClientForOS] = useState(null);
+  const [isFinalizingSale, setIsFinalizingSale] = useState(false);
 
   // Modal de Geração de OS
   const [isOSModalOpen, setIsOSModalOpen] = useState(false);
@@ -920,6 +921,7 @@ const POSRegister = ({
 
   // ─── FINALIZAÇÃO DA VENDA NO CAIXA ──────────────────────────────
   const handleFinalizeSale = async () => {
+    if (isFinalizingSale) return;
     if (!selectedClient) {
       alert('Por favor, selecione um cliente cadastrado no topo antes de finalizar a venda.');
       document.getElementById('pos-client-search-input')?.focus();
@@ -962,6 +964,8 @@ const POSRegister = ({
       if (!allow) return;
     }
 
+    setIsFinalizingSale(true);
+
     const clientId = selectedClient.id || selectedClient._id || selectedClient.CLIENTE_ID || `client_${Date.now()}`;
     const clientCpf = String(selectedClient['CPF / CNPJ'] || selectedClient['CPF'] || '').trim();
     const clientName = selectedClient['Nome Completo'] || selectedClient['NOME'] || 'Cliente';
@@ -993,119 +997,12 @@ const POSRegister = ({
       'DESCONTO_VOUCHER': voucherDiscount
     };
 
-    // 1. Salvar Venda no Firebase
-    if (onAddSale) {
-      await onAddSale(newSale);
-    }
-
-    // 1.1 Atualizar uso dos Cupons/Vouchers se aplicados
-    if (appliedVouchers.length > 0 && onUpdateRow) {
-      for (const v of appliedVouchers) {
-        const currentUsed = parseInt(v.QUANTIDADE_USADA || v.quantidade_usada || 0, 10);
-        const totalQtd = parseInt(v.QUANTIDADE_TOTAL || v.quantidade_total || 0, 10);
-        const nextUsed = currentUsed + 1;
-        const isEsgotado = totalQtd > 0 && nextUsed >= totalQtd;
-
-        const updatedVoucher = {
-          ...v,
-          QUANTIDADE_USADA: nextUsed,
-          quantidade_usada: nextUsed,
-          STATUS: isEsgotado ? 'Esgotado' : (v.STATUS || v.status || 'Ativo'),
-          status: isEsgotado ? 'Esgotado' : (v.STATUS || v.status || 'Ativo')
-        };
-        await onUpdateRow('VOUCHERS', v, updatedVoucher);
-      }
-    }
-
-    // 2. Baixar Estoque dos Itens Vendidos no ERP (Transações Atômicas no Firestore)
-    for (const item of cart) {
-      if (item.rawProduct && (item.type === 'armacoes' || item.type === 'lentes' || item.type === 'brindes' || item.type === 'geral')) {
-        let sheetName = 'CAD_ARMACOES';
-        if (item.type === 'lentes') sheetName = 'CAD_LENTES';
-        else if (item.type === 'brindes') sheetName = 'CAD_BRINDES';
-        else if (item.type === 'geral') sheetName = 'ESTOQUE';
-
-        const currentStock = parseInt(item.rawProduct['ESTOQUE'] || item.rawProduct['EM ESTOQUE'] || 1, 10);
-        const updatedStock = Math.max(0, currentStock - item.qtd);
-        const updatedProduct = {
-          ...item.rawProduct,
-          'ESTOQUE': updatedStock,
-          ...(item.rawProduct['EM ESTOQUE'] !== undefined ? { 'EM ESTOQUE': updatedStock } : {})
-        };
-
-        // Baixa atômica no banco de dados em nuvem
-        const targetDocId = item.rawProduct.id || item.rawProduct._id;
-        if (targetDocId) {
-          try {
-            await decrementStockAtomically(sheetName, targetDocId, item.qtd);
-          } catch (stockErr) {
-            console.warn('Aviso no decremento atômico de estoque:', stockErr);
-          }
-        }
-
-        if (onUpdateRow) {
-          await onUpdateRow(sheetName, item.rawProduct, updatedProduct);
-        }
-      }
-    }
-
-    // 3. Se houver parcelas de Boleto em venda que NÃO envolve confecção de OS (itens gerais sem armação/lente),
-    // registrar em CONTAS_RECEBER. Caso haja armação ou lente, a geração das duplicatas fica retida
-    // na OS (Semáforo Azul) até a conferência e liberação financeira pela administração!
-    const hasOpticalItems = cart.some(i => i.type === 'armacoes' || i.type === 'lentes');
-    if (!hasOpticalItems) {
-      for (const pay of effectivePayments) {
-        if ((pay.metodo === 'carne' || pay.metodo === 'boleto') && pay.parcelas && pay.parcelas.length > 0 && onAddRow) {
-          for (const p of pay.parcelas) {
-            await onAddRow('CONTAS_RECEBER', {
-              'CLIENTE_ID': clientId,
-              'CLIENTE_CPF': clientCpf,
-              'CPF': clientCpf,
-              'CLIENTE': clientName,
-              'NOME CLIENTE': clientName,
-              'DOCUMENTO': `BOLETO ${p.numero}/${p.totalParcelas} - PDV`,
-              'VALOR': typeof p.valor === 'number' ? p.valor.toFixed(2).replace('.', ',') : String(p.valor || '0,00'),
-              'DATA_VENCIMENTO': p.vencimento,
-              'DATA VENCIMENTO': p.vencimento,
-              'STATUS': 'Pendente',
-              'CIDADE': city,
-              'MEIO_PAGAMENTO': 'Boleto Bancário / Carnê',
-              'DESCRICAO': `Venda PDV - Parcela ${p.numero}/${p.totalParcelas} (${descricaoItens})`
-            });
-          }
-        }
-      }
-    }
-
-    // 4. Registrar Movimentações no FLUXO_CAIXA em tempo real com rastreabilidade de cliente
-    if (onAddRow) {
-      for (const pay of effectivePayments) {
-        await onAddRow('FLUXO_CAIXA', {
-          id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-          tipo: 'VENDA',
-          dataHora: new Date().toISOString(),
-          data: todayStr,
-          unidade: city,
-          operador: currentUser?.username || 'Caixa',
-          valor: cleanVal(pay.valor),
-          formaPagamento: String(pay.metodo || 'DINHEIRO').toUpperCase(),
-          motivo: `Venda PDV - ${clientName}`,
-          detalhes: descricaoItens,
-          CLIENTE_ID: clientId,
-          CLIENTE_CPF: clientCpf,
-          CPF: clientCpf
-        });
-      }
-    }
-
     // Identificar itens de armação e lente vendidos para pré-carregar na OS
     const armacaoItem = cart.find(i => i.type === 'armacoes' || i.type === 'geral' || (i.rawProduct && (i.rawProduct.MARCA || i.rawProduct.MODELO)));
     const lenteItem = cart.find(i => i.type === 'lentes');
     const todosItensNomes = cart.map(i => `${i.qtd > 1 ? `${i.qtd}x ` : ''}${i.nome}`).join(' + ');
 
     const valorTotalFmt = totalFinal.toFixed(2).replace('.', ',');
-    // Apenas pagamentos imediatos (Dinheiro, PIX, Cartão Débito, Cartão Crédito) contam como Entrada/Sinal pago no ato
-    // Boleto e Carnê são parcelamentos a prazo que vencem no futuro e constituem o saldo a pagar (falta)
     const totalPagoImediato = effectivePayments.reduce((acc, p) => {
       const metodoLower = String(p.metodo || '').toLowerCase();
       if (metodoLower === 'boleto' || metodoLower === 'carne') {
@@ -1139,13 +1036,9 @@ const POSRegister = ({
       'observacoes': `Venda Caixa PDV: ${todosItensNomes}`
     };
 
-    setSavedClientForOS(clientForOS);
-
-    // 4. Preparar Comprovante & Modal de Sucesso
-
-    setCompletedSale({
+    const finalSaleData = {
       ...newSale,
-      itens: cart,
+      itens: [...cart],
       subtotal,
       desconto: discount,
       descontoVoucher: voucherDiscount,
@@ -1158,17 +1051,151 @@ const POSRegister = ({
       parcelas: todasParcelas,
       cidade: city,
       vendedor: currentUser?.username || 'Caixa'
-    });
+    };
 
-    // Limpar formulário de venda
-    setCart([]);
-    setPayments([]);
-    setDiscountInput('');
-    setCashTendered('');
-    setPaymentInputVal('');
-    setAppliedVouchers([]);
-    setVoucherCodeInput('');
-    setVoucherError('');
+    try {
+      // 1. Salvar Venda no Firebase (protegido contra falhas de rede)
+      if (onAddSale) {
+        try {
+          await onAddSale(newSale);
+        } catch (saleErr) {
+          console.warn('Aviso ao registrar venda no banco de dados:', saleErr);
+        }
+      }
+
+      // 1.1 Atualizar uso dos Cupons/Vouchers se aplicados
+      if (appliedVouchers.length > 0 && onUpdateRow) {
+        for (const v of appliedVouchers) {
+          try {
+            const currentUsed = parseInt(v.QUANTIDADE_USADA || v.quantidade_usada || 0, 10);
+            const totalQtd = parseInt(v.QUANTIDADE_TOTAL || v.quantidade_total || 0, 10);
+            const nextUsed = currentUsed + 1;
+            const isEsgotado = totalQtd > 0 && nextUsed >= totalQtd;
+
+            const updatedVoucher = {
+              ...v,
+              QUANTIDADE_USADA: nextUsed,
+              quantidade_usada: nextUsed,
+              STATUS: isEsgotado ? 'Esgotado' : (v.STATUS || v.status || 'Ativo'),
+              status: isEsgotado ? 'Esgotado' : (v.STATUS || v.status || 'Ativo')
+            };
+            await onUpdateRow('VOUCHERS', v, updatedVoucher);
+          } catch (vErr) {
+            console.warn('Aviso ao atualizar cupom/voucher:', vErr);
+          }
+        }
+      }
+
+      // 2. Baixar Estoque dos Itens Vendidos no ERP (Transações Atômicas no Firestore)
+      for (const item of cart) {
+        if (item.rawProduct && (item.type === 'armacoes' || item.type === 'lentes' || item.type === 'brindes' || item.type === 'geral')) {
+          let sheetName = 'CAD_ARMACOES';
+          if (item.type === 'lentes') sheetName = 'CAD_LENTES';
+          else if (item.type === 'brindes') sheetName = 'CAD_BRINDES';
+          else if (item.type === 'geral') sheetName = 'ESTOQUE';
+
+          const currentStock = parseInt(item.rawProduct['ESTOQUE'] || item.rawProduct['EM ESTOQUE'] || 0, 10);
+          const updatedStock = Math.max(0, currentStock - item.qtd);
+          const updatedProduct = {
+            ...item.rawProduct,
+            'ESTOQUE': updatedStock,
+            ...(item.rawProduct['EM ESTOQUE'] !== undefined ? { 'EM ESTOQUE': updatedStock } : {})
+          };
+
+          // Baixa atômica no banco de dados em nuvem
+          const targetDocId = item.rawProduct.id || item.rawProduct._id;
+          if (targetDocId) {
+            try {
+              await decrementStockAtomically(sheetName, targetDocId, item.qtd);
+            } catch (stockErr) {
+              console.warn('Aviso no decremento atômico de estoque:', stockErr);
+            }
+          }
+
+          if (onUpdateRow) {
+            try {
+              await onUpdateRow(sheetName, item.rawProduct, updatedProduct);
+            } catch (rowErr) {
+              console.warn('Aviso ao atualizar saldo de estoque local:', rowErr);
+            }
+          }
+        }
+      }
+
+      // 3. Se houver parcelas de Boleto em venda que NÃO envolve confecção de OS (itens gerais sem armação/lente),
+      // registrar em CONTAS_RECEBER. Caso haja armação ou lente, a geração das duplicatas fica retida
+      // na OS (Semáforo Azul) até a conferência e liberação financeira pela administração!
+      const hasOpticalItems = cart.some(i => i.type === 'armacoes' || i.type === 'lentes');
+      if (!hasOpticalItems) {
+        for (const pay of effectivePayments) {
+          if ((pay.metodo === 'carne' || pay.metodo === 'boleto') && pay.parcelas && pay.parcelas.length > 0 && onAddRow) {
+            for (const p of pay.parcelas) {
+              try {
+                await onAddRow('CONTAS_RECEBER', {
+                  'CLIENTE_ID': clientId,
+                  'CLIENTE_CPF': clientCpf,
+                  'CPF': clientCpf,
+                  'CLIENTE': clientName,
+                  'NOME CLIENTE': clientName,
+                  'DOCUMENTO': `BOLETO ${p.numero}/${p.totalParcelas} - PDV`,
+                  'VALOR': typeof p.valor === 'number' ? p.valor.toFixed(2).replace('.', ',') : String(p.valor || '0,00'),
+                  'DATA_VENCIMENTO': p.vencimento,
+                  'DATA VENCIMENTO': p.vencimento,
+                  'STATUS': 'Pendente',
+                  'CIDADE': city,
+                  'MEIO_PAGAMENTO': 'Boleto Bancário / Carnê',
+                  'DESCRICAO': `Venda PDV - Parcela ${p.numero}/${p.totalParcelas} (${descricaoItens})`
+                });
+              } catch (crErr) {
+                console.warn('Aviso ao registrar parcela em CONTAS_RECEBER:', crErr);
+              }
+            }
+          }
+        }
+      }
+
+      // 4. Registrar Movimentações no FLUXO_CAIXA em tempo real com rastreabilidade de cliente
+      if (onAddRow) {
+        for (const pay of effectivePayments) {
+          try {
+            await onAddRow('FLUXO_CAIXA', {
+              id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+              tipo: 'VENDA',
+              dataHora: new Date().toISOString(),
+              data: todayStr,
+              unidade: city,
+              operador: currentUser?.username || 'Caixa',
+              valor: cleanVal(pay.valor),
+              formaPagamento: String(pay.metodo || 'DINHEIRO').toUpperCase(),
+              motivo: `Venda PDV - ${clientName}`,
+              detalhes: descricaoItens,
+              CLIENTE_ID: clientId,
+              CLIENTE_CPF: clientCpf,
+              CPF: clientCpf
+            });
+          } catch (fcErr) {
+            console.warn('Aviso ao registrar movimentação no FLUXO_CAIXA:', fcErr);
+          }
+        }
+      }
+    } catch (unexpectedErr) {
+      console.warn('Aviso na rotina de sincronização da venda:', unexpectedErr);
+    } finally {
+      // 🛡️ GARANTIA TOTAL: Prepara Comprovante & Modal de Sucesso incondicionalmente
+      setSavedClientForOS(clientForOS);
+      setCompletedSale(finalSaleData);
+
+      // Limpar formulário de venda
+      setCart([]);
+      setPayments([]);
+      setDiscountInput('');
+      setCashTendered('');
+      setPaymentInputVal('');
+      setAppliedVouchers([]);
+      setVoucherCodeInput('');
+      setVoucherError('');
+      setIsFinalizingSale(false);
+    }
   };
 
   // ─── SALVAMENTO DA OS GERADA PELO MODAL PADRÃO ──────────────────
@@ -2384,26 +2411,37 @@ const POSRegister = ({
               <button
                 type="button"
                 onClick={handleFinalizeSale}
-                disabled={cart.length === 0 || (payments.length > 0 && !isFullyCovered)}
+                disabled={isFinalizingSale || cart.length === 0 || (payments.length > 0 && !isFullyCovered)}
                 className={`w-full py-4 rounded-2xl font-black text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-xl ${
-                  cart.length > 0 && (payments.length === 0 || isFullyCovered)
-                    ? selectedClient
-                      ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/30 active:scale-[0.98] cursor-pointer'
-                      : 'bg-sky-500/20 text-sky-300 border border-sky-500/40 hover:bg-sky-500/30 cursor-pointer shadow-lg shadow-sky-500/10'
-                    : payments.length > 0 && !isFullyCovered
-                      ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30 cursor-not-allowed'
-                      : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700/50'
+                  isFinalizingSale
+                    ? 'bg-emerald-600/60 text-white cursor-wait opacity-80'
+                    : cart.length > 0 && (payments.length === 0 || isFullyCovered)
+                      ? selectedClient
+                        ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/30 active:scale-[0.98] cursor-pointer'
+                        : 'bg-sky-500/20 text-sky-300 border border-sky-500/40 hover:bg-sky-500/30 cursor-pointer shadow-lg shadow-sky-500/10'
+                      : payments.length > 0 && !isFullyCovered
+                        ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30 cursor-not-allowed'
+                        : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700/50'
                 }`}
               >
-                {payments.length > 0 && !isFullyCovered ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
-                {cart.length === 0 
-                  ? 'Adicione Produtos ao Carrinho' 
-                  : !selectedClient 
-                    ? 'Clique para Selecionar o Cliente' 
-                    : payments.length > 0 && !isFullyCovered
-                      ? `Falta Cobrir ${fmtMoeda(remaining)} (Adicione o Restante)`
-                      : `Finalizar Venda no Caixa (${fmtMoeda(totalFinal)})`
-                }
+                {isFinalizingSale ? (
+                  <>
+                    <Loader2 size={18} className="animate-spin text-white" />
+                    <span>Finalizando Venda e Gerando Comprovante...</span>
+                  </>
+                ) : (
+                  <>
+                    {payments.length > 0 && !isFullyCovered ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
+                    {cart.length === 0 
+                      ? 'Adicione Produtos ao Carrinho' 
+                      : !selectedClient 
+                        ? 'Clique para Selecionar o Cliente' 
+                        : payments.length > 0 && !isFullyCovered
+                          ? `Falta Cobrir ${fmtMoeda(remaining)} (Adicione o Restante)`
+                          : `Finalizar Venda no Caixa (${fmtMoeda(totalFinal)})`
+                    }
+                  </>
+                )}
               </button>
 
             </div>

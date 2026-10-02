@@ -67,6 +67,18 @@ export const subscribeToCollections = (onDataUpdate) => {
 export const OFFLINE_QUEUE_KEY = 'YASMIN_OFFLINE_SYNC_QUEUE';
 export const OFFLINE_BACKUP_KEY = 'YASMIN_OFFLINE_DATA_BACKUP';
 
+// Limpeza preventiva de emergência no carregamento:
+// Se houver backup com mais de 500KB no localStorage, remove-o para liberar espaço para o Firestore
+if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+  try {
+    const raw = localStorage.getItem(OFFLINE_BACKUP_KEY);
+    if (raw && raw.length > 500000) {
+      localStorage.removeItem(OFFLINE_BACKUP_KEY);
+      console.info('[Storage] Chave de backup pesada removida para desocupar cota do Firestore.');
+    }
+  } catch {}
+}
+
 export const getOfflineQueue = () => {
   try {
     return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]');
@@ -160,9 +172,28 @@ export const processOfflineQueue = async () => {
 export const saveOfflineSnapshot = (dataObj) => {
   if (!dataObj || typeof dataObj !== 'object') return;
   try {
-    localStorage.setItem(OFFLINE_BACKUP_KEY, JSON.stringify(dataObj));
+    // Cria um snapshot compacto limitando os últimos 100 registros por tabela
+    // e impedindo saturação da cota de 5MB do localStorage
+    const compactSnapshot = {};
+    const MAX_ITEMS_PER_TABLE = 100;
+
+    Object.keys(dataObj).forEach(col => {
+      if (Array.isArray(dataObj[col])) {
+        compactSnapshot[col] = dataObj[col].slice(-MAX_ITEMS_PER_TABLE);
+      }
+    });
+
+    const serialized = JSON.stringify(compactSnapshot);
+    if (serialized.length < 1500000) {
+      localStorage.setItem(OFFLINE_BACKUP_KEY, serialized);
+    } else {
+      localStorage.removeItem(OFFLINE_BACKUP_KEY);
+    }
   } catch (e) {
-    console.warn('Aviso ao salvar snapshot offline no localStorage:', e);
+    try {
+      localStorage.removeItem(OFFLINE_BACKUP_KEY);
+    } catch {}
+    console.warn('Aviso: Armazenamento local saturado. Snapshot pesado removido para liberar espaço do Firestore.');
   }
 };
 
