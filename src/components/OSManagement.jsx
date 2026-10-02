@@ -260,7 +260,12 @@ const OSManagement = ({
   const isAdmin = ["admin", "administrativo"].includes(currentUser?.role);
   const isVendedor = currentUser?.role === 'vendedor';
 
-  const [selectedUnit, setSelectedUnit] = useState(() => currentUser?.city || "ALL");
+  const [selectedUnit, setSelectedUnit] = useState(() => {
+    if (["admin", "administrativo"].includes(currentUser?.role)) {
+      return "ALL";
+    }
+    return currentUser?.city || "ALL";
+  });
   const [selectedStatusFilter, setSelectedStatusFilter] = useState("ALL");
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState("cards"); // 'cards' (informações abaixo) por padrão!

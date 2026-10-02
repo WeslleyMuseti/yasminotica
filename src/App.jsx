@@ -160,16 +160,10 @@ function App() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('users', JSON.stringify(users));
-    if (isConfigured && currentUser && ['admin', 'administrativo'].includes(currentUser.role)) {
-      users.forEach(u => {
-        if (u.username) {
-          const cleanUser = String(u.username).toLowerCase().trim();
-          saveDocument('USUARIOS', { ...u, id: cleanUser, username: cleanUser }, cleanUser);
-        }
-      });
-    }
-  }, [users, currentUser]);
+    try {
+      localStorage.setItem('users', JSON.stringify(users));
+    } catch (e) {}
+  }, [users]);
 
   useEffect(() => {
     if (data['FLUXO_CAIXA'] && data['FLUXO_CAIXA'].length > 0) {

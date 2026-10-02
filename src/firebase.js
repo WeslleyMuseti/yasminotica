@@ -2,7 +2,7 @@ import { initializeApp } from "firebase/app";
 import { 
   initializeFirestore, 
   persistentLocalCache, 
-  persistentMultipleTabManager, 
+  persistentSingleTabManager, 
   getFirestore 
 } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
@@ -22,30 +22,24 @@ let db = null;
 let auth = null;
 let isConfigured = false;
 
-// Limpeza preventiva de chaves corrompidas de mutações do Firestore no WebStorage
+// Remove apenas o snapshot pesado que estourou os 5MB do localStorage
 if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
   try {
-    const keysToRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k && (k.startsWith('firestore_mutations') || k.startsWith('firestore_clients') || k === 'YASMIN_OFFLINE_DATA_BACKUP')) {
-        keysToRemove.push(k);
-      }
-    }
-    keysToRemove.forEach(k => localStorage.removeItem(k));
+    localStorage.removeItem('YASMIN_OFFLINE_DATA_BACKUP');
   } catch (e) {}
 }
 
 if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "") {
   app = initializeApp(firebaseConfig);
   
-  // 🛡️ MODO OFFLINE / CONTINGÊNCIA: Ativa persistência IndexedDB multi-aba
-  // Garante que todo o sistema (clientes, produtos, vendas, OS e caixa) funcione
-  // perfeitamente mesmo sem internet, salvando no disco e sincronizando ao reconectar.
+  // 🛡️ PERSISTÊNCIA EM INDEXEDDB VIA persistentSingleTabManager:
+  // Usa EXCLUSIVAMENTE o IndexedDB (com capacidade de Gigabytes), eliminando por completo
+  // o risco de QuotaExceededError (5MB) e ASSERTION FAILED do WebStorage.
+  // Permite sincronização instantânea em tempo real com o Firebase da Google.
   try {
     db = initializeFirestore(app, {
       localCache: persistentLocalCache({
-        tabManager: persistentMultipleTabManager()
+        tabManager: persistentSingleTabManager()
       })
     });
   } catch (err) {
