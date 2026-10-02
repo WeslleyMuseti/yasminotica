@@ -140,6 +140,54 @@ const PrintableOS = ({ osData, clientData = {} }) => {
 
   const hasItemPrices = orderItems.some(item => item.total && item.total > 0);
 
+  // ─── CRONOGRAMA DE PARCELAS DO BOLETO / CARNÊ ─────────────────────
+  const installmentsList = useMemo(() => {
+    let p = osData.parcelas;
+    if (typeof p === 'string') {
+      try { p = JSON.parse(p); } catch (e) {}
+    }
+    if (!p && osData.PARCELAS_JSON) {
+      try { p = JSON.parse(osData.PARCELAS_JSON); } catch (e) {}
+    }
+    if (!p && osData.raw?.PARCELAS_JSON) {
+      try { p = JSON.parse(osData.raw.PARCELAS_JSON); } catch (e) {}
+    }
+    if (Array.isArray(p) && p.length > 0) {
+      return p;
+    }
+    return [];
+  }, [osData]);
+
+  // ─── PARSER E FORMATAÇÃO ORGANIZADA DAS FORMAS DE PAGAMENTO ────────
+  const paymentMethodsList = useMemo(() => {
+    const rawFP = osData.formasPagamento || osData.formaPagamento || clientData['FORMAS_PAGAMENTO'] || clientData['FORMA_PAGTO'] || '';
+    if (!rawFP && installmentsList.length === 0) {
+      return ['À Vista / Conforme Lançamento'];
+    }
+
+    // Limpeza de prefixos redundantes
+    let text = String(rawFP)
+      .replace(/(?:FORMA DE PAGAMENTO|FORMA_PAGTO|FORMA_PAGAMENTO|MEIO_PAGAMENTO)\s*:\s*/gi, '')
+      .trim();
+
+    // Divide por quebras de linha ou ' + '
+    const parts = text.split(/\n|\s*\+\s*/).map(p => p.trim()).filter(Boolean);
+    
+    // Desduplicar itens idênticos (ex: se "Dinheiro" foi repetido)
+    const unique = [];
+    for (const item of parts) {
+      if (!unique.includes(item)) {
+        unique.push(item);
+      }
+    }
+
+    if (unique.length === 0 && installmentsList.length > 0) {
+      return [`Boleto / Carnê da Loja (${installmentsList.length} parcelas programadas)`];
+    }
+    
+    return unique.length > 0 ? unique : ['À Vista / Conforme Lançamento'];
+  }, [osData, clientData, installmentsList]);
+
   return (
     <>
       {/* ─── ESTILOS EXCLUSIVOS DE IMPRESSÃO EM FOLHA ÚNICA (SEM FOLHAS EXTRAS) ─── */}
@@ -374,7 +422,7 @@ const PrintableOS = ({ osData, clientData = {} }) => {
             </div>
           </div>
           
-          <div className="grid grid-cols-3 gap-1.5 mb-1">
+          <div className="grid grid-cols-3 gap-1.5 mb-1.5">
             <div className="border border-slate-800 p-1 text-center rounded bg-slate-50">
               <p className="uppercase text-[7.5px] font-black text-slate-600">Valor Total da OS</p>
               <p className="font-black text-xs text-slate-950">R$ {formatCurrencyPrint(osData.valorTotal)}</p>
@@ -389,19 +437,44 @@ const PrintableOS = ({ osData, clientData = {} }) => {
             </div>
           </div>
 
-          <div className="grid grid-cols-4 gap-1.5 text-[8.5px] bg-slate-50 p-1 rounded border border-slate-200">
-            <div className="col-span-3">
-              <strong className="block text-[7.5px] uppercase text-slate-700 font-black">Forma(s) de Pagamento & Parcelamento:</strong>
-              <p className="font-semibold text-slate-900 leading-tight">
-                {osData.formasPagamento || 'À Vista / Conforme Lançamento'}
-              </p>
+          {/* Formas de Pagamento Organizadas e Estruturadas */}
+          <div className="bg-slate-50 p-1.5 rounded border border-slate-200 text-[8.5px] space-y-1">
+            <div className="flex justify-between items-center">
+              <strong className="text-[7.5px] uppercase text-slate-700 font-black">
+                Forma(s) de Pagamento Lançadas:
+              </strong>
+              {osData.voucher && (
+                <span className="text-[7.5px] font-bold text-emerald-700 bg-emerald-100/70 border border-emerald-300 px-1.5 py-0.2 rounded">
+                  🎟️ Voucher: {osData.voucher}
+                </span>
+              )}
             </div>
-            <div>
-              <strong className="block text-[7.5px] uppercase text-slate-700 font-black">Voucher / Cupom:</strong>
-              <p className="font-semibold text-slate-900">
-                {osData.voucher || 'Nenhum'}
-              </p>
+
+            <div className="flex flex-wrap gap-1">
+              {paymentMethodsList.map((methodStr, idx) => (
+                <div key={idx} className="bg-white border border-slate-300 rounded px-2 py-0.5 text-slate-900 font-bold text-[8px] flex items-center gap-1 shadow-xs">
+                  <span>{methodStr}</span>
+                </div>
+              ))}
             </div>
+
+            {/* Cronograma de Parcelas do Carnê / Boleto se houver parcelamento */}
+            {installmentsList.length > 0 && (
+              <div className="mt-1 pt-1 border-t border-slate-200">
+                <span className="text-[7px] font-black uppercase text-indigo-900 block mb-0.5">
+                  📄 Cronograma de Parcelas do Boleto / Carnê ({installmentsList.length} parcelas):
+                </span>
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-1">
+                  {installmentsList.map((p, pIdx) => (
+                    <div key={pIdx} className="bg-white border border-slate-300 rounded p-0.5 text-center">
+                      <span className="block text-[6.5px] font-bold text-slate-500 uppercase">{p.numero || pIdx + 1}ª Parcela</span>
+                      <span className="block text-[7.5px] font-black text-slate-900">R$ {formatCurrencyPrint(p.valor)}</span>
+                      <span className="block text-[6.5px] font-medium text-slate-600">{formatDatePrint(p.vencimento)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

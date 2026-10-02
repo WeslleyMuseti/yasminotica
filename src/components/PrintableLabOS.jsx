@@ -23,7 +23,7 @@ const PrintableLabOS = ({ osData, clientData = {} }) => {
   const lente = osData.lente || clientData['Lente'] || clientData['Marca de Lente'] || '';
   const laboratorio = osData.laboratorio || clientData['Laboratório'] || '';
   const valorEntrada = formatCurrencyPrint(osData.valorEntrada);
-  const formaPgto = osData.formasPagamento ? String(osData.formasPagamento).split('\n')[0] : '';
+  const formaPgto = osData.formasPagamento ? String(osData.formasPagamento).replace(/(?:FORMA DE PAGAMENTO|FORMA_PAGTO|FORMA_PAGAMENTO|MEIO_PAGAMENTO)\s*:\s*/gi, '').split('\n')[0].trim() : '';
   const tipoArmacao = osData.armacao || clientData['Modelo de Armação'] || '';
 
   return (

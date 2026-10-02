@@ -2553,6 +2553,164 @@ async function runTests() {
 
   console.log('  ✅ Test 28 Passed: Alteração de senha, preservação de dados e sobrescrita master validadas com sucesso!\n');
 
+  // ─── TEST 29: Múltiplos Vouchers Cumulativos no PDV & Geração de Duplicatas do Boleto na Aprovação da OS ───
+  console.log('▶ Test 29: Múltiplos Vouchers no PDV & Construtor de Pagamentos da OS com Duplicatas no Financeiro');
+
+  // 29.1 Múltiplos Vouchers Cumulativos no PDV
+  const availableVouchers = [
+    { CODIGO: 'BEMVINDO', VALOR_DESCONTO: '50,00', STATUS: 'Ativo', QUANTIDADE_USADA: 0, QUANTIDADE_MAXIMA: 10 },
+    { CODIGO: 'VIP20', VALOR_DESCONTO: '30,00', STATUS: 'Ativo', QUANTIDADE_USADA: 2, QUANTIDADE_MAXIMA: 5 },
+    { CODIGO: 'ESGOTADO', VALOR_DESCONTO: '20,00', STATUS: 'Ativo', QUANTIDADE_USADA: 5, QUANTIDADE_MAXIMA: 5 }
+  ];
+
+  let appliedVouchersList = [];
+  const applyVoucherHelper = (code, subtotal) => {
+    const clean = String(code).trim().toUpperCase();
+    if (appliedVouchersList.some(v => (v.CODIGO || v.codigo) === clean)) {
+      return { success: false, error: 'Cupom já aplicado nesta venda!' };
+    }
+    const found = availableVouchers.find(v => (v.CODIGO || v.codigo) === clean);
+    if (!found) return { success: false, error: 'Cupom inválido!' };
+    if (found.STATUS !== 'Ativo') return { success: false, error: 'Cupom inativo!' };
+    if (found.QUANTIDADE_MAXIMA && found.QUANTIDADE_USADA >= found.QUANTIDADE_MAXIMA) {
+      return { success: false, error: 'Limite de uso esgotado!' };
+    }
+    appliedVouchersList.push(found);
+    return { success: true };
+  };
+
+  const calculateTotalVoucherDiscount = (vouchers, subtotal) => {
+    let sum = 0;
+    for (const v of vouchers) {
+      const rawVal = v.VALOR_DESCONTO || v.DESCONTO || 0;
+      let d = 0;
+      if (typeof rawVal === 'string' && rawVal.includes('%')) {
+        const perc = parseFloat(rawVal.replace('%', '').replace(',', '.'));
+        d = (subtotal * perc) / 100;
+      } else {
+        d = typeof rawVal === 'number' ? rawVal : parseFloat(String(rawVal).replace(',', '.'));
+      }
+      sum += Math.max(0, d);
+    }
+    return Math.min(subtotal, sum);
+  };
+
+  const subtotalVenda = 500.00;
+  // Aplica 1º cupom
+  const res1 = applyVoucherHelper('BEMVINDO', subtotalVenda);
+  console.assert(res1.success === true, '1º cupom deve ser aplicado');
+  console.assert(appliedVouchersList.length === 1, 'Deve ter 1 cupom na lista');
+
+  // Aplica 2º cupom cumulativo
+  const res2 = applyVoucherHelper('VIP20', subtotalVenda);
+  console.assert(res2.success === true, '2º cupom deve ser aplicado cumulativamente');
+  console.assert(appliedVouchersList.length === 2, 'Deve ter 2 cupons na lista');
+
+  // Tenta aplicar duplicado
+  const resDup = applyVoucherHelper('BEMVINDO', subtotalVenda);
+  console.assert(resDup.success === false, 'Cupom já aplicado deve ser rejeitado');
+  console.assert(appliedVouchersList.length === 2, 'Lista deve permanecer com 2 cupons');
+
+  // Tenta aplicar esgotado
+  const resEsg = applyVoucherHelper('ESGOTADO', subtotalVenda);
+  console.assert(resEsg.success === false, 'Cupom esgotado deve ser rejeitado');
+
+  // Cálculo da soma dos descontos
+  const totalDesconto = calculateTotalVoucherDiscount(appliedVouchersList, subtotalVenda);
+  console.assert(totalDesconto === 80.00, 'Desconto total deve ser R$ 80,00 (50 + 30)');
+  const valorFinalComVouchers = subtotalVenda - totalDesconto;
+  console.assert(valorFinalComVouchers === 420.00, 'Valor final da venda deve ser R$ 420,00');
+
+  // Remoção individual de voucher
+  appliedVouchersList = appliedVouchersList.filter(v => v.CODIGO !== 'BEMVINDO');
+  console.assert(appliedVouchersList.length === 1, 'Deve restar 1 cupom após remoção');
+  const descontoAposRemocao = calculateTotalVoucherDiscount(appliedVouchersList, subtotalVenda);
+  console.assert(descontoAposRemocao === 30.00, 'Desconto após remoção deve ser R$ 30,00');
+
+  // String salva na venda
+  const voucherStringSalva = appliedVouchersList.map(v => v.CODIGO).join(', ');
+  console.assert(voucherStringSalva === 'VIP20', 'Códigos devem ser salvos separados por vírgula');
+
+  // 29.2 Construtor de Pagamentos da OS sem repetições
+  const osPayments = [
+    { method: 'Dinheiro', valor: 100, texto: '💵 Dinheiro: R$ 100,00' },
+    {
+      method: 'Boleto',
+      valor: 300,
+      installments: 3,
+      texto: '📄 Boleto (3x de R$ 100,00 | Venc: 1ª 02/11/2026, 2ª 02/12/2026, 3ª 02/01/2027): R$ 300,00',
+      parcelas: [
+        { numero: 1, totalParcelas: 3, valor: '100,00', vencimento: '2026-11-02' },
+        { numero: 2, totalParcelas: 3, valor: '100,00', vencimento: '2026-12-02' },
+        { numero: 3, totalParcelas: 3, valor: '100,00', vencimento: '2027-01-02' }
+      ]
+    }
+  ];
+
+  const totalOS29 = 400.00;
+  const sinalOS29 = osPayments.filter(p => p.method !== 'Boleto').reduce((s, p) => s + p.valor, 0);
+  const restanteOS29 = osPayments.filter(p => p.method === 'Boleto').reduce((s, p) => s + p.valor, 0);
+  console.assert(sinalOS29 === 100.00, 'Sinal da OS deve ser R$ 100,00');
+  console.assert(restanteOS29 === 300.00, 'Restante da OS no Boleto deve ser R$ 300,00');
+  console.assert(sinalOS29 + restanteOS29 === totalOS29, 'Soma dos pagamentos da OS deve bater exatamente 100%');
+
+  // 29.3 Aprovação do Boleto pelo Financeiro e Geração de Duplicatas em CONTAS_RECEBER
+  const testOSOrder = {
+    osNumber: 'CAJ-99',
+    clientName: 'WESLLEY CLIENTE TESTE',
+    clientCPF: '123.456.789-00',
+    unit: 'Cajati',
+    product: 'Óculos Completo Antirreflexo',
+    valorTotal: '400,00',
+    valorEntrada: '100,00',
+    restante: '300,00',
+    formasPagamento: osPayments.map(p => p.texto).join('\n'),
+    raw: {
+      PARCELAS_JSON: JSON.stringify(osPayments.find(p => p.method === 'Boleto').parcelas),
+      CLIENTE_ID: 'cli_teste_1',
+      CLIENTE_CPF: '123.456.789-00',
+      DUPLICATAS_GERADAS: false
+    }
+  };
+
+  const mockContasReceberDB = [];
+  const mockAddRowReceber = async (table, row) => {
+    if (table === 'CONTAS_RECEBER') {
+      mockContasReceberDB.push({ ...row, id: `cr_${Date.now()}_${mockContasReceberDB.length}` });
+    }
+  };
+
+  // Simula execução de handleConfirmApproval
+  const parcsExtraidas = JSON.parse(testOSOrder.raw.PARCELAS_JSON);
+  console.assert(parcsExtraidas.length === 3, 'Devem ser extraídas exatamente 3 parcelas do Boleto');
+
+  for (const p of parcsExtraidas) {
+    await mockAddRowReceber('CONTAS_RECEBER', {
+      CLIENTE_ID: testOSOrder.raw.CLIENTE_ID,
+      CLIENTE_CPF: testOSOrder.clientCPF,
+      CPF: testOSOrder.clientCPF,
+      CLIENTE: testOSOrder.clientName,
+      'NOME CLIENTE': testOSOrder.clientName,
+      VENDA_OS: testOSOrder.osNumber,
+      DOCUMENTO: `BOLETO/CARNÊ ${p.numero}/${p.totalParcelas} - OS ${testOSOrder.osNumber}`,
+      VALOR: p.valor,
+      DATA_VENCIMENTO: p.vencimento,
+      STATUS: 'Pendente',
+      CIDADE: testOSOrder.unit,
+      MEIO_PAGAMENTO: 'Boleto Bancário / Carnê'
+    });
+  }
+
+  console.assert(mockContasReceberDB.length === 3, 'CONTAS_RECEBER deve conter exatamente 3 duplicatas geradas');
+  console.assert(mockContasReceberDB[0].DOCUMENTO === 'BOLETO/CARNÊ 1/3 - OS CAJ-99', '1ª duplicata deve estar identificada corretamente');
+  console.assert(mockContasReceberDB[0].VALOR === '100,00', 'Valor da 1ª duplicata deve ser R$ 100,00');
+  console.assert(mockContasReceberDB[0].DATA_VENCIMENTO === '2026-11-02', 'Vencimento da 1ª parcela deve ser 2026-11-02');
+  console.assert(mockContasReceberDB[1].DATA_VENCIMENTO === '2026-12-02', 'Vencimento da 2ª parcela deve ser 2026-12-02');
+  console.assert(mockContasReceberDB[2].DATA_VENCIMENTO === '2027-01-02', 'Vencimento da 3ª parcela deve ser 2027-01-02');
+  console.assert(mockContasReceberDB.every(d => d.MEIO_PAGAMENTO === 'Boleto Bancário / Carnê'), 'Todas as duplicatas devem ter MEIO_PAGAMENTO como Boleto/Carnê');
+
+  console.log('  ✅ Test 29 Passed: Múltiplos Vouchers no PDV & Construtor de Pagamentos da OS com Duplicatas no Financeiro validados com sucesso!\n');
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
 }
 

@@ -87,7 +87,7 @@ const POSRegister = ({
   const [discountInput, setDiscountInput] = useState('');
   const discount = useMemo(() => cleanVal(discountInput), [discountInput]);
   const [voucherCodeInput, setVoucherCodeInput] = useState('');
-  const [appliedVoucher, setAppliedVoucher] = useState(null);
+  const [appliedVouchers, setAppliedVouchers] = useState([]);
   const [voucherError, setVoucherError] = useState('');
 
   const vouchersData = useMemo(() => data?.['VOUCHERS'] || [], [data]);
@@ -712,14 +712,19 @@ const POSRegister = ({
   }, [cart]);
 
   const voucherDiscount = useMemo(() => {
-    if (!appliedVoucher) return 0;
-    const tipo = String(appliedVoucher.TIPO_DESCONTO || appliedVoucher.tipo_desconto || 'VALOR').toUpperCase();
-    const val = cleanVal(appliedVoucher.VALOR_DESCONTO || appliedVoucher.valor_desconto);
-    if (tipo === 'PORCENTAGEM') {
-      return Math.round((subtotal * (val / 100)) * 100) / 100;
+    if (!appliedVouchers || appliedVouchers.length === 0) return 0;
+    let totalDesc = 0;
+    for (const v of appliedVouchers) {
+      const tipo = String(v.TIPO_DESCONTO || v.tipo_desconto || 'VALOR').toUpperCase();
+      const val = cleanVal(v.VALOR_DESCONTO || v.valor_desconto);
+      if (tipo === 'PORCENTAGEM') {
+        totalDesc += Math.round((subtotal * (val / 100)) * 100) / 100;
+      } else {
+        totalDesc += val;
+      }
     }
-    return Math.min(subtotal, val);
-  }, [appliedVoucher, subtotal]);
+    return Math.min(subtotal, Math.round(totalDesc * 100) / 100);
+  }, [appliedVouchers, subtotal]);
 
   const totalFinal = useMemo(() => {
     return Math.max(0, subtotal - (Number(discount) || 0) - voucherDiscount);
@@ -737,13 +742,23 @@ const POSRegister = ({
     return totalFinal > 0 && remaining <= 0.01;
   }, [totalFinal, remaining]);
 
-  // ─── HANDLERS DE VOUCHER / CUPOM ────────────────────────────────
+  // ─── HANDLERS DE VOUCHER / CUPOM (MÚLTIPLOS VOUCHERS) ───────────
   const handleApplyVoucher = (codeParam) => {
     const rawCode = codeParam || voucherCodeInput;
     const code = String(rawCode || '').trim().toUpperCase();
     setVoucherError('');
     if (!code) {
       setVoucherError('Digite o código do voucher.');
+      return;
+    }
+
+    // Verificar se este voucher já foi adicionado nesta venda
+    const isAlreadyAdded = appliedVouchers.some(v => {
+      const c = String(v.CODIGO || v.codigo || '').trim().toUpperCase();
+      return c === code;
+    });
+    if (isAlreadyAdded) {
+      setVoucherError(`O voucher "${code}" já foi adicionado nesta venda.`);
       return;
     }
 
@@ -786,13 +801,17 @@ const POSRegister = ({
       return;
     }
 
-    setAppliedVoucher(found);
+    setAppliedVouchers(prev => [...prev, found]);
     setVoucherError('');
     setVoucherCodeInput('');
   };
 
-  const handleRemoveVoucher = () => {
-    setAppliedVoucher(null);
+  const handleRemoveVoucher = (indexToRemove) => {
+    if (typeof indexToRemove === 'number') {
+      setAppliedVouchers(prev => prev.filter((_, idx) => idx !== indexToRemove));
+    } else {
+      setAppliedVouchers([]);
+    }
     setVoucherError('');
   };
 
@@ -970,7 +989,7 @@ const POSRegister = ({
       'VALOR DA VENDA': totalFinal,
       'FORMA_PAGTO': formaPagamentoTexto,
       'VENDEDOR': currentUser?.username || 'Caixa',
-      'VOUCHER': appliedVoucher ? (appliedVoucher.CODIGO || appliedVoucher.codigo) : '',
+      'VOUCHER': appliedVouchers.map(v => v.CODIGO || v.codigo).join(', '),
       'DESCONTO_VOUCHER': voucherDiscount
     };
 
@@ -979,21 +998,23 @@ const POSRegister = ({
       await onAddSale(newSale);
     }
 
-    // 1.1 Atualizar uso do Cupom/Voucher se aplicado
-    if (appliedVoucher && onUpdateRow) {
-      const currentUsed = parseInt(appliedVoucher.QUANTIDADE_USADA || appliedVoucher.quantidade_usada || 0, 10);
-      const totalQtd = parseInt(appliedVoucher.QUANTIDADE_TOTAL || appliedVoucher.quantidade_total || 0, 10);
-      const nextUsed = currentUsed + 1;
-      const isEsgotado = totalQtd > 0 && nextUsed >= totalQtd;
+    // 1.1 Atualizar uso dos Cupons/Vouchers se aplicados
+    if (appliedVouchers.length > 0 && onUpdateRow) {
+      for (const v of appliedVouchers) {
+        const currentUsed = parseInt(v.QUANTIDADE_USADA || v.quantidade_usada || 0, 10);
+        const totalQtd = parseInt(v.QUANTIDADE_TOTAL || v.quantidade_total || 0, 10);
+        const nextUsed = currentUsed + 1;
+        const isEsgotado = totalQtd > 0 && nextUsed >= totalQtd;
 
-      const updatedVoucher = {
-        ...appliedVoucher,
-        QUANTIDADE_USADA: nextUsed,
-        quantidade_usada: nextUsed,
-        STATUS: isEsgotado ? 'Esgotado' : (appliedVoucher.STATUS || appliedVoucher.status || 'Ativo'),
-        status: isEsgotado ? 'Esgotado' : (appliedVoucher.STATUS || appliedVoucher.status || 'Ativo')
-      };
-      await onUpdateRow('VOUCHERS', appliedVoucher, updatedVoucher);
+        const updatedVoucher = {
+          ...v,
+          QUANTIDADE_USADA: nextUsed,
+          quantidade_usada: nextUsed,
+          STATUS: isEsgotado ? 'Esgotado' : (v.STATUS || v.status || 'Ativo'),
+          status: isEsgotado ? 'Esgotado' : (v.STATUS || v.status || 'Ativo')
+        };
+        await onUpdateRow('VOUCHERS', v, updatedVoucher);
+      }
     }
 
     // 2. Baixar Estoque dos Itens Vendidos no ERP (Transações Atômicas no Firestore)
@@ -1128,7 +1149,8 @@ const POSRegister = ({
       subtotal,
       desconto: discount,
       descontoVoucher: voucherDiscount,
-      voucher: appliedVoucher,
+      voucher: appliedVouchers.map(v => v.CODIGO || v.codigo).join(', '),
+      vouchers: appliedVouchers,
       valorTotal: totalFinal,
       formaPagamento: formaPagamentoTexto,
       pagamentosLista: effectivePayments,
@@ -1144,7 +1166,7 @@ const POSRegister = ({
     setDiscountInput('');
     setCashTendered('');
     setPaymentInputVal('');
-    setAppliedVoucher(null);
+    setAppliedVouchers([]);
     setVoucherCodeInput('');
     setVoucherError('');
   };
@@ -1976,81 +1998,110 @@ const POSRegister = ({
                 <span className="text-white font-black">{fmtMoeda(subtotal)}</span>
               </div>
 
-              {/* CAMPO DE CUPOM / VOUCHER */}
+              {/* CAMPO DE CUPOM / VOUCHER (SUPORTE A MÚLTIPLOS VOUCHERS) */}
               <div className="pt-1 pb-1">
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-slate-400 font-bold flex items-center gap-1.5">
                     <Ticket size={13} className="text-emerald-400" />
-                    Cupom / Voucher:
+                    Cupons / Vouchers:
+                    {appliedVouchers.length > 0 && (
+                      <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-1.5 py-0.2 rounded-full text-[10px] font-black">
+                        {appliedVouchers.length}
+                      </span>
+                    )}
                   </span>
-                  {appliedVoucher && (
+                  {appliedVouchers.length > 0 && (
                     <button
                       type="button"
-                      onClick={handleRemoveVoucher}
+                      onClick={() => handleRemoveVoucher()}
                       className="text-[11px] text-rose-400 hover:text-rose-300 font-bold flex items-center gap-1 hover:underline transition-colors"
+                      title="Remover todos os cupons aplicados"
                     >
-                      <X size={12} /> Remover cupom
+                      <X size={12} /> Limpar todos
                     </button>
                   )}
                 </div>
 
-                {appliedVoucher ? (
-                  <div className="p-2.5 bg-emerald-950/40 border border-emerald-500/40 rounded-xl flex items-center justify-between">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
-                        <Ticket size={14} />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs font-black text-emerald-300 font-mono tracking-wider truncate">
-                          {appliedVoucher.CODIGO || appliedVoucher.codigo}
+                {/* Lista de Vouchers Aplicados */}
+                {appliedVouchers.length > 0 && (
+                  <div className="space-y-1.5 mb-2 max-h-36 overflow-y-auto pr-0.5">
+                    {appliedVouchers.map((v, idx) => {
+                      const tipo = String(v.TIPO_DESCONTO || v.tipo_desconto || 'VALOR').toUpperCase();
+                      const val = cleanVal(v.VALOR_DESCONTO || v.valor_desconto);
+                      const descItem = tipo === 'PORCENTAGEM' ? `${val}% OFF` : fmtMoeda(val);
+                      return (
+                        <div key={idx} className="p-2 bg-emerald-950/40 border border-emerald-500/30 rounded-xl flex items-center justify-between gap-2 shadow-xs">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="w-6 h-6 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                              <Ticket size={12} />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-xs font-black text-emerald-300 font-mono tracking-wider truncate">
+                                {v.CODIGO || v.codigo}
+                              </div>
+                              <div className="text-[10px] text-emerald-400/80 truncate">
+                                {v.NOME || v.nome || (tipo === 'PORCENTAGEM' ? `${val}% de desconto` : 'Voucher promocional')}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-xs font-black text-emerald-400">
+                              -{descItem}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveVoucher(idx)}
+                              className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors"
+                              title="Remover este voucher"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
                         </div>
-                        <div className="text-[10px] text-emerald-400/80 truncate">
-                          {(appliedVoucher.TIPO_DESCONTO || appliedVoucher.tipo_desconto) === 'PORCENTAGEM'
-                            ? `${appliedVoucher.VALOR_DESCONTO || appliedVoucher.valor_desconto}% de desconto`
-                            : appliedVoucher.NOME || appliedVoucher.nome || 'Voucher promocional'}
-                        </div>
-                      </div>
+                      );
+                    })}
+                    <div className="flex justify-between items-center px-1 text-[11px] font-bold text-emerald-400">
+                      <span>Total Descontos em Vouchers:</span>
+                      <span className="font-black">-{fmtMoeda(voucherDiscount)}</span>
                     </div>
-                    <span className="text-xs font-black text-emerald-400 shrink-0 ml-2">
-                      -{fmtMoeda(voucherDiscount)}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={voucherCodeInput}
-                        onChange={(e) => {
-                          setVoucherCodeInput(e.target.value.toUpperCase());
-                          setVoucherError('');
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleApplyVoucher();
-                          }
-                        }}
-                        placeholder="Ex: PROMO50, VERAO10"
-                        className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold uppercase text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleApplyVoucher()}
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all active:scale-95 shadow-md shadow-emerald-950/40 shrink-0 flex items-center gap-1"
-                      >
-                        <Ticket size={12} />
-                        Aplicar
-                      </button>
-                    </div>
-                    {voucherError && (
-                      <div className="text-[11px] text-rose-400 font-medium flex items-center gap-1">
-                        <AlertTriangle size={11} className="shrink-0" />
-                        <span>{voucherError}</span>
-                      </div>
-                    )}
                   </div>
                 )}
+
+                {/* Campo de Entrada para Adicionar Cupom / Voucher */}
+                <div className="space-y-1.5">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={voucherCodeInput}
+                      onChange={(e) => {
+                        setVoucherCodeInput(e.target.value.toUpperCase());
+                        setVoucherError('');
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleApplyVoucher();
+                        }
+                      }}
+                      placeholder={appliedVouchers.length > 0 ? "+ Adicionar outro voucher..." : "Ex: PROMO50, VERAO10"}
+                      className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold uppercase text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleApplyVoucher()}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all active:scale-95 shadow-md shadow-emerald-950/40 shrink-0 flex items-center gap-1"
+                    >
+                      <Ticket size={12} />
+                      {appliedVouchers.length > 0 ? '+ Adicionar' : 'Aplicar'}
+                    </button>
+                  </div>
+                  {voucherError && (
+                    <div className="text-[11px] text-rose-400 font-medium flex items-center gap-1">
+                      <AlertTriangle size={11} className="shrink-0" />
+                      <span>{voucherError}</span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* DESCONTO MANUAL */}

@@ -118,6 +118,90 @@ const formatCPF_CNPJ = (val) => {
   return String(val);
 };
 
+export const toIsoDate = (val) => {
+  if (!val) return new Date().toISOString().split('T')[0];
+  if (val instanceof Date) return val.toISOString().split('T')[0];
+  const s = String(val).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (s.includes('/')) {
+    const parts = s.split('/');
+    if (parts.length === 3) return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+  }
+  return s;
+};
+
+export const extractOrderInstallments = (order) => {
+  if (!order) return [];
+  let parcelas = [];
+  try {
+    if (order.raw?.PARCELAS_JSON) {
+      parcelas = typeof order.raw.PARCELAS_JSON === 'string' ? JSON.parse(order.raw.PARCELAS_JSON) : order.raw.PARCELAS_JSON;
+    } else if (order.parcelasJson) {
+      parcelas = typeof order.parcelasJson === 'string' ? JSON.parse(order.parcelasJson) : order.parcelasJson;
+    } else if (order.raw?.parcelas && Array.isArray(order.raw.parcelas)) {
+      parcelas = order.raw.parcelas;
+    } else if (order.parcelas && Array.isArray(order.parcelas)) {
+      parcelas = order.parcelas;
+    }
+  } catch (err) {
+    console.warn('Erro ao ler parcelas da OS:', err);
+  }
+
+  if (Array.isArray(parcelas) && parcelas.length > 0) {
+    return parcelas;
+  }
+
+  // Auto-reconstrução a partir de formasPagamento se for Boleto/Carnê
+  const fpTexto = String(order.formasPagamento || order.raw?.FORMAS_PAGAMENTO || order.raw?.FORMA_PAGTO || order.raw?.MEIO_PAGAMENTO || '');
+  const isBoleto = /boleto|carnê|carne/i.test(fpTexto);
+  if (isBoleto) {
+    const matchX = fpTexto.match(/(\d+)x\s*(?:de\s*)?R?\$?\s*([\d.,]+)/i);
+    const vencListMatch = [...fpTexto.matchAll(/(\d+)ª\s*(\d{2}\/\d{2}\/\d{4}|\d{4}-\d{2}-\d{2})/g)];
+    const dateMap = {};
+    vencListMatch.forEach(m => {
+      dateMap[parseInt(m[1], 10)] = toIsoDate(m[2]);
+    });
+
+    if (matchX) {
+      const numParcelas = parseInt(matchX[1], 10) || 1;
+      const valorUnitario = parseCurrency(matchX[2]);
+      if (numParcelas >= 1 && valorUnitario > 0) {
+        const baseDate = new Date();
+        const generated = [];
+        for (let i = 1; i <= numParcelas; i++) {
+          let calculatedDate = dateMap[i];
+          if (!calculatedDate) {
+            const d = new Date(baseDate);
+            d.setDate(d.getDate() + 30 * i);
+            calculatedDate = d.toISOString().split('T')[0];
+          }
+          generated.push({
+            numero: i,
+            totalParcelas: numParcelas,
+            valor: formatMoney(valorUnitario),
+            vencimento: calculatedDate
+          });
+        }
+        return generated;
+      }
+    } else {
+      const restVal = parseCurrency(order.restante) || Math.max(0, parseCurrency(order.valorTotal) - parseCurrency(order.valorEntrada));
+      if (restVal > 0) {
+        const baseDate = new Date();
+        baseDate.setDate(baseDate.getDate() + 30);
+        return [{
+          numero: 1,
+          totalParcelas: 1,
+          valor: formatMoney(restVal),
+          vencimento: dateMap[1] || toIsoDate(order.dtEntrega) || baseDate.toISOString().split('T')[0]
+        }];
+      }
+    }
+  }
+
+  return [];
+};
+
 const getDeadlineInfo = (dtEntrega, status) => {
   if (!dtEntrega || status === "Entregue" || status === "Cancelada") return null;
   const s = String(dtEntrega).trim();
@@ -458,41 +542,8 @@ const OSManagement = ({
       const todayIso = new Date().toISOString().split('T')[0];
       const restVal = parseCurrency(order.restante);
 
-      // 1. Extrair parcelas se existirem
-      let parcelas = [];
-      try {
-        if (order.raw?.PARCELAS_JSON) {
-          parcelas = JSON.parse(order.raw.PARCELAS_JSON);
-        } else if (order.raw?.parcelas && Array.isArray(order.raw.parcelas)) {
-          parcelas = order.raw.parcelas;
-        }
-      } catch (err) {
-        console.warn('Erro ao ler parcelas da OS:', err);
-      }
-
-      // 1.1 Se as parcelas estruturadas estiverem vazias, auto-reconstruir a partir de formasPagamento (ex: "Boleto (12x de R$ 29,17)")
-      if ((!parcelas || parcelas.length === 0) && (order.formasPagamento || order.raw?.FORMAS_PAGAMENTO)) {
-        const fpTexto = String(order.formasPagamento || order.raw?.FORMAS_PAGAMENTO || '');
-        const match = fpTexto.match(/(\d+)x\s*(?:de\s*)?R?\$?\s*([\d.,]+)/i);
-        if (match) {
-          const numParcelas = parseInt(match[1], 10);
-          const valorUnitario = parseCurrency(match[2]);
-          if (numParcelas > 1 && valorUnitario > 0) {
-            const baseDate = new Date();
-            parcelas = [];
-            for (let i = 1; i <= numParcelas; i++) {
-              const d = new Date(baseDate);
-              d.setDate(d.getDate() + 30 * i);
-              parcelas.push({
-                numero: i,
-                totalParcelas: numParcelas,
-                valor: formatMoney(valorUnitario),
-                vencimento: d.toISOString().split('T')[0]
-              });
-            }
-          }
-        }
-      }
+      // 1. Extrair parcelas estruturadas ou reconstruir do Boleto
+      const parcelas = extractOrderInstallments(order);
 
       // 2. Limpeza preventiva de quaisquer duplicatas pendentes pré-existentes desta OS (evita duplicidades após edição)
       const clientId = order.clientData?.id || order.raw?.CLIENTE_ID || '';
@@ -541,23 +592,30 @@ const OSManagement = ({
 
             if (!isAlreadyPaid) {
               const valP = typeof p.valor === 'number' ? formatMoney(p.valor) : String(p.valor || '0,00');
+              const isoVenc = toIsoDate(p.vencimento) || todayIso;
               newlyCreatedPendingSum += parseCurrency(valP);
               await onAddRow('CONTAS_RECEBER', {
                 CLIENTE_ID: clientId,
                 CLIENTE_CPF: clientCpf,
                 CPF: clientCpf,
-                DESCRICAO: `OS #${order.osNumber} - Parcela ${numP}/${totP} (${order.product || 'Óculos Completo'})`,
                 CLIENTE: clientName,
                 'NOME CLIENTE': clientName,
+                NOME: clientName,
+                DESCRICAO: `OS #${order.osNumber} - Parcela ${numP}/${totP} (${order.product || 'Óculos Completo'})`,
                 VENDA_OS: order.osNumber,
+                OS: order.osNumber,
                 DOCUMENTO: `BOLETO/CARNÊ ${numP}/${totP} - OS ${order.osNumber}`,
                 VALOR: valP,
-                DATA_VENCIMENTO: p.vencimento || todayIso,
-                'DATA VENCIMENTO': p.vencimento || todayIso,
+                DATA_VENCIMENTO: isoVenc,
+                'DATA VENCIMENTO': isoVenc,
+                VENCIMENTO: isoVenc,
                 STATUS: 'Pendente',
                 CIDADE: order.unit,
+                LOJA: order.unit,
+                UNIDADE: order.unit,
                 MEIO_PAGAMENTO: 'Boleto Bancário / Carnê',
-                OBSERVACOES: `Duplicata gerada após aprovação financeira da OS #${order.osNumber}`
+                OBSERVACOES: `Duplicata gerada após aprovação financeira da OS #${order.osNumber}`,
+                DATA_CADASTRO: todayStr
               });
             }
           }
@@ -567,22 +625,29 @@ const OSManagement = ({
           const effectiveRest = Math.max(0, restVal - paidTotal);
           if (effectiveRest > 0) {
             newlyCreatedPendingSum = effectiveRest;
+            const isoVenc = toIsoDate(order.dtEntrega) || todayIso;
             await onAddRow('CONTAS_RECEBER', {
               CLIENTE_ID: clientId,
               CLIENTE_CPF: clientCpf,
               CPF: clientCpf,
-              DESCRICAO: `Venda OS #${order.osNumber} - ${order.product || 'Óculos Completo'}`,
               CLIENTE: clientName,
               'NOME CLIENTE': clientName,
+              NOME: clientName,
+              DESCRICAO: `Venda OS #${order.osNumber} - ${order.product || 'Óculos Completo'}`,
               VENDA_OS: order.osNumber,
+              OS: order.osNumber,
               DOCUMENTO: `OS #${order.osNumber} - Saldo a Receber`,
               VALOR: formatMoney(effectiveRest),
-              DATA_VENCIMENTO: order.dtEntrega && /^\d{4}-\d{2}-\d{2}$/.test(order.dtEntrega) ? order.dtEntrega : todayIso,
-              'DATA VENCIMENTO': order.dtEntrega && /^\d{4}-\d{2}-\d{2}$/.test(order.dtEntrega) ? order.dtEntrega : todayIso,
+              DATA_VENCIMENTO: isoVenc,
+              'DATA VENCIMENTO': isoVenc,
+              VENCIMENTO: isoVenc,
               STATUS: 'Pendente',
               CIDADE: order.unit,
-              MEIO_PAGAMENTO: order.formasPagamento ? order.formasPagamento.split('\n')[0].slice(0, 30) : 'A Prazo',
-              OBSERVACOES: `Duplicata gerada após aprovação financeira da OS #${order.osNumber}. Total: R$ ${order.valorTotal}, Sinal: R$ ${order.valorEntrada}`
+              LOJA: order.unit,
+              UNIDADE: order.unit,
+              MEIO_PAGAMENTO: /boleto|carnê|carne/i.test(order.formasPagamento || '') ? 'Boleto Bancário / Carnê' : 'A Prazo',
+              OBSERVACOES: `Duplicata gerada após aprovação financeira da OS #${order.osNumber}. Total: R$ ${order.valorTotal}, Sinal: R$ ${order.valorEntrada}`,
+              DATA_CADASTRO: todayStr
             });
           }
         }
@@ -2331,24 +2396,24 @@ const OSManagement = ({
               </p>
 
               {(() => {
-                let parcs = [];
-                try {
-                  if (approvalModalOrder.raw?.PARCELAS_JSON) {
-                    parcs = JSON.parse(approvalModalOrder.raw.PARCELAS_JSON);
-                  }
-                } catch (e) {}
+                const parcs = extractOrderInstallments(approvalModalOrder);
 
                 if (parcs && parcs.length > 0) {
                   return (
                     <div className="mt-3 pt-2.5 border-t border-white/10 space-y-1.5">
                       <span className="text-[10px] font-black uppercase text-indigo-400 block">
-                        Duplicatas que serão criadas em Contas a Receber ({parcs.length} parcelas):
+                        Duplicatas que serão criadas em Contas a Receber ({parcs.length} parcela{parcs.length > 1 ? 's' : ''}):
                       </span>
-                      <div className="grid grid-cols-2 gap-1.5 max-h-32 overflow-y-auto pr-1">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-36 overflow-y-auto pr-1">
                         {parcs.map((p, idx) => (
                           <div key={idx} className="bg-black/40 border border-white/10 p-2 rounded-lg flex items-center justify-between text-[11px]">
-                            <span className="font-bold text-slate-300">{p.numero}ª Parcela</span>
-                            <span className="font-black text-emerald-400">R$ {p.valor}</span>
+                            <div>
+                              <span className="font-bold text-slate-300 block">{p.numero}ª Parcela</span>
+                              {p.vencimento && (
+                                <span className="text-[10px] text-slate-500 font-mono">Venc: {formatDate(p.vencimento)}</span>
+                              )}
+                            </div>
+                            <span className="font-black text-emerald-400">R$ {typeof p.valor === 'number' ? formatMoney(p.valor) : p.valor}</span>
                           </div>
                         ))}
                       </div>
