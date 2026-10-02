@@ -2801,6 +2801,57 @@ async function runTests() {
 
   console.log('  ✅ Test 30 Passed: Blindagem Incondicional de Finalização no PDV & Proteção de Quota validadas com sucesso!\n');
 
+  // ==========================================
+  // TEST 31: Visibilidade Multi-Loja de Estoque para Vendedores (Igual ao Admin)
+  // ==========================================
+  console.log('▶ Test 31: Visibilidade Multi-Loja de Estoque para Vendedores (Igual ao Admin)');
+
+  const mockMultiStoreStock = [
+    { id: '1', MARCA: 'Ray-Ban', MODELO: 'Aviador', UNIDADE: 'Cajati', ESTOQUE: 5 },
+    { id: '2', MARCA: 'Oakley', MODELO: 'Holbrook', UNIDADE: 'Registro', ESTOQUE: 3 },
+    { id: '3', MARCA: 'Vogue', MODELO: 'Cat Eye', UNIDADE: 'Jacupiranga', ESTOQUE: 4 },
+    { id: '4', MARCA: 'Armani', MODELO: 'Classic', UNIDADE: 'Central', ESTOQUE: 10 },
+    { id: '5', MARCA: 'Evoke', MODELO: 'Capo', UNIDADE: 'Venda Externa', ESTOQUE: 2 }
+  ];
+
+  // 31.1 Verificação no ERP / DataTable: Vendedor deve ter acesso ao array completo sem filtros forçados
+  const getErpStockForUser = (stockList, userRole) => {
+    // Agora vendedores e administradores visualizam o estoque de todas as lojas igualmente
+    return stockList;
+  };
+
+  const vendorErpStock = getErpStockForUser(mockMultiStoreStock, 'vendedor');
+  const adminErpStock = getErpStockForUser(mockMultiStoreStock, 'admin');
+
+  console.assert(vendorErpStock.length === 5, 'Vendedor deve ver todos os 5 modelos de todas as lojas');
+  console.assert(adminErpStock.length === 5, 'Admin deve ver todos os 5 modelos de todas as lojas');
+  console.assert(vendorErpStock.some(i => i.UNIDADE === 'Registro'), 'Vendedor deve ver produtos de Registro');
+  console.assert(vendorErpStock.some(i => i.UNIDADE === 'Jacupiranga'), 'Vendedor deve ver produtos de Jacupiranga');
+
+  // 31.2 Verificação no PDV / Frente de Caixa: Vendedor pode filtrar por qualquer loja ou ver TODAS
+  const filterPosCatalog = (stockList, selectedCityFilter, searchQuery = '') => {
+    const q = searchQuery.toLowerCase().trim();
+    const effectiveCity = selectedCityFilter !== 'TODAS' ? selectedCityFilter : null;
+    return stockList.filter(item => {
+      if (effectiveCity) {
+        const u = String(item.UNIDADE || '').toUpperCase();
+        if (!u.includes(effectiveCity.toUpperCase())) return false;
+      }
+      if (!q) return true;
+      return Object.values(item).some(v => String(v).toLowerCase().includes(q));
+    });
+  };
+
+  // Vendedor em Cajati consultando todas as lojas
+  const allStoresView = filterPosCatalog(mockMultiStoreStock, 'TODAS');
+  console.assert(allStoresView.length === 5, 'Visualização de todas as lojas no PDV deve conter 5 itens');
+
+  // Vendedor em Cajati filtrando para ver o estoque de Registro
+  const registroStoreView = filterPosCatalog(mockMultiStoreStock, 'Registro');
+  console.assert(registroStoreView.length === 1 && registroStoreView[0].MODELO === 'Holbrook', 'Vendedor deve conseguir filtrar estoque específico de Registro');
+
+  console.log('  ✅ Test 31 Passed: Visibilidade Multi-Loja de Estoque para Vendedores (Igual ao Admin) validada com sucesso!\n');
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
 }
 

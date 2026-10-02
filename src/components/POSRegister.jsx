@@ -297,54 +297,28 @@ const POSRegister = ({
     }
   };
 
-  // ─── FONTES DE DADOS DO ESTOQUE ERP ──────────────────────────────
+  // ─── FONTES DE DADOS DO ESTOQUE ERP (Visível para todas as lojas) ─────────
   const erpArmacoes = useMemo(() => {
-    const list = data?.['CAD_ARMACOES'] || armacoesData || [];
-    if (!userFixedCity) return list;
-    return list.filter(item => {
-      const u = String(item['UNIDADE'] || item['CIDADE'] || item['LOJA'] || item['Unidade'] || '').trim().toUpperCase();
-      return u && u !== 'CENTRAL' && u.includes(userFixedCity.toUpperCase());
-    });
-  }, [data, armacoesData, userFixedCity]);
+    return data?.['CAD_ARMACOES'] || armacoesData || [];
+  }, [data, armacoesData]);
 
   const erpLentes = useMemo(() => {
-    const list = data?.['CAD_LENTES'] || lentesData || [];
-    if (!userFixedCity) return list;
-    return list.filter(item => {
-      const u = String(item['UNIDADE'] || item['CIDADE'] || item['LOJA'] || item['Unidade'] || '').trim().toUpperCase();
-      return u && u !== 'CENTRAL' && u.includes(userFixedCity.toUpperCase());
-    });
-  }, [data, lentesData, userFixedCity]);
+    return data?.['CAD_LENTES'] || lentesData || [];
+  }, [data, lentesData]);
 
   const erpGeral = useMemo(() => {
-    const list = data?.['ESTOQUE'] || data?.['ESTOQUE ENTRADA SAÍDAS'] || [];
-    if (!userFixedCity) return list;
-    return list.filter(item => {
-      const u = String(item['UNIDADE'] || item['CIDADE'] || item['LOJA'] || item['Unidade'] || '').trim().toUpperCase();
-      return u && u !== 'CENTRAL' && u.includes(userFixedCity.toUpperCase());
-    });
-  }, [data, userFixedCity]);
+    return data?.['ESTOQUE'] || data?.['ESTOQUE ENTRADA SAÍDAS'] || [];
+  }, [data]);
 
   const erpBrindes = useMemo(() => {
-    const list = data?.['CAD_BRINDES'] || [];
-    if (!userFixedCity) return list;
-    return list.filter(item => {
-      const u = String(item['UNIDADE'] || item['CIDADE'] || item['LOJA'] || item['Unidade'] || '').trim().toUpperCase();
-      return u && u !== 'CENTRAL' && u.includes(userFixedCity.toUpperCase());
-    });
-  }, [data, userFixedCity]);
+    return data?.['CAD_BRINDES'] || [];
+  }, [data]);
 
   // ─── FILTROS DE CLIENTES ─────────────────────────────────────────
   const filteredClients = useMemo(() => {
     if (!clientSearch) return [];
     const q = clientSearch.toLowerCase();
     return clientsData.filter(c => {
-      if (userFixedCity) {
-        const cCity = String(c['Cidade'] || c['CIDADE'] || c['Unidade'] || '').trim().toLowerCase();
-        if (cCity && !cCity.includes(userFixedCity.toLowerCase()) && !userFixedCity.toLowerCase().includes(cCity)) {
-          return false;
-        }
-      }
       return (
         (c['Nome Completo'] && c['Nome Completo'].toLowerCase().includes(q)) ||
         (c['NOME'] && c['NOME'].toLowerCase().includes(q)) ||
@@ -352,7 +326,7 @@ const POSRegister = ({
         (c['WhatsApp'] && c['WhatsApp'].includes(q))
       );
     });
-  }, [clientSearch, clientsData, userFixedCity]);
+  }, [clientSearch, clientsData]);
 
   // ─── ANÁLISE FINANCEIRA E ALERTA DE INADIMPLÊNCIA DO CLIENTE NO PDV ────
   const selectedClientFinancials = useMemo(() => {
@@ -441,26 +415,20 @@ const POSRegister = ({
     }
 
     const q = productSearch.toLowerCase().trim();
-    const effectiveCityFilter = userFixedCity || (selectedCityStock !== 'TODAS' ? selectedCityStock : null);
+    const effectiveCityFilter = selectedCityStock !== 'TODAS' ? selectedCityStock : null;
 
     return source.filter(item => {
       if (effectiveCityFilter) {
         const itemUnit = String(item['UNIDADE'] || item['CIDADE'] || item['LOJA'] || item['Unidade'] || '').trim().toUpperCase();
-        if (isVendor) {
-          if (!itemUnit || itemUnit === 'CENTRAL' || !itemUnit.includes(effectiveCityFilter.toUpperCase())) {
-            return false;
-          }
-        } else {
-          if (itemUnit && !itemUnit.includes(effectiveCityFilter.toUpperCase())) {
-            return false;
-          }
+        if (itemUnit && !itemUnit.includes(effectiveCityFilter.toUpperCase())) {
+          return false;
         }
       }
       if (!q) return true;
       const text = Object.values(item).join(' ').toLowerCase();
       return text.includes(q);
     });
-  }, [productCategory, erpArmacoes, erpLentes, erpBrindes, erpGeral, salesCountMap, productSearch, selectedCityStock, userFixedCity, isVendor]);
+  }, [productCategory, erpArmacoes, erpLentes, erpBrindes, erpGeral, salesCountMap, productSearch, selectedCityStock]);
 
   // ─── OPERAÇÕES DO CARRINHO ───────────────────────────────────────
   const addToCart = (product, type) => {
@@ -1748,24 +1716,17 @@ const POSRegister = ({
                       />
                     </div>
 
-                    {isVendor ? (
-                      <div className="bg-slate-950 border border-emerald-500/30 rounded-xl px-3 py-2 text-xs text-emerald-400 font-bold shrink-0 flex items-center justify-between sm:justify-start gap-1.5">
-                        <span>Estoque {selectedPOSCity}</span>
-                        <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.2 rounded font-bold">Unidade Fixa</span>
-                      </div>
-                    ) : (
-                      <select
-                        value={selectedCityStock}
-                        onChange={(e) => setSelectedCityStock(e.target.value)}
-                        className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none shrink-0"
-                      >
-                        <option value="TODAS">Todas as Lojas / Central</option>
-                        <option value="Cajati">Cajati</option>
-                        <option value="Registro">Registro</option>
-                        <option value="Jacupiranga">Jacupiranga</option>
-                        <option value="Venda Externa">Venda Externa</option>
-                      </select>
-                    )}
+                    <select
+                      value={selectedCityStock}
+                      onChange={(e) => setSelectedCityStock(e.target.value)}
+                      className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none shrink-0"
+                    >
+                      <option value="TODAS">Todas as Lojas / Central</option>
+                      <option value="Cajati">Cajati</option>
+                      <option value="Registro">Registro</option>
+                      <option value="Jacupiranga">Jacupiranga</option>
+                      <option value="Venda Externa">Venda Externa</option>
+                    </select>
                   </div>
 
                   {/* Atalhos Rápidos de Marcas / Categorias Populares */}

@@ -567,16 +567,7 @@ const DataTable = ({ sheetName, rows, onRowUpdate, onEditRow, onGenerateOS, onVi
     let validRows = rows.filter(isMeaningfulRow);
     if (validRows.length === 0) validRows = rows;
 
-    // Se o usuário for vendedor, isola seu estoque e não permite ver produtos da Central
-    if (currentUser?.role === 'vendedor') {
-      const userCity = (currentUser.city || currentUser.assignedStore || 'Cajati').toUpperCase();
-      if (['CAD_ARMACOES', 'CAD_LENTES', 'CAD_BRINDES', 'ESTOQUE', 'ESTOQUE ENTRADA SAÍDAS'].includes(sheetName)) {
-        validRows = validRows.filter(r => {
-          const u = String(r['UNIDADE'] || r['CIDADE'] || r['LOJA'] || r['Unidade'] || '').trim().toUpperCase();
-          return u && u !== 'CENTRAL' && u.includes(userCity);
-        });
-      }
-    }
+    // Vendedores agora podem visualizar o estoque de todas as lojas e filiais igual ao administrador
 
     if (search) {
       const q = search.toLowerCase().trim();

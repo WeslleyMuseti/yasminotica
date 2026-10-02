@@ -108,7 +108,7 @@ const ErpOptica = ({
   onBack,
   initialTab = 'lentes'
 }) => {
-  const userCity = currentUser?.role === 'vendedor' ? (currentUser.city || currentUser.assignedStore || 'Cajati') : null;
+  const defaultFormCity = currentUser?.city || currentUser?.assignedStore || 'Central';
   const [activeTab, setActiveTab] = useState(initialTab);
   const [isAdding, setIsAdding] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -162,7 +162,7 @@ const ErpOptica = ({
   const [newArmacaoMaterialInput, setNewArmacaoMaterialInput] = useState('');
 
   const [lentesForm, setLentesForm] = useState({
-    UNIDADE: userCity || 'Central', MARCA: '', MODELO: '', MATERIAL: 'Resina', INDICE_REFRACAO: '1.56',
+    UNIDADE: defaultFormCity || 'Central', MARCA: '', MODELO: '', MATERIAL: 'Resina', INDICE_REFRACAO: '1.56',
     TRATAMENTO: 'Anti-reflexo Premium',
     ESFERICO: '', CILINDRICO: '', DIAMETRO: '', EIXO: '', ADICAO: '',
     ESFERICO_MIN: '-6.00', ESFERICO_MAX: '+6.00',
@@ -171,13 +171,13 @@ const ErpOptica = ({
   });
 
   const [armacoesForm, setArmacoesForm] = useState({
-    UNIDADE: userCity || 'Central', MARCA: '', MODELO: '', REFERENCIA_SKU: '', COR: 'Preto',
+    UNIDADE: defaultFormCity || 'Central', MARCA: '', MODELO: '', REFERENCIA_SKU: '', COR: 'Preto',
     MATERIAL: 'Acetato', TAMANHO: '55-18-140',
     PRECO_COMPRA: '', PRECO_VENDA: '', ESTOQUE: '5', IMAGEM: '', OBSERVACOES: ''
   });
 
   const [brindesForm, setBrindesForm] = useState({
-    UNIDADE: userCity || 'Central', NOME: '', CATEGORIA: 'Estojo Rígido', REFERENCIA_SKU: '', COR: 'Sortido',
+    UNIDADE: defaultFormCity || 'Central', NOME: '', CATEGORIA: 'Estojo Rígido', REFERENCIA_SKU: '', COR: 'Sortido',
     PRECO_COMPRA: '', PRECO_VENDA: '0,00', ESTOQUE: '20', IMAGEM: '', OBSERVACOES: ''
   });
 
@@ -205,55 +205,14 @@ const ErpOptica = ({
     OBSERVACOES: ''
   });
 
-  // Dados das abas (seguro contra nulos e isolados por cidade para vendedor)
-  const lentesData = useMemo(() => {
-    const list = data?.['CAD_LENTES'] || [];
-    if (!userCity) return list;
-    return list.filter(l => {
-      const u = String(l.UNIDADE || l.CIDADE || l.LOJA || l.Unidade || '').trim().toUpperCase();
-      return u && u !== 'CENTRAL' && u.includes(userCity.toUpperCase());
-    });
-  }, [data, userCity]);
-
-  const armacoesData = useMemo(() => {
-    const list = data?.['CAD_ARMACOES'] || [];
-    if (!userCity) return list;
-    return list.filter(a => {
-      const u = String(a.UNIDADE || a.CIDADE || a.LOJA || a.Unidade || '').trim().toUpperCase();
-      return u && u !== 'CENTRAL' && u.includes(userCity.toUpperCase());
-    });
-  }, [data, userCity]);
-
-  const brindesData = useMemo(() => {
-    const list = data?.['CAD_BRINDES'] || [];
-    if (!userCity) return list;
-    return list.filter(b => {
-      const u = String(b.UNIDADE || b.CIDADE || b.LOJA || b.Unidade || '').trim().toUpperCase();
-      return u && u !== 'CENTRAL' && u.includes(userCity.toUpperCase());
-    });
-  }, [data, userCity]);
-
+  // Dados das abas (seguro contra nulos - estoque de todas as lojas visível para vendedores e administradores)
+  const lentesData = useMemo(() => data?.['CAD_LENTES'] || [], [data]);
+  const armacoesData = useMemo(() => data?.['CAD_ARMACOES'] || [], [data]);
+  const brindesData = useMemo(() => data?.['CAD_BRINDES'] || [], [data]);
   const pagarData = useMemo(() => data?.['CONTAS_PAGAR'] || [], [data]);
   const receberData = useMemo(() => data?.['CONTAS_RECEBER'] || [], [data]);
-
-  const transferenciasData = useMemo(() => {
-    const list = data?.['TRANSFERENCIAS_ESTOQUE'] || [];
-    if (!userCity) return list;
-    return list.filter(t => {
-      const orig = (t.ORIGEM || t.origem || '').toUpperCase();
-      const dest = (t.DESTINO || t.destino || '').toUpperCase();
-      return orig.includes(userCity.toUpperCase()) || dest.includes(userCity.toUpperCase());
-    });
-  }, [data, userCity]);
-
-  const vouchersData = useMemo(() => {
-    const list = data?.['VOUCHERS'] || [];
-    if (!userCity) return list;
-    return list.filter(v => {
-      const u = String(v.UNIDADE || v.unidade || 'Todas').trim().toUpperCase();
-      return u === 'TODAS' || u === 'CENTRAL' || u.includes(userCity.toUpperCase());
-    });
-  }, [data, userCity]);
+  const transferenciasData = useMemo(() => data?.['TRANSFERENCIAS_ESTOQUE'] || [], [data]);
+  const vouchersData = useMemo(() => data?.['VOUCHERS'] || [], [data]);
 
   // Estatísticas Rápidas
   const vouchersStats = useMemo(() => {
@@ -682,7 +641,7 @@ const ErpOptica = ({
         DATA_CADASTRO: new Date().toLocaleDateString('pt-BR')
       });
       setLentesForm({
-        UNIDADE: userCity || 'Central', MARCA: '', MODELO: '', MATERIAL: 'Resina', INDICE_REFRACAO: '1.56',
+        UNIDADE: defaultFormCity || 'Central', MARCA: '', MODELO: '', MATERIAL: 'Resina', INDICE_REFRACAO: '1.56',
         TRATAMENTO: 'Anti-reflexo Premium',
         ESFERICO: '', CILINDRICO: '', DIAMETRO: '', EIXO: '', ADICAO: '',
         ESFERICO_MIN: '-6.00', ESFERICO_MAX: '+6.00',
@@ -699,7 +658,7 @@ const ErpOptica = ({
         DATA_CADASTRO: new Date().toLocaleDateString('pt-BR')
       });
       setArmacoesForm({
-        UNIDADE: userCity || 'Central', MARCA: '', MODELO: '', REFERENCIA_SKU: '', COR: 'Preto',
+        UNIDADE: defaultFormCity || 'Central', MARCA: '', MODELO: '', REFERENCIA_SKU: '', COR: 'Preto',
         MATERIAL: 'Acetato', TAMANHO: '55-18-140',
         PRECO_COMPRA: '', PRECO_VENDA: '', ESTOQUE: '5', IMAGEM: '', OBSERVACOES: ''
       });
@@ -717,7 +676,7 @@ const ErpOptica = ({
         DATA_CADASTRO: new Date().toLocaleDateString('pt-BR')
       });
       setBrindesForm({
-        UNIDADE: userCity || 'Central', NOME: '', CATEGORIA: 'Estojo Rígido', REFERENCIA_SKU: '', COR: 'Sortido',
+        UNIDADE: defaultFormCity || 'Central', NOME: '', CATEGORIA: 'Estojo Rígido', REFERENCIA_SKU: '', COR: 'Sortido',
         PRECO_COMPRA: '', PRECO_VENDA: '0,00', ESTOQUE: '20', IMAGEM: '', OBSERVACOES: ''
       });
       setSuccessMsg('Brinde / Cortesia cadastrado com sucesso no estoque!');
@@ -1708,20 +1667,13 @@ const ErpOptica = ({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="space-y-2">
                     <label className="text-xs font-black uppercase tracking-widest text-slate-400">Unidade (Loja) *</label>
-                    {userCity ? (
-                      <div className="w-full bg-black/60 border border-emerald-500/30 rounded-xl px-4 py-3 text-emerald-400 font-bold flex items-center justify-between">
-                        <span>{userCity}</span>
-                        <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/20 font-black uppercase">Unidade Fixa</span>
-                      </div>
-                    ) : (
-                      <select value={lentesForm.UNIDADE} onChange={e => setLentesForm({...lentesForm, UNIDADE: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-sky-500/50">
-                        <option className="bg-slate-900" value="Central">Central (Todas)</option>
-                        <option className="bg-slate-900" value="Cajati">Cajati</option>
-                        <option className="bg-slate-900" value="Registro">Registro</option>
-                        <option className="bg-slate-900" value="Jacupiranga">Jacupiranga</option>
-                        <option className="bg-slate-900" value="Venda Externa">Venda Externa</option>
-                      </select>
-                    )}
+                    <select value={lentesForm.UNIDADE} onChange={e => setLentesForm({...lentesForm, UNIDADE: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-sky-500/50">
+                      <option className="bg-slate-900" value="Central">Central (Todas)</option>
+                      <option className="bg-slate-900" value="Cajati">Cajati</option>
+                      <option className="bg-slate-900" value="Registro">Registro</option>
+                      <option className="bg-slate-900" value="Jacupiranga">Jacupiranga</option>
+                      <option className="bg-slate-900" value="Venda Externa">Venda Externa</option>
+                    </select>
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-black uppercase tracking-widest text-slate-400">Marca da Lente *</label>
@@ -2029,20 +1981,13 @@ const ErpOptica = ({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="space-y-2">
                     <label className="text-xs font-black uppercase tracking-widest text-slate-400">Unidade (Loja) *</label>
-                    {userCity ? (
-                      <div className="w-full bg-black/60 border border-emerald-500/30 rounded-xl px-4 py-3 text-emerald-400 font-bold flex items-center justify-between">
-                        <span>{userCity}</span>
-                        <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/20 font-black uppercase">Unidade Fixa</span>
-                      </div>
-                    ) : (
-                      <select value={armacoesForm.UNIDADE} onChange={e => setArmacoesForm({...armacoesForm, UNIDADE: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-fuchsia-500/50">
-                        <option className="bg-slate-900" value="Central">Central (Todas)</option>
-                        <option className="bg-slate-900" value="Cajati">Cajati</option>
-                        <option className="bg-slate-900" value="Registro">Registro</option>
-                        <option className="bg-slate-900" value="Jacupiranga">Jacupiranga</option>
-                        <option className="bg-slate-900" value="Venda Externa">Venda Externa</option>
-                      </select>
-                    )}
+                    <select value={armacoesForm.UNIDADE} onChange={e => setArmacoesForm({...armacoesForm, UNIDADE: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-fuchsia-500/50">
+                      <option className="bg-slate-900" value="Central">Central (Todas)</option>
+                      <option className="bg-slate-900" value="Cajati">Cajati</option>
+                      <option className="bg-slate-900" value="Registro">Registro</option>
+                      <option className="bg-slate-900" value="Jacupiranga">Jacupiranga</option>
+                      <option className="bg-slate-900" value="Venda Externa">Venda Externa</option>
+                    </select>
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-black uppercase tracking-widest text-slate-400">Marca da Armação *</label>
@@ -2203,20 +2148,13 @@ const ErpOptica = ({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="space-y-2">
                     <label className="text-xs font-black uppercase tracking-widest text-slate-400">Unidade (Loja) *</label>
-                    {userCity ? (
-                      <div className="w-full bg-black/60 border border-pink-500/30 rounded-xl px-4 py-3 text-pink-400 font-bold flex items-center justify-between">
-                        <span>{userCity}</span>
-                        <span className="text-[10px] bg-pink-500/10 text-pink-400 px-2 py-0.5 rounded-full border border-pink-500/20 font-black uppercase">Unidade Fixa</span>
-                      </div>
-                    ) : (
-                      <select value={brindesForm.UNIDADE} onChange={e => setBrindesForm({...brindesForm, UNIDADE: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-pink-500/50">
-                        <option className="bg-slate-900" value="Central">Central (Todas)</option>
-                        <option className="bg-slate-900" value="Cajati">Cajati</option>
-                        <option className="bg-slate-900" value="Registro">Registro</option>
-                        <option className="bg-slate-900" value="Jacupiranga">Jacupiranga</option>
-                        <option className="bg-slate-900" value="Venda Externa">Venda Externa</option>
-                      </select>
-                    )}
+                    <select value={brindesForm.UNIDADE} onChange={e => setBrindesForm({...brindesForm, UNIDADE: e.target.value})} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-pink-500/50">
+                      <option className="bg-slate-900" value="Central">Central (Todas)</option>
+                      <option className="bg-slate-900" value="Cajati">Cajati</option>
+                      <option className="bg-slate-900" value="Registro">Registro</option>
+                      <option className="bg-slate-900" value="Jacupiranga">Jacupiranga</option>
+                      <option className="bg-slate-900" value="Venda Externa">Venda Externa</option>
+                    </select>
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-black uppercase tracking-widest text-slate-400">Nome / Descrição do Brinde *</label>
