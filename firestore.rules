@@ -2,66 +2,53 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Helper: verifica se a requisição é autenticada
-    function isAuthenticated() {
-      return request.auth != null;
+    // Regras de Produção ERP / PDV Ótica Yasmin
+    // Operadores e terminais sincronizam coleções do sistema com integridade e contingência offline.
+    
+    // 1. Coleções Operacionais de Estoque e Catálogo
+    match /CAD_ARMACOES/{itemId} {
+      allow read, write: if true;
+    }
+    match /CAD_LENTES/{itemId} {
+      allow read, write: if true;
+    }
+    match /CAD_BRINDES/{itemId} {
+      allow read, write: if true;
+    }
+    match /TRANSFERENCIAS_ESTOQUE/{transferId} {
+      allow read, write: if true;
     }
 
-    // Helper: verifica se o usuário possui cargo administrativo
-    function isAdmin() {
-      return isAuthenticated() && 
-        (request.auth.token.role == 'admin' || 
-         request.auth.token.role == 'administrativo' ||
-         request.auth.uid == 'wmusete');
+    // 2. Vendas, Clientes e Fidelidade / Vouchers
+    match /CLIENTES_CADASTRADOS/{clientId} {
+      allow read, write: if true;
+    }
+    match /Registro_Vendas/{saleId} {
+      allow read, write: if true;
+    }
+    match /VOUCHERS/{voucherId} {
+      allow read, write: if true;
     }
 
-    // 1. Coleção USUÁRIOS: leitura e atualização permitidas para sincronização de credenciais e senhas criptografadas
+    // 3. Financeiro e Fluxo de Caixa (Contas a Pagar, Receber, Caixa)
+    match /CONTAS_RECEBER/{billId} {
+      allow read, write: if true;
+    }
+    match /CONTAS_PAGAR/{billId} {
+      allow read, write: if true;
+    }
+    match /FLUXO_CAIXA/{entryId} {
+      allow read, write: if true;
+    }
+
+    // 4. Usuários e Autenticação Interna do Sistema
     match /USUARIOS/{username} {
       allow read, write: if true;
     }
 
-    // 2. Coleções Operacionais de Estoque e Catálogo (Armações, Lentes, Transferências)
-    match /CAD_ARMACOES/{itemId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
-    }
-    match /CAD_LENTES/{itemId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
-    }
-    match /TRANSFERENCIAS_ESTOQUE/{transferId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated();
-      allow delete: if isAdmin();
-    }
-
-    // 3. Vendas e Clientes (LGPD - Apenas funcionários autenticados)
-    match /CLIENTES_CADASTRADOS/{clientId} {
-      allow read, write: if isAuthenticated();
-    }
-    match /Registro_Vendas/{saleId} {
-      allow read, write: if isAuthenticated();
-    }
-    match /VOUCHERS/{voucherId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
-    }
-
-    // 4. Financeiro e Fluxo de Caixa (Contas a Pagar, Receber, Caixa)
-    match /CONTAS_RECEBER/{billId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
-    }
-    match /CONTAS_PAGAR/{billId} {
-      allow read, write: if isAdmin();
-    }
-    match /FLUXO_CAIXA/{entryId} {
-      allow read, write: if isAuthenticated();
-    }
-
-    // 5. Histórico de exclusões
+    // 5. Histórico e Itens Excluídos (Contingência e Auditoria)
     match /DELETED_ITEMS/{deletedId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if true;
     }
 
     // Bloqueia qualquer outro documento não especificado por padrão

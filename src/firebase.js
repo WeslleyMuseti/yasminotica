@@ -22,10 +22,13 @@ let db = null;
 let auth = null;
 let isConfigured = false;
 
-// Remove apenas o snapshot pesado que estourou os 5MB do localStorage
+// Remove apenas se o snapshot exceder o limite seguro (> 1.5MB) para evitar QuotaExceededError
 if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
   try {
-    localStorage.removeItem('YASMIN_OFFLINE_DATA_BACKUP');
+    const raw = localStorage.getItem('YASMIN_OFFLINE_DATA_BACKUP');
+    if (raw && raw.length > 1500000) {
+      localStorage.removeItem('YASMIN_OFFLINE_DATA_BACKUP');
+    }
   } catch (e) {}
 }
 

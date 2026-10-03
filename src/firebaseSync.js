@@ -68,11 +68,11 @@ export const OFFLINE_QUEUE_KEY = 'YASMIN_OFFLINE_SYNC_QUEUE';
 export const OFFLINE_BACKUP_KEY = 'YASMIN_OFFLINE_DATA_BACKUP';
 
 // Limpeza preventiva de emergência no carregamento:
-// Se houver backup com mais de 500KB no localStorage, remove-o para liberar espaço para o Firestore
+// Se houver backup com mais de 1.5MB no localStorage, remove-o para liberar espaço para o Firestore
 if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
   try {
     const raw = localStorage.getItem(OFFLINE_BACKUP_KEY);
-    if (raw && raw.length > 500000) {
+    if (raw && raw.length > 1500000) {
       localStorage.removeItem(OFFLINE_BACKUP_KEY);
       console.info('[Storage] Chave de backup pesada removida para desocupar cota do Firestore.');
     }
@@ -116,56 +116,110 @@ export const clearOfflineQueue = () => {
 
 export const notifySyncStatus = (pendingCount) => {
   if (typeof window !== 'undefined') {
-    const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+    const isOnline = typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' ? navigator.onLine : true;
     window.dispatchEvent(new CustomEvent('yasmin-sync-status', {
       detail: { pendingCount, isOnline }
     }));
   }
 };
 
-export const processOfflineQueue = async () => {
-  if (!db || (typeof navigator !== 'undefined' && !navigator.onLine)) return 0;
+/**
+ * Utilitário universal de timeout para promessas Firestore
+ */
+export const withTimeout = (promise, ms = 3500, errorMsg = 'Timeout de operação') => {
+  let timer;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(errorMsg)), ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+};
+
+// Mutex de concorrência para garantir que apenas uma rotina de sincronização execute por vez
+export let isSyncingQueue = false;
+export const getIsSyncingQueue = () => isSyncingQueue;
+
+export const processOfflineQueue = async (options = {}) => {
+  if (isSyncingQueue) return 0;
+  if (!db || (typeof navigator !== 'undefined' && navigator.onLine === false)) return 0;
   const queue = getOfflineQueue();
   if (queue.length === 0) {
     notifySyncStatus(0);
     return 0;
   }
 
+  isSyncingQueue = true;
+  const timeoutMs = options?.timeoutMs || 3500;
   const remaining = [];
   let processed = 0;
 
-  for (const op of queue) {
-    try {
-      if (op.type === 'save') {
-        const docRef = doc(db, op.collectionName, op.docId);
-        await setDoc(docRef, op.data, { merge: true });
-        processed++;
-      } else if (op.type === 'delete') {
-        const docRef = doc(db, op.collectionName, op.docId);
-        await deleteDoc(docRef);
-        processed++;
-      } else if (op.type === 'decrement_stock') {
-        const docRef = doc(db, op.collectionName, op.docId);
-        await updateDoc(docRef, {
-          ESTOQUE: increment(-op.data.quantity),
-          updatedAt: new Date().toISOString()
-        });
-        processed++;
+  try {
+    for (const op of queue) {
+      try {
+        if (typeof options?.executor === 'function') {
+          await withTimeout(
+            options.executor(op),
+            timeoutMs,
+            `Timeout ao processar ${op.collectionName}/${op.docId}`
+          );
+          processed++;
+        } else if (op.type === 'save') {
+          const docRef = doc(db, op.collectionName, op.docId);
+          await withTimeout(
+            setDoc(docRef, op.data, { merge: true }),
+            timeoutMs,
+            `Timeout ao salvar ${op.collectionName}/${op.docId}`
+          );
+          processed++;
+        } else if (op.type === 'delete') {
+          const docRef = doc(db, op.collectionName, op.docId);
+          await withTimeout(
+            deleteDoc(docRef),
+            timeoutMs,
+            `Timeout ao excluir ${op.collectionName}/${op.docId}`
+          );
+          processed++;
+        } else if (op.type === 'decrement_stock') {
+          const docRef = doc(db, op.collectionName, op.docId);
+          await withTimeout(
+            updateDoc(docRef, {
+              ESTOQUE: increment(-op.data.quantity),
+              updatedAt: new Date().toISOString()
+            }),
+            timeoutMs,
+            `Timeout ao atualizar estoque ${op.collectionName}/${op.docId}`
+          );
+          processed++;
+        }
+      } catch (err) {
+        console.warn(`[Sync Offline] Falha ao sincronizar item pendente ${op.collectionName}/${op.docId}:`, err?.message || err);
+        remaining.push(op);
       }
-    } catch (err) {
-      console.warn(`[Sync Offline] Falha ao sincronizar item pendente ${op.collectionName}/${op.docId}:`, err);
-      remaining.push(op);
     }
+
+    // Preserva quaisquer operações adicionadas concorrentemente à fila enquanto a sincronização ocorria
+    const currentQueue = getOfflineQueue();
+    const processedIds = new Set(queue.map(q => q.id));
+    const concurrentlyAdded = currentQueue.filter(item => !processedIds.has(item.id));
+    const finalQueue = [...remaining, ...concurrentlyAdded];
+
+    try {
+      localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(finalQueue));
+    } catch (storageErr) {
+      console.warn('Erro ao atualizar fila offline no localStorage:', storageErr);
+    }
+    notifySyncStatus(finalQueue.length);
+
+    if (processed > 0 && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('yasmin-sync-finished', {
+        detail: { processedCount: processed, remainingCount: finalQueue.length }
+      }));
+    }
+  } finally {
+    isSyncingQueue = false;
   }
 
-  localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(remaining));
-  notifySyncStatus(remaining.length);
-
-  if (processed > 0 && typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('yasmin-sync-finished', {
-      detail: { processedCount: processed, remainingCount: remaining.length }
-    }));
-  }
   return processed;
 };
 
@@ -226,14 +280,10 @@ export const saveDocument = async (collectionName, dataObj, customId = null) => 
     if (cleanData[key] === undefined) cleanData[key] = null;
   });
 
-  if (db) {
+  if (db && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
     try {
       const docRef = doc(db, collectionName, id);
-      const setPromise = setDoc(docRef, cleanData, { merge: true });
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Timeout de escrita Firestore')), 3000)
-      );
-      await Promise.race([setPromise, timeoutPromise]);
+      await withTimeout(setDoc(docRef, cleanData, { merge: true }), 3000, 'Timeout de escrita Firestore');
     } catch (err) {
       console.warn(`[Modo Offline] Documento ${collectionName}/${id} salvo no cache local e enfileirado:`, err);
       enqueueOfflineOp('save', collectionName, id, cleanData);
@@ -250,14 +300,10 @@ export const saveDocument = async (collectionName, dataObj, customId = null) => 
 export const deleteDocument = async (collectionName, id) => {
   if (!id) return;
   const docId = String(id);
-  if (db) {
+  if (db && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
     try {
       const docRef = doc(db, collectionName, docId);
-      const delPromise = deleteDoc(docRef);
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Timeout de exclusão Firestore')), 3000)
-      );
-      await Promise.race([delPromise, timeoutPromise]);
+      await withTimeout(deleteDoc(docRef), 3000, 'Timeout de exclusão Firestore');
     } catch (err) {
       console.warn(`[Modo Offline] Exclusão de ${collectionName}/${docId} registrada na fila offline:`, err);
       enqueueOfflineOp('delete', collectionName, docId, null);
@@ -379,6 +425,12 @@ export const decrementStockAtomically = async (collectionName, docId, quantity =
   const docRef = doc(db, collectionName, id);
   const qtyToSubtract = Math.max(1, parseInt(quantity, 10) || 1);
 
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    console.warn(`[Modo Offline] Navegador offline detectado, enfileirando decremento direto de ${collectionName}/${id}`);
+    enqueueOfflineOp('decrement_stock', collectionName, id, { quantity: qtyToSubtract });
+    return { success: true, offlineQueue: true };
+  }
+
   try {
     const txPromise = runTransaction(db, async (transaction) => {
       const docSnap = await transaction.get(docRef);
@@ -431,10 +483,14 @@ export const decrementStockAtomically = async (collectionName, docId, quantity =
 
     console.warn(`Transação atômica falhou para ${collectionName}/${id}, aplicando fallback com increment():`, err);
     try {
-      await updateDoc(docRef, {
-        ESTOQUE: increment(-qtyToSubtract),
-        updatedAt: new Date().toISOString()
-      });
+      await withTimeout(
+        updateDoc(docRef, {
+          ESTOQUE: increment(-qtyToSubtract),
+          updatedAt: new Date().toISOString()
+        }),
+        2500,
+        'Timeout no fallback de decremento de estoque Firestore'
+      );
       return { success: true, fallback: true };
     } catch (fallbackErr) {
       console.warn(`[Modo Offline] Fallback no Firestore falhou para ${collectionName}/${id}, registrando decremento na fila offline:`, fallbackErr);
@@ -476,10 +532,14 @@ export const incrementStockAtomically = async (collectionName, docId, quantity =
     return res;
   } catch (err) {
     try {
-      await updateDoc(docRef, {
-        ESTOQUE: increment(qtyToAdd),
-        updatedAt: new Date().toISOString()
-      });
+      await withTimeout(
+        updateDoc(docRef, {
+          ESTOQUE: increment(qtyToAdd),
+          updatedAt: new Date().toISOString()
+        }),
+        2500,
+        'Timeout no fallback de incremento de estoque Firestore'
+      );
       return { success: true, fallback: true };
     } catch (e) {
       return { success: false, error: e };

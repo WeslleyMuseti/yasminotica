@@ -29,7 +29,8 @@ import {
   processOfflineQueue,
   saveOfflineSnapshot,
   loadOfflineSnapshot,
-  syncUserPasswordToFirestore
+  syncUserPasswordToFirestore,
+  OFFLINE_QUEUE_KEY
 } from './firebaseSync';
 
 // Hash seguro PBKDF2 padrão para primeiro acesso da conta master
@@ -103,16 +104,22 @@ function App() {
       setShowSyncSuccessToast(true);
       setTimeout(() => setShowSyncSuccessToast(false), 5000);
     };
+    const handleStorageChange = (e) => {
+      if (!e || e.key === OFFLINE_QUEUE_KEY || e.key === null) {
+        setOfflinePendingCount(getOfflineQueue().length);
+      }
+    };
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     window.addEventListener('yasmin-sync-status', handleSyncStatus);
     window.addEventListener('yasmin-sync-finished', handleSyncFinished);
+    window.addEventListener('storage', handleStorageChange);
 
     // Limpeza de emergência preventiva para desocupar a cota de 5MB do localStorage
     try {
       const backupRaw = localStorage.getItem('YASMIN_OFFLINE_DATA_BACKUP');
-      if (backupRaw && backupRaw.length > 500000) {
+      if (backupRaw && backupRaw.length > 1500000) {
         localStorage.removeItem('YASMIN_OFFLINE_DATA_BACKUP');
       }
     } catch {}
@@ -134,6 +141,7 @@ function App() {
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('yasmin-sync-status', handleSyncStatus);
       window.removeEventListener('yasmin-sync-finished', handleSyncFinished);
+      window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
 
@@ -1017,8 +1025,8 @@ function App() {
         </div>
       </nav>
 
-      {/* 📶 BANNER VISUAL DE CONTINGÊNCIA OFFLINE */}
-      {!isOnline && (
+      {/* 📶 BANNER VISUAL DE CONTINGÊNCIA OFFLINE & SINCRONIZAÇÃO EM TEMPO REAL */}
+      {!isOnline ? (
         <div className="bg-gradient-to-r from-amber-600 via-amber-700 to-amber-800 text-white px-4 py-2.5 shadow-md flex items-center justify-between text-xs font-semibold z-40 animate-in fade-in slide-in-from-top-2 border-b border-amber-500/30">
           <div className="max-w-[1550px] mx-auto w-full flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div className="flex items-center gap-2.5">
@@ -1042,7 +1050,29 @@ function App() {
             )}
           </div>
         </div>
-      )}
+      ) : offlinePendingCount > 0 ? (
+        <div className="bg-gradient-to-r from-sky-700 via-indigo-700 to-blue-800 text-white px-4 py-2.5 shadow-md flex items-center justify-between text-xs font-semibold z-40 animate-in fade-in slide-in-from-top-2 border-b border-sky-500/30">
+          <div className="max-w-[1550px] mx-auto w-full flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5">
+              <span className="p-1.5 bg-black/25 rounded-lg text-sky-200 flex items-center justify-center shrink-0">
+                <RefreshCw size={16} className="animate-spin" />
+              </span>
+              <div>
+                <span className="font-black uppercase tracking-wider text-[10px] bg-black/40 px-2 py-0.5 rounded-full mr-2 text-sky-200 border border-sky-400/20">
+                  SINCRONIZANDO EM TEMPO REAL
+                </span>
+                <span className="text-sky-50">
+                  Conexão restabelecida! Enviando alterações acumuladas da contingência para o Firestore em nuvem...
+                </span>
+              </div>
+            </div>
+            <span className="font-mono font-bold bg-white text-sky-950 px-2.5 py-1 rounded-full text-[11px] shrink-0 shadow-sm flex items-center gap-1.5 self-start sm:self-auto">
+              <span className="w-2 h-2 rounded-full bg-sky-600 animate-ping" />
+              {offlinePendingCount} alteraç{offlinePendingCount > 1 ? 'ões pendentes' : 'ão pendente'}
+            </span>
+          </div>
+        </div>
+      ) : null}
 
       {/* ⚡ TOAST FLUTUANTE DE SINCRONIZAÇÃO BEM-SUCEDIDA */}
       {showSyncSuccessToast && (

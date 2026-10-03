@@ -2,7 +2,18 @@ import {
   hashPassword, 
   verifyPassword, 
   isPasswordHashed, 
-  isSameClient 
+  isSameClient,
+  processOfflineQueue,
+  enqueueOfflineOp,
+  getOfflineQueue,
+  clearOfflineQueue,
+  withTimeout,
+  isSyncingQueue,
+  getIsSyncingQueue,
+  OFFLINE_QUEUE_KEY,
+  OFFLINE_BACKUP_KEY,
+  saveOfflineSnapshot,
+  loadOfflineSnapshot
 } from './src/firebaseSync.js';
 import {
   parseCurrency,
@@ -2372,75 +2383,120 @@ async function runTests() {
 
   console.log('  ✅ Test 26 Passed: Limpeza atômica e reconfirmação sem duplicidades validadas com sucesso!\n');
 
-  // ─── TEST 27: Modo Contingência Offline (Fila de Sincronização, Snapshots e Auto-Sync) ───
-  console.log('▶ Test 27: Modo Contingência Offline (Fila Local, Snapshots e Auto-Sync)');
+  // ─── TEST 27: Modo Contingência Offline (Fila Real, Timeouts, Mutex e Drenagem) ───
+  console.log('▶ Test 27: Modo Contingência Offline (Fila Real, Timeouts, Mutex e Drenagem)');
 
-  // Mock de LocalStorage em memória para o ambiente Node
-  const mockStorage = {};
-  const mockLocalStorage = {
-    getItem: (k) => mockStorage[k] || null,
-    setItem: (k, v) => { mockStorage[k] = String(v); },
-    removeItem: (k) => { delete mockStorage[k]; }
+  // Configura armazenamento local em memória para o ambiente Node
+  const mockStorage = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => mockStorage.get(k) || null,
+    setItem: (k, v) => mockStorage.set(k, String(v)),
+    removeItem: (k) => mockStorage.delete(k),
+    clear: () => mockStorage.clear()
   };
 
-  // Simulação da lógica de fila offline
-  const testQueue = [];
-  const enqueueTestOp = (type, col, id, data) => {
-    const op = { id: `op_${Date.now()}_${Math.random()}`, type, col, id, data, timestamp: new Date().toISOString() };
-    testQueue.push(op);
-    mockLocalStorage.setItem('YASMIN_OFFLINE_SYNC_QUEUE', JSON.stringify(testQueue));
-    return op;
-  };
+  // 27.1 Validação do utilitário universal withTimeout
+  const fastPromise = withTimeout(Promise.resolve('sucesso_rapido'), 100, 'timeout_erro');
+  const fastResult = await fastPromise;
+  console.assert(fastResult === 'sucesso_rapido', 'withTimeout deve retornar o resultado para promessas rápidas');
 
-  // 27.1 Enfileiramento de operações em modo offline
-  const opSale = enqueueTestOp('save', 'Registro_Vendas', 'sale_off_1', { CLIENTE: 'MARIA OFFLINE', VALOR: 350.00 });
-  const opStock = enqueueTestOp('decrement_stock', 'CAD_ARMACOES', 'arm_off_1', { quantity: 1 });
-  const opClient = enqueueTestOp('save', 'CLIENTES_CADASTRADOS', 'cli_off_1', { 'Nome Completo': 'MARIA OFFLINE', CPF: '12345678901' });
+  let timeoutCaught = false;
+  try {
+    await withTimeout(new Promise(r => setTimeout(r, 200)), 30, 'Timeout disparado com sucesso');
+  } catch (err) {
+    timeoutCaught = true;
+    console.assert(err.message === 'Timeout disparado com sucesso', 'Mensagem de erro de timeout deve conferir');
+  }
+  console.assert(timeoutCaught === true, 'withTimeout deve rejeitar pontualmente quando o tempo limite for excedido');
 
-  console.assert(testQueue.length === 3, 'A fila offline deve conter exatamente 3 operações enfileiradas');
-  const storedQueue = JSON.parse(mockLocalStorage.getItem('YASMIN_OFFLINE_SYNC_QUEUE'));
+  // 27.2 Enfileiramento real na fila de contingência
+  clearOfflineQueue();
+  console.assert(getOfflineQueue().length === 0, 'Fila deve iniciar vazia após clearOfflineQueue');
+
+  const op1 = enqueueOfflineOp('save', 'Registro_Vendas', 'sale_off_1', { CLIENTE: 'MARIA OFFLINE', VALOR: 350.00 });
+  const op2 = enqueueOfflineOp('decrement_stock', 'CAD_ARMACOES', 'arm_off_1', { quantity: 1 });
+  const op3 = enqueueOfflineOp('save', 'CLIENTES_CADASTRADOS', 'cli_off_1', { 'Nome Completo': 'MARIA OFFLINE', CPF: '12345678901' });
+
+  console.assert(getOfflineQueue().length === 3, 'A fila offline deve conter exatamente 3 operações enfileiradas');
+  const storedQueue = JSON.parse(globalThis.localStorage.getItem(OFFLINE_QUEUE_KEY));
   console.assert(storedQueue.length === 3, 'Fila deve persistir corretamente no armazenamento local');
   console.assert(storedQueue[0].data.CLIENTE === 'MARIA OFFLINE', 'Dados da venda offline devem ser preservados');
   console.assert(storedQueue[1].data.quantity === 1, 'Decremento de estoque offline deve ser preservado');
 
-  // 27.2 Drenagem / Processamento da fila ao restabelecer conexão (Auto-Sync)
-  const processTestQueue = (isOnline) => {
-    if (!isOnline) return 0;
-    const items = [...testQueue];
-    let processed = 0;
-    while (items.length > 0) {
-      const item = items.shift();
-      // simula envio bem-sucedido
-      processed++;
+  // 27.3 Proteção contra Hang: Simulação de Instabilidade de Rede com Timeout e Drenagem Parcial
+  // Simula op1 dando timeout (Wi-Fi sem gateway/DNS), enquanto op2 e op3 são processadas normalmente
+  const processedWithStall = await processOfflineQueue({
+    timeoutMs: 40,
+    executor: async (op) => {
+      if (op.docId === 'sale_off_1') {
+        // Simula Firestore pendurado sem retorno
+        await new Promise(r => setTimeout(r, 200));
+      }
+      // op2 e op3 concluem normalmente
     }
-    testQueue.length = 0;
-    mockLocalStorage.setItem('YASMIN_OFFLINE_SYNC_QUEUE', JSON.stringify(testQueue));
-    return processed;
-  };
+  });
 
-  const processedCountOffline = processTestQueue(false);
-  console.assert(processedCountOffline === 0, 'Quando offline, a fila NÃO deve tentar sincronizar');
-  console.assert(testQueue.length === 3, 'A fila deve permanecer intacta enquanto offline');
+  console.assert(processedWithStall === 2, `Devem ser processados 2 itens com sucesso (processados: ${processedWithStall})`);
+  const queueAfterStall = getOfflineQueue();
+  console.assert(queueAfterStall.length === 1, `Item que sofreu timeout deve permanecer na fila (restantes: ${queueAfterStall.length})`);
+  console.assert(queueAfterStall[0].docId === 'sale_off_1', 'Item remanescente deve ser a venda que sofreu timeout');
 
-  const processedCountOnline = processTestQueue(true);
-  console.assert(processedCountOnline === 3, 'Ao retornar online, todas as 3 operações devem ser processadas');
-  console.assert(testQueue.length === 0, 'A fila deve ficar limpa após auto-sync bem-sucedido');
-  console.assert(JSON.parse(mockLocalStorage.getItem('YASMIN_OFFLINE_SYNC_QUEUE')).length === 0, 'LocalStorage deve registrar fila zerada');
+  // 27.4 Mutex de Concorrência e Preservação de Operações Enfileiradas Simultaneamente
+  let mutexBlockedConcurrentCall = false;
+  const syncWithConcurrentAdd = processOfflineQueue({
+    timeoutMs: 150,
+    executor: async (op) => {
+      console.assert(getIsSyncingQueue() === true, 'isSyncingQueue deve estar ativo durante execução');
+      
+      // Chamada paralela deve ser bloqueada pelo mutex
+      const concurrentResult = await processOfflineQueue();
+      if (concurrentResult === 0) {
+        mutexBlockedConcurrentCall = true;
+      }
 
-  // 27.3 Snapshot de Recuperação Total Offline (Hidratação sem internet)
+      // Adiciona uma nova operação concorrentemente enquanto a fila está em trânsito
+      enqueueOfflineOp('save', 'Registro_Vendas', 'sale_concorrente', { VALOR: 120.00 });
+      await new Promise(r => setTimeout(r, 30));
+    }
+  });
+
+  const processedFinal = await syncWithConcurrentAdd;
+  console.assert(mutexBlockedConcurrentCall === true, 'Mutex deve impedir chamadas simultâneas à processOfflineQueue');
+  console.assert(getIsSyncingQueue() === false, 'Mutex deve ser liberado ao término da sincronização');
+  console.assert(processedFinal === 1, 'Item pendente anterior deve ser processado');
+
+  // Verifica que a operação concorrente NÃO foi descartada e segue na fila
+  const queueWithConcurrent = getOfflineQueue();
+  console.assert(queueWithConcurrent.length === 1, 'Operação inserida concorrentemente deve ser preservada na fila');
+  console.assert(queueWithConcurrent[0].docId === 'sale_concorrente', 'Operação preservada deve ser a inserida concorrentemente');
+
+  // 27.5 Drenagem Final Completa da Fila
+  const processedDrain = await processOfflineQueue({
+    timeoutMs: 50,
+    executor: async () => {}
+  });
+  console.assert(processedDrain === 1, 'Último item pendente deve ser drenado');
+  console.assert(getOfflineQueue().length === 0, 'Fila deve estar 100% zerada após drenagem completa');
+
+  // 27.6 Snapshot de Recuperação Total Offline (Limites Seguros e Hidratação)
   const appDataSnapshot = {
     'CLIENTES_CADASTRADOS': [{ id: '1', 'Nome Completo': 'CLIENTE OFFLINE SALVO' }],
     'CAD_ARMACOES': [{ id: 'a1', MODELO: 'RAY-BAN TITANIUM', ESTOQUE: 5 }],
     'Registro_Vendas': [{ id: 'v1', VALOR: 499.00 }]
   };
-  mockLocalStorage.setItem('YASMIN_OFFLINE_DATA_BACKUP', JSON.stringify(appDataSnapshot));
+  saveOfflineSnapshot(appDataSnapshot);
 
-  const restoredSnapshot = JSON.parse(mockLocalStorage.getItem('YASMIN_OFFLINE_DATA_BACKUP'));
+  const restoredSnapshot = loadOfflineSnapshot();
   console.assert(restoredSnapshot['CLIENTES_CADASTRADOS'].length === 1, 'Snapshot offline deve restaurar clientes');
   console.assert(restoredSnapshot['CAD_ARMACOES'][0].MODELO === 'RAY-BAN TITANIUM', 'Snapshot offline deve restaurar armações e estoque');
   console.assert(restoredSnapshot['CAD_ARMACOES'][0].ESTOQUE === 5, 'Saldo de estoque no snapshot deve ser preservado');
 
-  console.log('  ✅ Test 27 Passed: Modo Contingência Offline (Fila Local, Snapshots e Auto-Sync) validado com sucesso!\n');
+  // Snapshot com excesso de tamanho (> 1.5MB) deve ser descartado com segurança
+  const hugeData = { 'GRANDE': new Array(100).fill({ dados: 'x'.repeat(20000) }) };
+  saveOfflineSnapshot(hugeData);
+  console.assert(loadOfflineSnapshot() === null, 'Snapshot excessivo deve ser removido preventivamente para resguardar cota');
+
+  console.log('  ✅ Test 27 Passed: Modo Contingência Offline (Fila Real, Timeouts, Mutex e Drenagem) validado com sucesso!\n');
 
   // ─── TEST 28: Alteração de Senha do Usuário (Autoatendimento, Admin e Sobrescrita Master) ───
   console.log('▶ Test 28: Alteração de Senha do Usuário (Autoatendimento, Admin e Sobrescrita Master)');
