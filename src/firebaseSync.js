@@ -127,7 +127,14 @@ export const notifySyncStatus = (pendingCount) => {
  * Utilitário universal de timeout para promessas Firestore
  */
 export const withTimeout = (promise, ms = 3500, errorMsg = 'Timeout de operação') => {
+  if (!promise || typeof promise.then !== 'function') {
+    return Promise.resolve(promise);
+  }
   let timer;
+  // Previne UnhandledPromiseRejection caso a promessa original falhe após o timeout
+  if (typeof promise.catch === 'function') {
+    promise.catch(() => {});
+  }
   const timeoutPromise = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(errorMsg)), ms);
   });
@@ -191,6 +198,19 @@ export const processOfflineQueue = async (options = {}) => {
             `Timeout ao atualizar estoque ${op.collectionName}/${op.docId}`
           );
           processed++;
+        } else if (op.type === 'increment_stock') {
+          const docRef = doc(db, op.collectionName, op.docId);
+          await withTimeout(
+            updateDoc(docRef, {
+              ESTOQUE: increment(op.data.quantity),
+              updatedAt: new Date().toISOString()
+            }),
+            timeoutMs,
+            `Timeout ao incrementar estoque ${op.collectionName}/${op.docId}`
+          );
+          processed++;
+        } else {
+          console.warn(`[Sync Offline] Tipo de operação não reconhecido descartado com segurança:`, op.type);
         }
       } catch (err) {
         console.warn(`[Sync Offline] Falha ao sincronizar item pendente ${op.collectionName}/${op.docId}:`, err?.message || err);
@@ -200,14 +220,20 @@ export const processOfflineQueue = async (options = {}) => {
 
     // Preserva quaisquer operações adicionadas concorrentemente à fila enquanto a sincronização ocorria
     const currentQueue = getOfflineQueue();
-    const processedIds = new Set(queue.map(q => q.id));
-    const concurrentlyAdded = currentQueue.filter(item => !processedIds.has(item.id));
+    const processedIds = new Set(queue.map(q => q.id).filter(Boolean));
+    const concurrentlyAdded = currentQueue.filter(item => !item.id || !processedIds.has(item.id));
     const finalQueue = [...remaining, ...concurrentlyAdded];
 
     try {
       localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(finalQueue));
     } catch (storageErr) {
-      console.warn('Erro ao atualizar fila offline no localStorage:', storageErr);
+      console.warn('Erro ao atualizar fila offline no localStorage, liberando snapshot para garantir espaço:', storageErr);
+      try {
+        localStorage.removeItem(OFFLINE_BACKUP_KEY);
+        localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(finalQueue));
+      } catch (retryErr) {
+        console.error('Falha crítica ao persistir fila offline após limpeza de snapshot:', retryErr);
+      }
     }
     notifySyncStatus(finalQueue.length);
 
@@ -323,8 +349,7 @@ export const fetchUserDocument = async (username) => {
     const docRef = doc(db, 'USUARIOS', cleanUser);
     
     // Proteção com timeout de 3.5 segundos para garantir que o login não trave caso a rede esteja lenta
-    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), 3500));
-    const docSnap = await Promise.race([getDoc(docRef), timeoutPromise]);
+    const docSnap = await withTimeout(getDoc(docRef), 3500, 'Timeout ao buscar usuário').catch(() => null);
     
     if (docSnap && typeof docSnap.exists === 'function' && docSnap.exists()) {
       return { id: docSnap.id, ...docSnap.data() };
@@ -469,11 +494,7 @@ export const decrementStockAtomically = async (collectionName, docId, quantity =
       return { success: true, previousStock: currentStock, newStock };
     });
 
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Timeout de transação atômica Firestore')), 2500)
-    );
-
-    const transactionResult = await Promise.race([txPromise, timeoutPromise]);
+    const transactionResult = await withTimeout(txPromise, 2500, 'Timeout de transação atômica Firestore');
     return transactionResult;
   } catch (err) {
     if (err.code === 'INSUFFICIENT_STOCK') {
@@ -557,7 +578,7 @@ export const transferStockAtomically = async (collectionName, originDocId, destD
   const qty = Math.max(1, parseInt(quantity, 10) || 1);
 
   try {
-    await runTransaction(db, async (transaction) => {
+    const txPromise = runTransaction(db, async (transaction) => {
       const originSnap = await transaction.get(originRef);
       if (!originSnap.exists()) throw new Error('Origem não encontrada');
 
@@ -593,6 +614,7 @@ export const transferStockAtomically = async (collectionName, originDocId, destD
         }
       }
     });
+    await withTimeout(txPromise, 3500, 'Timeout de transferência de estoque Firestore');
     return { success: true };
   } catch (err) {
     console.error('Erro na transferência atômica:', err);

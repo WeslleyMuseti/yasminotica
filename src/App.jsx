@@ -106,7 +106,11 @@ function App() {
     };
     const handleStorageChange = (e) => {
       if (!e || e.key === OFFLINE_QUEUE_KEY || e.key === null) {
-        setOfflinePendingCount(getOfflineQueue().length);
+        const count = getOfflineQueue().length;
+        setOfflinePendingCount(count);
+        if (count > 0 && typeof navigator !== 'undefined' && navigator.onLine) {
+          processOfflineQueue();
+        }
       }
     };
 

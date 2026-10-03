@@ -15,6 +15,9 @@ service cloud.firestore {
     match /CAD_BRINDES/{itemId} {
       allow read, write: if true;
     }
+    match /ESTOQUE/{itemId} {
+      allow read, write: if true;
+    }
     match /TRANSFERENCIAS_ESTOQUE/{transferId} {
       allow read, write: if true;
     }

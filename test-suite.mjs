@@ -13,7 +13,8 @@ import {
   OFFLINE_QUEUE_KEY,
   OFFLINE_BACKUP_KEY,
   saveOfflineSnapshot,
-  loadOfflineSnapshot
+  loadOfflineSnapshot,
+  decrementStockAtomically
 } from './src/firebaseSync.js';
 import {
   parseCurrency,
@@ -2496,7 +2497,34 @@ async function runTests() {
   saveOfflineSnapshot(hugeData);
   console.assert(loadOfflineSnapshot() === null, 'Snapshot excessivo deve ser removido preventivamente para resguardar cota');
 
-  console.log('  ✅ Test 27 Passed: Modo Contingência Offline (Fila Real, Timeouts, Mutex e Drenagem) validado com sucesso!\n');
+  // 27.7 Validação de decrementStockAtomically com Enfileiramento Offline Direto
+  if (typeof globalThis.navigator === 'undefined') {
+    globalThis.navigator = { onLine: false };
+  } else {
+    Object.defineProperty(globalThis.navigator, 'onLine', { value: false, configurable: true, writable: true });
+  }
+  const decRes = await decrementStockAtomically('CAD_ARMACOES', 'arm_offline_test', 2);
+  console.assert(decRes.success === true && decRes.offlineQueue === true, 'decrementStockAtomically offline deve retornar success: true e offlineQueue: true');
+  const queueAfterDec = getOfflineQueue();
+  const queuedDecOp = queueAfterDec.find(op => op.docId === 'arm_offline_test');
+  console.assert(queuedDecOp && queuedDecOp.type === 'decrement_stock' && queuedDecOp.data.quantity === 2, 'Operação de decremento de estoque deve ser enfileirada com precisão');
+
+  // Restabelece conectividade online para drenagem da fila
+  Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true, writable: true });
+
+  // Drena a operação de teste
+  const drainedDec = await processOfflineQueue({
+    timeoutMs: 50,
+    executor: async () => {}
+  });
+  console.assert(drainedDec === 1, 'Operação de decremento de estoque deve ser drenada normalmente');
+  console.assert(getOfflineQueue().length === 0, 'Fila deve estar vazia após drenagem do teste 27.7');
+
+  // 27.8 Validação de withTimeout com Entradas Síncronas / Não-Promessas
+  const syncVal = await withTimeout('valor_imediato');
+  console.assert(syncVal === 'valor_imediato', 'withTimeout deve resolver valores síncronos sem travar');
+
+  console.log('  ✅ Test 27 Passed: Modo Contingência Offline (Fila Real, Timeouts, Mutex, Baixa de Estoque e Drenagem) validado com sucesso!\n');
 
   // ─── TEST 28: Alteração de Senha do Usuário (Autoatendimento, Admin e Sobrescrita Master) ───
   console.log('▶ Test 28: Alteração de Senha do Usuário (Autoatendimento, Admin e Sobrescrita Master)');
