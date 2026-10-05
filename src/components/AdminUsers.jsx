@@ -14,6 +14,7 @@ const AdminUsers = ({ users, setUsers, onBack, data, onDataLoaded, onDownloadExc
   const [showImport, setShowImport] = useState(false);
 
   const savePassword = async (username) => {
+    if (isProcessing) return;
     if (!passwordEdit.newPass.trim()) {
       alert('Por favor, digite uma nova senha!');
       return;
@@ -38,9 +39,10 @@ const AdminUsers = ({ users, setUsers, onBack, data, onDataLoaded, onDownloadExc
       const syncResult = await syncUserPasswordToFirestore(cleanUsername, hashed, targetUser);
 
       const nowIso = syncResult?.userDoc?.updatedAt || new Date().toISOString();
+      const effectiveCity = syncResult?.userDoc?.city || targetUser.city || targetUser.assignedStore || '';
       const updated = users.map(u => {
         if (u.username.toLowerCase() === cleanUsername) {
-          return { ...u, username: cleanUsername, password: hashed, updatedAt: nowIso };
+          return { ...u, username: cleanUsername, password: hashed, city: effectiveCity, assignedStore: effectiveCity, updatedAt: nowIso };
         }
         return u;
       });
@@ -69,10 +71,12 @@ const AdminUsers = ({ users, setUsers, onBack, data, onDataLoaded, onDownloadExc
       let updatedUserDoc = null;
       const updated = users.map(usr => {
         if (usr.username?.toLowerCase().trim() === cleanUser) {
+          const cityVal = newRole === 'vendedor' ? (usr.city || usr.assignedStore || 'Cajati') : '';
           updatedUserDoc = {
             ...usr,
             role: newRole,
-            city: newRole === 'vendedor' ? (usr.city || 'Cajati') : '',
+            city: cityVal,
+            assignedStore: cityVal,
             updatedAt: nowIso
           };
           return updatedUserDoc;
@@ -105,6 +109,7 @@ const AdminUsers = ({ users, setUsers, onBack, data, onDataLoaded, onDownloadExc
           updatedUserDoc = {
             ...usr,
             city: newCity,
+            assignedStore: newCity,
             updatedAt: nowIso
           };
           return updatedUserDoc;
@@ -191,6 +196,10 @@ const AdminUsers = ({ users, setUsers, onBack, data, onDataLoaded, onDownloadExc
     e.preventDefault();
     if (isProcessing) return;
     if (!newUser || !newPass) return;
+    if (newPass.trim().length < 4) {
+      alert('A nova senha deve ter no mínimo 4 caracteres.');
+      return;
+    }
     if (newRole === 'vendedor' && !newCity) {
       alert('Selecione a unidade do vendedor!');
       return;
@@ -210,12 +219,14 @@ const AdminUsers = ({ users, setUsers, onBack, data, onDataLoaded, onDownloadExc
       }
 
       const nowIso = new Date().toISOString();
+      const cityVal = newRole === 'vendedor' ? newCity : '';
       const newUserObj = { 
         id: cleanUser,
         username: cleanUser, 
         password: hashed, 
         role: newRole, 
-        city: newRole === 'vendedor' ? newCity : '', 
+        city: cityVal, 
+        assignedStore: cityVal,
         authorized: true,
         updatedAt: nowIso
       };

@@ -18,6 +18,7 @@ const ChangePasswordModal = ({ isOpen, onClose, currentUser, onPasswordChanged }
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isLoading || success) return;
     setError('');
     setSuccess('');
 

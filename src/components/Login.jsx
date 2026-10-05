@@ -210,7 +210,7 @@ const Login = ({ onLogin, users = [], onRegister, onUpgradeUserPassword, onUpdat
           try {
             const secureHash = await hashPassword(password);
             if (onUpgradeUserPassword) {
-              onUpgradeUserPassword(targetUser.username, secureHash);
+              await onUpgradeUserPassword(targetUser.username, secureHash);
             }
           } catch (migErr) {
             console.warn('Aviso ao atualizar senha legada:', migErr);

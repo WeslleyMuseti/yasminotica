@@ -49,7 +49,7 @@ export const subscribeToCollections = (onDataUpdate) => {
         docs.push({ id: docSnap.id, ...docSnap.data() });
       });
       state[colName] = docs;
-      onDataUpdate({ ...state });
+      onDataUpdate({ ...state }, colName);
     }, (error) => {
       console.warn(`Aviso ao escutar coleção ${colName}:`, error);
     });
@@ -466,13 +466,16 @@ export const syncUserPasswordToFirestore = async (username, newHashedPassword, a
 
   const cleanUser = String(username).toLowerCase().trim();
   const nowIso = new Date().toISOString();
+  const effectiveCity = additionalUserData.city || additionalUserData.assignedStore || '';
 
   const userDoc = {
+    ...additionalUserData,
     id: cleanUser,
     username: cleanUser,
     password: newHashedPassword,
     role: additionalUserData.role || 'vendedor',
-    city: additionalUserData.city || '',
+    city: effectiveCity,
+    assignedStore: effectiveCity,
     authorized: additionalUserData.authorized !== false,
     updatedAt: nowIso
   };
@@ -543,6 +546,11 @@ export const areUserListsEqual = (prevUsers, nextUsers) => {
   const listA = [...prevUsers].sort(sortFn);
   const listB = [...nextUsers].sort(sortFn);
 
+  const normalizeRole = (r) => {
+    const s = String(r || 'vendedor').toLowerCase().trim();
+    return (s === 'admin' || s === 'administrativo') ? 'administrativo' : s;
+  };
+
   for (let i = 0; i < listA.length; i++) {
     const a = listA[i] || {};
     const b = listB[i] || {};
@@ -551,8 +559,10 @@ export const areUserListsEqual = (prevUsers, nextUsers) => {
     const uB = String(b.username || '').toLowerCase().trim();
     if (uA !== uB) return false;
     if (String(a.password || '') !== String(b.password || '')) return false;
-    if (String(a.role || '') !== String(b.role || '')) return false;
-    if (String(a.city || '') !== String(b.city || '')) return false;
+    if (normalizeRole(a.role) !== normalizeRole(b.role)) return false;
+    const cityA = String(a.city || a.assignedStore || '').trim();
+    const cityB = String(b.city || b.assignedStore || '').trim();
+    if (cityA !== cityB) return false;
     if (Boolean(a.authorized) !== Boolean(b.authorized)) return false;
     if (String(a.updatedAt || '') !== String(b.updatedAt || '')) return false;
   }
@@ -565,9 +575,16 @@ export const areUserListsEqual = (prevUsers, nextUsers) => {
  * 2. Preservação permanente da conta master 'wmusete'.
  * 3. Incorporação de operações pendentes na fila offline (type === 'save' e 'delete').
  * 4. Preservação de alterações locais com updatedAt mais recente.
+ * 5. Não apagamento de hash de senhas existentes caso documento remoto venha sem senha.
+ * 6. Sincronização unificada de city e assignedStore.
  */
 export const reconcileUsers = (remoteUsers = [], prevUsers = [], offlineQueue = []) => {
   const userMap = new Map();
+
+  const normalizeRole = (r) => {
+    const s = String(r || 'vendedor').toLowerCase().trim();
+    return (s === 'admin' || s === 'administrativo') ? 'administrativo' : s;
+  };
 
   // 1. Popula com os usuários remotos oficiais
   (remoteUsers || []).forEach(r => {
@@ -577,13 +594,25 @@ export const reconcileUsers = (remoteUsers = [], prevUsers = [], offlineQueue = 
     if (existingLocal) {
       const remoteTime = r.updatedAt ? new Date(r.updatedAt).getTime() : 0;
       const localTime = existingLocal.updatedAt ? new Date(existingLocal.updatedAt).getTime() : 0;
+      let mergedUser;
       if (localTime > remoteTime) {
-        userMap.set(key, { ...r, ...existingLocal, id: key, username: key });
+        mergedUser = { ...r, ...existingLocal, id: key, username: key };
       } else {
-        userMap.set(key, { ...existingLocal, ...r, id: key, username: key });
+        mergedUser = { ...existingLocal, ...r, id: key, username: key };
       }
+      // Proteção de integridade: nunca perde o hash de senha se o snapshot remoto veio sem ele
+      if (!mergedUser.password && existingLocal.password) {
+        mergedUser.password = existingLocal.password;
+      }
+      // Proteção de integridade: unifica city e assignedStore
+      const city = mergedUser.city || mergedUser.assignedStore || existingLocal.city || existingLocal.assignedStore || '';
+      mergedUser.city = city;
+      mergedUser.assignedStore = city;
+      mergedUser.role = normalizeRole(mergedUser.role);
+      userMap.set(key, mergedUser);
     } else {
-      userMap.set(key, { ...r, id: key, username: key });
+      const city = r.city || r.assignedStore || '';
+      userMap.set(key, { ...r, id: key, username: key, city, assignedStore: city, role: normalizeRole(r.role) });
     }
   });
 
@@ -592,12 +621,12 @@ export const reconcileUsers = (remoteUsers = [], prevUsers = [], offlineQueue = 
   if (!userMap.has(masterKey)) {
     const localMaster = (prevUsers || []).find(u => u?.username && String(u.username).toLowerCase().trim() === masterKey);
     if (localMaster) {
-      userMap.set(masterKey, { ...localMaster, id: masterKey, username: masterKey });
+      userMap.set(masterKey, { ...localMaster, id: masterKey, username: masterKey, role: 'administrativo' });
     } else {
       userMap.set(masterKey, {
         id: masterKey,
         username: masterKey,
-        role: 'admin',
+        role: 'administrativo',
         authorized: true,
         updatedAt: new Date().toISOString()
       });
@@ -614,7 +643,8 @@ export const reconcileUsers = (remoteUsers = [], prevUsers = [], offlineQueue = 
       if (username) {
         const key = String(username).toLowerCase().trim();
         const existing = userMap.get(key);
-        userMap.set(key, { ...(existing || {}), ...op.data, id: key, username: key });
+        const city = op.data.city || op.data.assignedStore || existing?.city || '';
+        userMap.set(key, { ...(existing || {}), ...op.data, id: key, username: key, city, assignedStore: city, role: normalizeRole(op.data.role || existing?.role) });
       }
     } else if (op.type === 'delete') {
       const targetId = op.docId || op.id;

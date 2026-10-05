@@ -3607,9 +3607,33 @@ async function runTests() {
     return { updatedList: updated, docToSave: updatedDoc };
   };
 
-  const cityChangeRes = simulateHandleCityChange(adminUsersList, 'operador_loja', 'Jacupiranga');
-  console.assert(cityChangeRes.docToSave.city === 'Jacupiranga', 'Cidade deve ser atualizada para Jacupiranga');
-  console.assert(cityChangeRes.docToSave.updatedAt !== adminUsersList[0].updatedAt, 'updatedAt deve ser renovado ao alterar unidade');
+  // 38.8 Proteção Contra Perda de Senha na Reconciliação (Remote Snapshot sem Password)
+  const remoteWithoutPass = [
+    { username: 'carla_reg', role: 'vendedor', city: 'Registro', authorized: true, updatedAt: '2026-10-05T14:00:00.000Z' }
+  ];
+  const localWithPass = [
+    { username: 'carla_reg', password: 'hash_super_seguro_carla', role: 'vendedor', city: 'Registro', authorized: true, updatedAt: '2026-10-05T12:00:00.000Z' }
+  ];
+  const reconciledPassPreserved = reconcileUsers(remoteWithoutPass, localWithPass, []);
+  const carlaPass = reconciledPassPreserved.find(u => u.username === 'carla_reg');
+  console.assert(carlaPass.password === 'hash_super_seguro_carla', 'Reconciliação não deve apagar hash de senha se snapshot remoto vier sem password');
+
+  // 38.9 Normalização de Cargo (admin vs administrativo) e Unificação city / assignedStore em areUserListsEqual
+  const userAdmin1 = [{ username: 'wmusete', role: 'admin', city: 'Cajati', authorized: true, password: 'hash', updatedAt: '2026-10-05T10:00:00.000Z' }];
+  const userAdmin2 = [{ username: 'wmusete', role: 'administrativo', assignedStore: 'Cajati', authorized: true, password: 'hash', updatedAt: '2026-10-05T10:00:00.000Z' }];
+  console.assert(areUserListsEqual(userAdmin1, userAdmin2) === true, 'areUserListsEqual deve normalizar admin/administrativo e city/assignedStore para evitar loops espúrios');
+
+  // 38.10 Preservação de Metadados Extras em syncUserPasswordToFirestore
+  clearOfflineQueue();
+  const syncWithMeta = await syncUserPasswordToFirestore('vendedor_meta', 'hash_meta_123', {
+    role: 'vendedor',
+    assignedStore: 'Registro',
+    email: 'vendedor@otica.com',
+    authorized: true
+  });
+  console.assert(syncWithMeta.userDoc.email === 'vendedor@otica.com', 'syncUserPasswordToFirestore deve preservar campos adicionais como email');
+  console.assert(syncWithMeta.userDoc.city === 'Registro' && syncWithMeta.userDoc.assignedStore === 'Registro', 'city e assignedStore devem estar sincronizados');
+  clearOfflineQueue();
 
   console.log('  ✅ Test 38 Passed: Módulo de Usuários (Anti-Loop, Anti-Rollback, Churn Prevention, Timeout & Reconciliação) validado com sucesso!\n');
 

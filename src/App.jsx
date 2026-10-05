@@ -430,13 +430,13 @@ function App() {
     };
     autoLoad();
     return () => { isMounted = false; };
-  }, [currentUser]);
+  }, [currentUser?.username]);
 
   // Carrega automaticamente do Firebase ao iniciar e escuta atualizações ao vivo somente após login
   useEffect(() => {
     if (!isConfigured || !currentUser) return;
 
-    const unsubscribe = subscribeToCollections((newData) => {
+    const unsubscribe = subscribeToCollections((newData, changedCol) => {
       // Coleta chaves deletadas do Firestore se houver
       if (newData['DELETED_ITEMS'] && newData['DELETED_ITEMS'].length > 0) {
         newData['DELETED_ITEMS'].forEach(d => {
@@ -450,7 +450,8 @@ function App() {
       // Quando o firebase retorna dados, atualizamos o state central sincronizado
       setData(prev => {
         const merged = { ...prev };
-        Object.keys(newData).forEach(key => {
+        const keysToUpdate = changedCol ? [changedCol] : Object.keys(newData);
+        keysToUpdate.forEach(key => {
           if (key === 'DELETED_ITEMS' || key === 'USUARIOS') return;
           // Coleções sincronizadas do Firebase sobrescrevem o estado local
           const list = (newData[key] || []).filter(r => !deletedKeys.includes(getItemKey(r)));
@@ -468,20 +469,23 @@ function App() {
         return merged;
       });
       
-      // Update users se vier do banco com reconciliação segura e anti-ressurreição
-      if (newData['USUARIOS'] && newData['USUARIOS'].length > 0) {
-        setUsers(prevUsers => {
-          const reconciled = reconcileUsers(newData['USUARIOS'], prevUsers, getOfflineQueue());
-          if (areUserListsEqual(prevUsers, reconciled)) {
-            return prevUsers;
-          }
-          try {
-            localStorage.setItem('users', JSON.stringify(reconciled));
-          } catch (storageErr) {
-            console.warn('Aviso ao atualizar users no localStorage:', storageErr);
-          }
-          return reconciled;
-        });
+      // Update users somente quando a coleção USUARIOS sofreu atualização (previne churn e consumo elevado a cada venda/movimento)
+      if (!changedCol || changedCol === 'USUARIOS') {
+        const remoteUsers = newData['USUARIOS'];
+        if (Array.isArray(remoteUsers)) {
+          setUsers(prevUsers => {
+            const reconciled = reconcileUsers(remoteUsers, prevUsers, getOfflineQueue());
+            if (areUserListsEqual(prevUsers, reconciled)) {
+              return prevUsers;
+            }
+            try {
+              localStorage.setItem('users', JSON.stringify(reconciled));
+            } catch (storageErr) {
+              console.warn('Aviso ao atualizar users no localStorage:', storageErr);
+            }
+            return reconciled;
+          });
+        }
       }
     });
 
@@ -490,41 +494,52 @@ function App() {
 
   const handleUpdateUserPassword = async (username, newHash) => {
     const cleanUser = String(username).toLowerCase().trim();
-    const targetUser = (users || []).find(u => u.username?.toLowerCase().trim() === cleanUser) || {
+    const existing = (users || []).find(u => u.username?.toLowerCase().trim() === cleanUser);
+    const targetUser = existing || {
       username: cleanUser,
       role: currentUser?.role || 'vendedor',
-      city: currentUser?.city || '',
+      city: currentUser?.city || currentUser?.assignedStore || '',
       authorized: true
     };
+    const effectiveCity = targetUser.city || targetUser.assignedStore || currentUser?.city || currentUser?.assignedStore || '';
 
-    // 1. Atualiza estado e cache local imediatamente
+    // 1. Grava e sincroniza diretamente no Firestore (Banco de Dados em Nuvem) com timeout e fallback offline
+    let syncResult = null;
+    try {
+      syncResult = await syncUserPasswordToFirestore(cleanUser, newHash, {
+        ...targetUser,
+        city: effectiveCity,
+        assignedStore: effectiveCity
+      });
+    } catch (e) {
+      console.warn('Aviso ao sincronizar senha com Firestore:', e);
+      syncResult = { success: true, savedInCloud: false };
+    }
+
+    const nowIso = syncResult?.userDoc?.updatedAt || new Date().toISOString();
+
+    // 2. Atualiza estado e cache local com o mesmo timestamp exato
     setUsers(prev => {
-      const nowIso = new Date().toISOString();
       const updated = prev.map(u => {
         if (u.username?.toLowerCase().trim() === cleanUser) {
-          return { ...u, username: cleanUser, password: newHash, updatedAt: nowIso };
+          return { ...u, username: cleanUser, password: newHash, city: effectiveCity, assignedStore: effectiveCity, updatedAt: nowIso };
         }
         return u;
       });
       if (!updated.some(u => u.username?.toLowerCase().trim() === cleanUser)) {
-        updated.push({ ...targetUser, username: cleanUser, password: newHash, updatedAt: nowIso });
+        updated.push({ ...targetUser, username: cleanUser, password: newHash, city: effectiveCity, assignedStore: effectiveCity, updatedAt: nowIso });
       }
-      localStorage.setItem('users', JSON.stringify(updated));
+      try {
+        localStorage.setItem('users', JSON.stringify(updated));
+      } catch {}
       return updated;
     });
 
     if (currentUser && currentUser.username?.toLowerCase().trim() === cleanUser) {
-      setCurrentUser(prev => ({ ...prev, password: newHash }));
+      setCurrentUser(prev => ({ ...prev, password: newHash, city: effectiveCity, assignedStore: effectiveCity }));
     }
 
-    // 2. Grava e sincroniza diretamente no Firestore (Banco de Dados em Nuvem)
-    try {
-      const syncResult = await syncUserPasswordToFirestore(cleanUser, newHash, targetUser);
-      return syncResult;
-    } catch (e) {
-      console.warn('Aviso ao sincronizar senha com Firestore:', e);
-      return { success: true, savedInCloud: false };
-    }
+    return syncResult;
   };
 
   const handleDataLoaded = (loadedData) => {
