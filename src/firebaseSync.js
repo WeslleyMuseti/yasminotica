@@ -479,11 +479,11 @@ export const syncUserPasswordToFirestore = async (username, newHashedPassword, a
 
   let savedInCloud = false;
 
-  // 1. Salva diretamente no Firestore (coleção USUARIOS com ID = cleanUser)
+  // 1. Salva diretamente no Firestore (coleção USUARIOS com ID = cleanUser) com timeout e fallback offline
   if (db) {
     try {
       const docRef = doc(db, 'USUARIOS', cleanUser);
-      await setDoc(docRef, userDoc, { merge: true });
+      await withTimeout(setDoc(docRef, userDoc, { merge: true }), 3500, 'Timeout ao sincronizar credenciais');
       savedInCloud = true;
       console.log(`[Firestore] ✅ Senha do usuário "${cleanUser}" gravada com sucesso no Firestore!`);
     } catch (err) {
@@ -496,12 +496,16 @@ export const syncUserPasswordToFirestore = async (username, newHashedPassword, a
 
   // 2. Se existia documento com outro ID para o mesmo usuário no Firestore, limpa a duplicata antiga
   if (additionalUserData.id && String(additionalUserData.id).toLowerCase().trim() !== cleanUser) {
-    try {
-      if (db) {
-        await deleteDoc(doc(db, 'USUARIOS', String(additionalUserData.id)));
+    const oldId = String(additionalUserData.id);
+    if (db) {
+      try {
+        await withTimeout(deleteDoc(doc(db, 'USUARIOS', oldId)), 3500, 'Timeout ao sincronizar credenciais');
+      } catch (e) {
+        console.warn(`[Firestore Offline] Erro/timeout ao deletar credencial antiga "${oldId}", enfileirando offline:`, e);
+        enqueueOfflineOp('delete', 'USUARIOS', oldId);
       }
-    } catch (e) {
-      // ignore
+    } else {
+      enqueueOfflineOp('delete', 'USUARIOS', oldId);
     }
   }
 
@@ -525,6 +529,105 @@ export const syncUserPasswordToFirestore = async (username, newHashedPassword, a
   }
 
   return { success: true, savedInCloud, userDoc };
+};
+
+/**
+ * Compara profundamente duas listas de usuários para evitar re-renderizações e I/O desnecessários no localStorage.
+ */
+export const areUserListsEqual = (prevUsers, nextUsers) => {
+  if (prevUsers === nextUsers) return true;
+  if (!Array.isArray(prevUsers) || !Array.isArray(nextUsers)) return false;
+  if (prevUsers.length !== nextUsers.length) return false;
+
+  const sortFn = (a, b) => String(a?.username || '').localeCompare(String(b?.username || ''));
+  const listA = [...prevUsers].sort(sortFn);
+  const listB = [...nextUsers].sort(sortFn);
+
+  for (let i = 0; i < listA.length; i++) {
+    const a = listA[i] || {};
+    const b = listB[i] || {};
+
+    const uA = String(a.username || '').toLowerCase().trim();
+    const uB = String(b.username || '').toLowerCase().trim();
+    if (uA !== uB) return false;
+    if (String(a.password || '') !== String(b.password || '')) return false;
+    if (String(a.role || '') !== String(b.role || '')) return false;
+    if (String(a.city || '') !== String(b.city || '')) return false;
+    if (Boolean(a.authorized) !== Boolean(b.authorized)) return false;
+    if (String(a.updatedAt || '') !== String(b.updatedAt || '')) return false;
+  }
+  return true;
+};
+
+/**
+ * Reconcilia usuários remotos com o estado local e a fila offline, garantindo:
+ * 1. Não ressurreição de usuários deletados no Firestore.
+ * 2. Preservação permanente da conta master 'wmusete'.
+ * 3. Incorporação de operações pendentes na fila offline (type === 'save' e 'delete').
+ * 4. Preservação de alterações locais com updatedAt mais recente.
+ */
+export const reconcileUsers = (remoteUsers = [], prevUsers = [], offlineQueue = []) => {
+  const userMap = new Map();
+
+  // 1. Popula com os usuários remotos oficiais
+  (remoteUsers || []).forEach(r => {
+    if (!r || !r.username) return;
+    const key = String(r.username).toLowerCase().trim();
+    const existingLocal = (prevUsers || []).find(u => u?.username && String(u.username).toLowerCase().trim() === key);
+    if (existingLocal) {
+      const remoteTime = r.updatedAt ? new Date(r.updatedAt).getTime() : 0;
+      const localTime = existingLocal.updatedAt ? new Date(existingLocal.updatedAt).getTime() : 0;
+      if (localTime > remoteTime) {
+        userMap.set(key, { ...r, ...existingLocal, id: key, username: key });
+      } else {
+        userMap.set(key, { ...existingLocal, ...r, id: key, username: key });
+      }
+    } else {
+      userMap.set(key, { ...r, id: key, username: key });
+    }
+  });
+
+  // 2. Garante a conta master permanente 'wmusete' (se ausente nos remotos)
+  const masterKey = 'wmusete';
+  if (!userMap.has(masterKey)) {
+    const localMaster = (prevUsers || []).find(u => u?.username && String(u.username).toLowerCase().trim() === masterKey);
+    if (localMaster) {
+      userMap.set(masterKey, { ...localMaster, id: masterKey, username: masterKey });
+    } else {
+      userMap.set(masterKey, {
+        id: masterKey,
+        username: masterKey,
+        role: 'admin',
+        authorized: true,
+        updatedAt: new Date().toISOString()
+      });
+    }
+  }
+
+  // 3. Mescla operações pendentes da fila offline
+  (offlineQueue || []).forEach(op => {
+    if (!op) return;
+    const col = op.collectionName || op.collection;
+    if (col !== 'USUARIOS') return;
+    if (op.type === 'save' && op.data) {
+      const username = op.data.username || op.docId || op.id;
+      if (username) {
+        const key = String(username).toLowerCase().trim();
+        const existing = userMap.get(key);
+        userMap.set(key, { ...(existing || {}), ...op.data, id: key, username: key });
+      }
+    } else if (op.type === 'delete') {
+      const targetId = op.docId || op.id;
+      if (targetId) {
+        const key = String(targetId).toLowerCase().trim();
+        if (key !== masterKey) {
+          userMap.delete(key);
+        }
+      }
+    }
+  });
+
+  return Array.from(userMap.values());
 };
 
 // ══════════════════════════════════════════════════════════════════

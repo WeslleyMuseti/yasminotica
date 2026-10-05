@@ -16,7 +16,10 @@ import {
   loadOfflineSnapshot,
   decrementStockAtomically,
   DEAD_LETTER_QUEUE_KEY,
-  saveBatch
+  saveBatch,
+  areUserListsEqual,
+  reconcileUsers,
+  syncUserPasswordToFirestore
 } from './src/firebaseSync.js';
 import {
   parseCurrency,
@@ -3447,6 +3450,168 @@ async function runTests() {
 
   clearOfflineQueue();
   console.log('  ✅ Test 37 Passed: Web Locks Mutex Multi-Aba, Higienização de Fila e Fallback Gracioso validados com sucesso!\n');
+
+  // ─── TEST 38: Módulo de Usuários (Anti-Loop, Anti-Rollback, Churn Prevention, Timeout & Reconciliação) ───
+  console.log('▶ Test 38: Módulo de Usuários (Anti-Loop, Anti-Rollback, Churn Prevention, Timeout & Reconciliação)');
+
+  // 38.1 Bailout de Igualdade Profunda (areUserListsEqual)
+  const usersBaseline = [
+    { username: 'wmusete', role: 'admin', city: '', authorized: true, password: 'hash_master_1', updatedAt: '2026-10-05T12:00:00.000Z' },
+    { username: 'carla_reg', role: 'vendedor', city: 'Registro', authorized: true, password: 'hash_carla_1', updatedAt: '2026-10-05T12:00:00.000Z' },
+    { username: 'marcos_caj', role: 'vendedor', city: 'Cajati', authorized: false, password: 'hash_marcos_1', updatedAt: '2026-10-05T12:00:00.000Z' }
+  ];
+
+  // Mesma lista ou clone idêntico deve retornar true (evita re-render espúrio e reescrita de localStorage)
+  console.assert(areUserListsEqual(usersBaseline, usersBaseline) === true, 'Listas idênticas por referência devem ser iguais');
+  console.assert(areUserListsEqual(usersBaseline, JSON.parse(JSON.stringify(usersBaseline))) === true, 'Listas com conteúdo idêntico devem ser iguais');
+
+  // Ordem trocada de usuários não deve disparar falsos positivos de alteração
+  const shuffledUsers = [usersBaseline[1], usersBaseline[2], usersBaseline[0]];
+  console.assert(areUserListsEqual(usersBaseline, shuffledUsers) === true, 'Listas em ordem diferente devem ser consideradas iguais após ordenação');
+
+  // Alteração de Role deve ser detectada (retornar false)
+  const changedRole = JSON.parse(JSON.stringify(usersBaseline));
+  changedRole[1].role = 'administrativo';
+  console.assert(areUserListsEqual(usersBaseline, changedRole) === false, 'Alteração de cargo/role deve ser detectada');
+
+  // Alteração de Cidade da Unidade deve ser detectada
+  const changedCity = JSON.parse(JSON.stringify(usersBaseline));
+  changedCity[1].city = 'Jacupiranga';
+  console.assert(areUserListsEqual(usersBaseline, changedCity) === false, 'Alteração de unidade/cidade deve ser detectada');
+
+  // Alteração de Autorização (toggleAuth) deve ser detectada
+  const changedAuth = JSON.parse(JSON.stringify(usersBaseline));
+  changedAuth[2].authorized = true;
+  console.assert(areUserListsEqual(usersBaseline, changedAuth) === false, 'Alteração de status autorizado/bloqueado deve ser detectada');
+
+  // Alteração de Senha deve ser detectada
+  const changedPass = JSON.parse(JSON.stringify(usersBaseline));
+  changedPass[0].password = 'new_hash_master_2';
+  console.assert(areUserListsEqual(usersBaseline, changedPass) === false, 'Alteração de hash de senha deve ser detectada');
+
+  // Adição/Remoção de Usuário deve ser detectada
+  const removedUser = [usersBaseline[0], usersBaseline[1]];
+  console.assert(areUserListsEqual(usersBaseline, removedUser) === false, 'Remoção de usuário deve alterar igualdade');
+  const addedUser = [...usersBaseline, { username: 'novo_operador', role: 'vendedor', city: 'Cajati', authorized: true }];
+  console.assert(areUserListsEqual(usersBaseline, addedUser) === false, 'Adição de usuário deve alterar igualdade');
+
+  // 38.2 Reconciliação sem Ressurreição (Ghost Rollback Prevention) & Preservação Master
+  const remoteAfterDeletion = [
+    { username: 'carla_reg', role: 'vendedor', city: 'Registro', authorized: true, password: 'hash_carla_1', updatedAt: '2026-10-05T12:00:00.000Z' }
+  ];
+  // Localmente ainda tinha marcos_caj, que foi excluído no Firestore
+  const prevLocalWithDeleted = [
+    { username: 'wmusete', role: 'admin', authorized: true, password: 'hash_master_1', updatedAt: '2026-10-05T12:00:00.000Z' },
+    { username: 'carla_reg', role: 'vendedor', city: 'Registro', authorized: true, password: 'hash_carla_1', updatedAt: '2026-10-05T12:00:00.000Z' },
+    { username: 'marcos_caj', role: 'vendedor', city: 'Cajati', authorized: false, password: 'hash_marcos_1', updatedAt: '2026-10-05T12:00:00.000Z' }
+  ];
+
+  clearOfflineQueue();
+  const reconciled1 = reconcileUsers(remoteAfterDeletion, prevLocalWithDeleted, []);
+
+  // Usuário excluído marcos_caj NÃO deve ressuscitar
+  console.assert(!reconciled1.some(u => u.username === 'marcos_caj'), 'Usuário excluído no Firestore não deve ressuscitar na reconciliação local');
+  // Conta Master permanente 'wmusete' deve ser preservada mesmo que ausente no snapshot remoto
+  console.assert(reconciled1.some(u => u.username === 'wmusete'), 'Conta master wmusete deve ser preservada incondicionalmente');
+  // Usuário remoto carla_reg deve existir
+  console.assert(reconciled1.some(u => u.username === 'carla_reg'), 'Usuário remoto carla_reg deve ser mantido');
+
+  // 38.3 Preservação de Usuários Criados Offline (fila de contingência type === 'save')
+  enqueueOfflineOp('save', 'USUARIOS', 'vendedor_offline', {
+    username: 'vendedor_offline',
+    role: 'vendedor',
+    city: 'Jacupiranga',
+    authorized: true,
+    updatedAt: new Date().toISOString()
+  });
+
+  const reconciledWithOffline = reconcileUsers(remoteAfterDeletion, prevLocalWithDeleted, getOfflineQueue());
+  console.assert(reconciledWithOffline.some(u => u.username === 'vendedor_offline'), 'Usuário enfileirado offline com type === save deve ser preservado na reconciliação');
+
+  // 38.4 Respeito a Exclusões Pendentes na Fila Offline (type === 'delete')
+  enqueueOfflineOp('delete', 'USUARIOS', 'carla_reg');
+  const reconciledWithOfflineDelete = reconcileUsers(remoteAfterDeletion, prevLocalWithDeleted, getOfflineQueue());
+  console.assert(!reconciledWithOfflineDelete.some(u => u.username === 'carla_reg'), 'Usuário com exclusão pendente na fila offline não deve aparecer na reconciliação');
+  clearOfflineQueue();
+
+  // 38.5 Precedência de updatedAt Local mais Recente sobre Snapshot Desatualizado
+  const staleRemote = [
+    { username: 'carla_reg', role: 'vendedor', city: 'Registro', authorized: true, updatedAt: '2026-10-05T10:00:00.000Z' }
+  ];
+  const freshLocal = [
+    { username: 'carla_reg', role: 'administrativo', city: 'Registro', authorized: true, updatedAt: '2026-10-05T15:00:00.000Z' }
+  ];
+  const reconciledTimestamp = reconcileUsers(staleRemote, freshLocal, []);
+  const carlaReconciled = reconciledTimestamp.find(u => u.username === 'carla_reg');
+  console.assert(carlaReconciled.role === 'administrativo', 'Alteração local com updatedAt mais recente deve prevalecer sobre remoto desatualizado');
+
+  // 38.6 Timeout Seguro em syncUserPasswordToFirestore com Fallback Gracioso Offline
+  clearOfflineQueue();
+  const testNewHash = await hashPassword('novaSenhaSegura2026!');
+  const syncOfflineRes = await syncUserPasswordToFirestore('vendedor_teste_timeout', testNewHash, {
+    role: 'vendedor',
+    city: 'Cajati',
+    authorized: true
+  });
+
+  console.assert(syncOfflineRes.success === true, 'syncUserPasswordToFirestore deve retornar success: true mesmo sem conexão direta');
+  console.assert(syncOfflineRes.userDoc.username === 'vendedor_teste_timeout', 'userDoc retornado deve ter o username sanitizado');
+  console.assert(syncOfflineRes.userDoc.updatedAt !== undefined, 'userDoc deve ter updatedAt ISO string');
+  
+  const offlineQueueAfterSync = getOfflineQueue();
+  const queuedUserOp = offlineQueueAfterSync.find(op => (op.collectionName === 'USUARIOS' || op.collection === 'USUARIOS') && (op.docId === 'vendedor_teste_timeout' || op.data?.username === 'vendedor_teste_timeout'));
+  console.assert(queuedUserOp !== undefined, 'Operação de sincronização de credencial deve ser retida na fila offline em caso de falha de rede ou timeout');
+  console.assert(queuedUserOp.type === 'save', 'Tipo de operação na fila offline deve ser save');
+  console.assert(queuedUserOp.data.password === testNewHash, 'Hash de senha correto deve ser gravado na fila');
+  clearOfflineQueue();
+
+  // 38.7 Persistência de Role & City com updatedAt em AdminUsers
+  const adminUsersList = [
+    { username: 'operador_loja', role: 'vendedor', city: 'Cajati', authorized: true, updatedAt: '2026-10-01T10:00:00.000Z' }
+  ];
+  const simulateHandleRoleChange = (list, username, newRole) => {
+    const cleanUser = String(username).toLowerCase().trim();
+    const nowIso = new Date().toISOString();
+    let updatedDoc = null;
+    const updated = list.map(usr => {
+      if (usr.username.toLowerCase() === cleanUser) {
+        updatedDoc = {
+          ...usr,
+          role: newRole,
+          city: newRole === 'vendedor' ? (usr.city || 'Cajati') : '',
+          updatedAt: nowIso
+        };
+        return updatedDoc;
+      }
+      return usr;
+    });
+    return { updatedList: updated, docToSave: updatedDoc };
+  };
+
+  const roleChangeRes = simulateHandleRoleChange(adminUsersList, 'OPERADOR_LOJA', 'administrativo');
+  console.assert(roleChangeRes.docToSave.role === 'administrativo', 'Cargo deve ser atualizado para administrativo');
+  console.assert(roleChangeRes.docToSave.city === '', 'Cidade deve ser limpa ao promover para administrativo');
+  console.assert(new Date(roleChangeRes.docToSave.updatedAt).getTime() > new Date(adminUsersList[0].updatedAt).getTime(), 'updatedAt deve ser renovado');
+
+  const simulateHandleCityChange = (list, username, newCity) => {
+    const cleanUser = String(username).toLowerCase().trim();
+    const nowIso = new Date().toISOString();
+    let updatedDoc = null;
+    const updated = list.map(usr => {
+      if (usr.username.toLowerCase() === cleanUser) {
+        updatedDoc = { ...usr, city: newCity, updatedAt: nowIso };
+        return updatedDoc;
+      }
+      return usr;
+    });
+    return { updatedList: updated, docToSave: updatedDoc };
+  };
+
+  const cityChangeRes = simulateHandleCityChange(adminUsersList, 'operador_loja', 'Jacupiranga');
+  console.assert(cityChangeRes.docToSave.city === 'Jacupiranga', 'Cidade deve ser atualizada para Jacupiranga');
+  console.assert(cityChangeRes.docToSave.updatedAt !== adminUsersList[0].updatedAt, 'updatedAt deve ser renovado ao alterar unidade');
+
+  console.log('  ✅ Test 38 Passed: Módulo de Usuários (Anti-Loop, Anti-Rollback, Churn Prevention, Timeout & Reconciliação) validado com sucesso!\n');
 
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);

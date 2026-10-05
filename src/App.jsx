@@ -31,7 +31,9 @@ import {
   loadOfflineSnapshot,
   syncUserPasswordToFirestore,
   OFFLINE_QUEUE_KEY,
-  saveBatch
+  saveBatch,
+  areUserListsEqual,
+  reconcileUsers
 } from './firebaseSync';
 
 const parseSafeCurrency = (val) => {
@@ -466,49 +468,25 @@ function App() {
         return merged;
       });
       
-      // Update users se vier do banco com merge inteligente e desduplicação por username
+      // Update users se vier do banco com reconciliação segura e anti-ressurreição
       if (newData['USUARIOS'] && newData['USUARIOS'].length > 0) {
         setUsers(prevUsers => {
-          const remoteUsers = newData['USUARIOS'];
-          const userMap = new Map();
-
-          // 1. Carrega usuários locais primeiro
-          (prevUsers || []).forEach(localU => {
-            if (localU.username) {
-              const k = localU.username.toLowerCase().trim();
-              userMap.set(k, { ...localU, username: k, id: k });
-            }
-          });
-
-          // 2. Mescla com os remotos comparando updatedAt
-          remoteUsers.forEach(r => {
-            if (!r.username) return;
-            const key = r.username.toLowerCase().trim();
-            const existing = userMap.get(key);
-            if (!existing) {
-              userMap.set(key, { ...r, id: key, username: key });
-            } else {
-              const remoteTime = r.updatedAt ? new Date(r.updatedAt).getTime() : 0;
-              const localTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
-              // Se o registro remoto for mais recente ou igual, atualiza
-              if (remoteTime >= localTime) {
-                userMap.set(key, { ...existing, ...r, id: key, username: key });
-              } else {
-                // Registro local mais recente: mantém o local
-                userMap.set(key, existing);
-              }
-            }
-          });
-
-          const deduplicated = Array.from(userMap.values());
-          localStorage.setItem('users', JSON.stringify(deduplicated));
-          return deduplicated;
+          const reconciled = reconcileUsers(newData['USUARIOS'], prevUsers, getOfflineQueue());
+          if (areUserListsEqual(prevUsers, reconciled)) {
+            return prevUsers;
+          }
+          try {
+            localStorage.setItem('users', JSON.stringify(reconciled));
+          } catch (storageErr) {
+            console.warn('Aviso ao atualizar users no localStorage:', storageErr);
+          }
+          return reconciled;
         });
       }
     });
 
     return () => unsubscribe();
-  }, [currentUser]);
+  }, [currentUser?.username]);
 
   const handleUpdateUserPassword = async (username, newHash) => {
     const cleanUser = String(username).toLowerCase().trim();
@@ -826,10 +804,32 @@ function App() {
           setCurrentUser(user);
           setView(user.role === 'vendedor' ? 'pos' : 'dashboard');
         }}
-        onRegister={(newUser) => setUsers([...users, newUser])}
-        onUpgradeUserPassword={(uname, newHash) => {
-          setUsers(prev => prev.map(u => u.username === uname ? { ...u, password: newHash } : u));
+        onRegister={async (newUser) => {
+          const cleanUser = String(newUser.username || '').toLowerCase().trim();
+          const userDoc = {
+            ...newUser,
+            id: cleanUser,
+            username: cleanUser,
+            updatedAt: newUser.updatedAt || new Date().toISOString()
+          };
+          setUsers(prev => {
+            const next = [...(prev || []).filter(u => u.username?.toLowerCase().trim() !== cleanUser), userDoc];
+            try {
+              localStorage.setItem('users', JSON.stringify(next));
+            } catch (err) {
+              console.warn('Erro ao salvar usuário no localStorage:', err);
+            }
+            return next;
+          });
+          if (isConfigured) {
+            try {
+              await saveDocument('USUARIOS', userDoc, cleanUser);
+            } catch (err) {
+              console.warn('Erro ao persistir novo cadastro no Firestore:', err);
+            }
+          }
         }}
+        onUpgradeUserPassword={handleUpdateUserPassword}
         onUpdateUsers={setUsers}
       />
     );

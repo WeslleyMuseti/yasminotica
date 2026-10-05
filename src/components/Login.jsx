@@ -97,11 +97,12 @@ const Login = ({ onLogin, users = [], onRegister, onUpgradeUserPassword, onUpdat
           await registerWithFirebaseAuth(username, password);
         }
 
-        onRegister({ 
-          username: username.toLowerCase(), 
+        await onRegister({ 
+          username: username.toLowerCase().trim(), 
           password: hashedPassword, 
           role: 'vendedor', 
-          authorized: false 
+          authorized: false,
+          updatedAt: new Date().toISOString()
         });
         setSuccess('Conta criada com segurança criptográfica! Aguarde autorização do administrador.');
         setUsername('');

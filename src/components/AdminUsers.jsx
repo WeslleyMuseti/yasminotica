@@ -60,24 +60,105 @@ const AdminUsers = ({ users, setUsers, onBack, data, onDataLoaded, onDownloadExc
     }
   };
 
+  const handleRoleChange = async (username, newRole) => {
+    if (isProcessing) return;
+    setIsProcessing(true);
+    try {
+      const cleanUser = String(username).toLowerCase().trim();
+      const nowIso = new Date().toISOString();
+      let updatedUserDoc = null;
+      const updated = users.map(usr => {
+        if (usr.username?.toLowerCase().trim() === cleanUser) {
+          updatedUserDoc = {
+            ...usr,
+            role: newRole,
+            city: newRole === 'vendedor' ? (usr.city || 'Cajati') : '',
+            updatedAt: nowIso
+          };
+          return updatedUserDoc;
+        }
+        return usr;
+      });
+      setUsers(updated);
+      localStorage.setItem('users', JSON.stringify(updated));
+
+      if (isConfigured && updatedUserDoc) {
+        await saveDocument('USUARIOS', updatedUserDoc, cleanUser);
+      }
+    } catch (err) {
+      console.error('Erro ao alterar cargo do usuário:', err);
+      alert('Erro ao salvar alteração de perfil no banco de dados.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCityChange = async (username, newCity) => {
+    if (isProcessing) return;
+    setIsProcessing(true);
+    try {
+      const cleanUser = String(username).toLowerCase().trim();
+      const nowIso = new Date().toISOString();
+      let updatedUserDoc = null;
+      const updated = users.map(usr => {
+        if (usr.username?.toLowerCase().trim() === cleanUser) {
+          updatedUserDoc = {
+            ...usr,
+            city: newCity,
+            updatedAt: nowIso
+          };
+          return updatedUserDoc;
+        }
+        return usr;
+      });
+      setUsers(updated);
+      localStorage.setItem('users', JSON.stringify(updated));
+
+      if (isConfigured && updatedUserDoc) {
+        await saveDocument('USUARIOS', updatedUserDoc, cleanUser);
+      }
+    } catch (err) {
+      console.error('Erro ao alterar cidade da unidade:', err);
+      alert('Erro ao salvar alteração de unidade no banco de dados.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const toggleAuth = async (username) => {
+    if (isProcessing) return;
     if (username === 'wmusete') {
       alert('A conta master wmusete é permanente e não pode ser bloqueada.');
       return;
     }
-    const updated = users.map(u => u.username === username ? { ...u, authorized: !u.authorized } : u);
-    setUsers(updated);
-    localStorage.setItem('users', JSON.stringify(updated));
+    setIsProcessing(true);
+    try {
+      const cleanUser = String(username).toLowerCase().trim();
+      const nowIso = new Date().toISOString();
+      let targetUser = null;
+      const updated = users.map(u => {
+        if (u.username?.toLowerCase().trim() === cleanUser) {
+          targetUser = { ...u, authorized: !u.authorized, updatedAt: nowIso };
+          return targetUser;
+        }
+        return u;
+      });
+      setUsers(updated);
+      localStorage.setItem('users', JSON.stringify(updated));
 
-    if (isConfigured) {
-      const targetUser = updated.find(u => u.username === username);
-      if (targetUser) {
-        await saveDocument('USUARIOS', targetUser, username);
+      if (isConfigured && targetUser) {
+        await saveDocument('USUARIOS', targetUser, cleanUser);
       }
+    } catch (err) {
+      console.error('Erro ao alterar status de autorização:', err);
+      alert('Erro ao salvar status de autorização.');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   const deleteUser = async (username) => {
+    if (isProcessing) return;
     if (username === 'wmusete') {
       alert('O usuário wmusete é a conta Master protegida e não pode ser excluído.');
       return;
@@ -87,18 +168,28 @@ const AdminUsers = ({ users, setUsers, onBack, data, onDataLoaded, onDownloadExc
       return;
     }
     if (window.confirm(`Tem certeza que deseja excluir permanentemente o usuário "${username}"?`)) {
-      const updated = users.filter(u => u.username !== username);
-      setUsers(updated);
-      localStorage.setItem('users', JSON.stringify(updated));
+      setIsProcessing(true);
+      try {
+        const cleanUser = String(username).toLowerCase().trim();
+        const updated = users.filter(u => u.username?.toLowerCase().trim() !== cleanUser);
+        setUsers(updated);
+        localStorage.setItem('users', JSON.stringify(updated));
 
-      if (isConfigured) {
-        await deleteDocument('USUARIOS', username);
+        if (isConfigured) {
+          await deleteDocument('USUARIOS', cleanUser);
+        }
+      } catch (err) {
+        console.error('Erro ao excluir usuário:', err);
+        alert('Erro ao excluir usuário.');
+      } finally {
+        setIsProcessing(false);
       }
     }
   };
 
   const addUser = async (e) => {
     e.preventDefault();
+    if (isProcessing) return;
     if (!newUser || !newPass) return;
     if (newRole === 'vendedor' && !newCity) {
       alert('Selecione a unidade do vendedor!');
@@ -118,12 +209,15 @@ const AdminUsers = ({ users, setUsers, onBack, data, onDataLoaded, onDownloadExc
         await registerWithFirebaseAuth(cleanUser, newPass.trim());
       }
 
+      const nowIso = new Date().toISOString();
       const newUserObj = { 
+        id: cleanUser,
         username: cleanUser, 
         password: hashed, 
         role: newRole, 
         city: newRole === 'vendedor' ? newCity : '', 
-        authorized: true 
+        authorized: true,
+        updatedAt: nowIso
       };
 
       const updated = [...users, newUserObj];
@@ -246,12 +340,9 @@ const AdminUsers = ({ users, setUsers, onBack, data, onDataLoaded, onDownloadExc
                       <>
                         <select 
                           value={['admin', 'administrativo'].includes(u.role) ? 'administrativo' : (u.role || 'vendedor')}
-                          onChange={(e) => {
-                            const updated = users.map(usr => usr.username === u.username ? { ...usr, role: e.target.value, city: e.target.value === 'vendedor' ? (usr.city || 'Cajati') : '' } : usr);
-                            setUsers(updated);
-                            localStorage.setItem('users', JSON.stringify(updated));
-                          }}
-                          className="bg-black/40 border border-white/10 rounded-lg text-xs font-bold px-2 py-1.5 text-slate-300 focus:outline-none"
+                          onChange={(e) => handleRoleChange(u.username, e.target.value)}
+                          disabled={isProcessing}
+                          className="bg-black/40 border border-white/10 rounded-lg text-xs font-bold px-2 py-1.5 text-slate-300 focus:outline-none disabled:opacity-50"
                         >
                           <option value="vendedor">Vendedor</option>
                           <option value="administrativo">Admin</option>
@@ -260,12 +351,9 @@ const AdminUsers = ({ users, setUsers, onBack, data, onDataLoaded, onDownloadExc
                         {!['admin', 'administrativo'].includes(u.role) && (
                           <select
                             value={u.city || u.assignedStore || 'Cajati'}
-                            onChange={(e) => {
-                              const updated = users.map(usr => usr.username === u.username ? { ...usr, city: e.target.value } : usr);
-                              setUsers(updated);
-                              localStorage.setItem('users', JSON.stringify(updated));
-                            }}
-                            className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-lg text-xs font-bold px-2 py-1.5 focus:outline-none"
+                            onChange={(e) => handleCityChange(u.username, e.target.value)}
+                            disabled={isProcessing}
+                            className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-lg text-xs font-bold px-2 py-1.5 focus:outline-none disabled:opacity-50"
                             title="Unidade Fixa do Vendedor"
                           >
                             <option value="Cajati" className="bg-slate-900 text-white">Cajati</option>
@@ -277,14 +365,16 @@ const AdminUsers = ({ users, setUsers, onBack, data, onDataLoaded, onDownloadExc
 
                         <button 
                           onClick={() => toggleAuth(u.username)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${u.authorized ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20'}`}
+                          disabled={isProcessing}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 disabled:opacity-50 ${u.authorized ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20'}`}
                         >
                           {u.authorized ? <><Check size={12}/> Autorizado</> : <><X size={12}/> Bloqueado</>}
                         </button>
                         
                         <button 
                           onClick={() => deleteUser(u.username)} 
-                          className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/20 transition-all border border-transparent hover:border-rose-500/20"
+                          disabled={isProcessing}
+                          className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/20 transition-all border border-transparent hover:border-rose-500/20 disabled:opacity-50"
                           title={`Excluir usuário ${u.username}`}
                         >
                           <Trash2 size={16} />
@@ -304,16 +394,16 @@ const AdminUsers = ({ users, setUsers, onBack, data, onDataLoaded, onDownloadExc
             <div className="space-y-4">
               <div>
                 <label className="text-[10px] uppercase font-bold text-slate-400 ml-1">Login</label>
-                <input type="text" value={newUser} onChange={e => setNewUser(e.target.value.toLowerCase().replace(/\s/g,''))} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 mt-1 text-white focus:outline-none focus:border-sky-500" placeholder="usuario123" />
+                <input type="text" disabled={isProcessing} value={newUser} onChange={e => setNewUser(e.target.value.toLowerCase().replace(/\s/g,''))} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 mt-1 text-white focus:outline-none focus:border-sky-500 disabled:opacity-50" placeholder="usuario123" />
               </div>
 
               <div>
                 <label className="text-[10px] uppercase font-bold text-slate-400 ml-1">Senha</label>
-                <input type="password" value={newPass} onChange={e => setNewPass(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 mt-1 text-white focus:outline-none focus:border-sky-500" placeholder="••••••••" />
+                <input type="password" disabled={isProcessing} value={newPass} onChange={e => setNewPass(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 mt-1 text-white focus:outline-none focus:border-sky-500 disabled:opacity-50" placeholder="••••••••" />
               </div>
               <div>
                 <label className="text-[10px] uppercase font-bold text-slate-400 ml-1">Perfil</label>
-                <select value={newRole} onChange={e => setNewRole(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 mt-1 text-white focus:outline-none focus:border-sky-500">
+                <select disabled={isProcessing} value={newRole} onChange={e => setNewRole(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 mt-1 text-white focus:outline-none focus:border-sky-500 disabled:opacity-50">
                   <option value="vendedor">Vendedor (PDV / Caixa & Clientes)</option>
                   <option value="administrativo">Administrativo (Tudo)</option>
                 </select>
@@ -322,7 +412,7 @@ const AdminUsers = ({ users, setUsers, onBack, data, onDataLoaded, onDownloadExc
               {newRole === 'vendedor' && (
                 <div>
                   <label className="text-[10px] uppercase font-bold text-slate-400 ml-1">Unidade (Cidade)</label>
-                  <select value={newCity} onChange={e => setNewCity(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 mt-1 text-white focus:outline-none focus:border-sky-500">
+                  <select disabled={isProcessing} value={newCity} onChange={e => setNewCity(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 mt-1 text-white focus:outline-none focus:border-sky-500 disabled:opacity-50">
                     <option value="">Selecione a cidade...</option>
                     <option value="Cajati">Cajati (CAJ)</option>
                     <option value="Registro">Registro (REG)</option>
@@ -332,8 +422,8 @@ const AdminUsers = ({ users, setUsers, onBack, data, onDataLoaded, onDownloadExc
                 </div>
               )}
 
-              <button type="submit" className="w-full py-3 bg-sky-500 hover:bg-sky-400 text-white font-black rounded-xl transition-all">
-                Adicionar Conta
+              <button type="submit" disabled={isProcessing} className="w-full py-3 bg-sky-500 hover:bg-sky-400 text-white font-black rounded-xl transition-all disabled:opacity-50">
+                {isProcessing ? 'Processando...' : 'Adicionar Conta'}
               </button>
             </div>
           </form>
