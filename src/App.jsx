@@ -636,9 +636,9 @@ function App() {
 
   const handleAddBatch = async (sheetName, newRows = []) => {
     if (!Array.isArray(newRows) || newRows.length === 0) return;
-    const rowsWithId = newRows.map(r => ({
+    const rowsWithId = newRows.map((r, idx) => ({
       ...r,
-      id: r.id || `row_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`
+      id: r.id || `row_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 6)}`
     }));
 
     // 1. Atualização Imediata em Memória Local (Zero Delay / Reativo)
@@ -1184,6 +1184,7 @@ function App() {
             onAddClient={(newClient) => handleAddRow('CLIENTES_CADASTRADOS', newClient)}
             onUpdateRow={handleRowUpdate}
             onAddRow={handleAddRow}
+            onAddBatch={handleAddBatch}
             onNavigateToNewClient={() => {
               setClientInitialTab('novo');
               setView('clients');
@@ -1208,6 +1209,7 @@ function App() {
             onUpdateSale={(oldSale, updatedSale) => handleRowUpdate(data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING', oldSale, updatedSale)}
             onDeleteSale={(saleToDelete) => handleDeleteRow(data?.['Registro_Vendas'] ? 'Registro_Vendas' : 'BD MARKETING', saleToDelete)}
             onAddRow={handleAddRow}
+            onAddBatch={handleAddBatch}
             onUpdateRow={handleRowUpdate}
             onDeleteRow={handleDeleteRow}
             onBack={() => setView(currentUser?.role === 'vendedor' ? 'pos' : 'dashboard')} 
@@ -1218,6 +1220,7 @@ function App() {
             currentUser={currentUser}
             clientsData={data?.['CLIENTES_CADASTRADOS'] || []}
             onAddRow={handleAddRow}
+            onAddBatch={handleAddBatch}
             onUpdateRow={handleRowUpdate}
             onDeleteRow={handleDeleteRow}
             onClearFinancialAndOS={handleClearFinancialAndOSHistory}

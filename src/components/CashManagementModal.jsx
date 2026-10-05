@@ -478,15 +478,16 @@ const CashManagementModal = ({
     sessionMovements.forEach(m => {
       const v = parseCurrency(m.valor);
       const fp = String(m.formaPagamento || '').toUpperCase();
-      if (m.tipo === 'SANGRIA') totalSangrias += v;
-      else if (m.tipo === 'SUPRIMENTO') totalSuprimentos += v;
-      else if (m.tipo === 'SAÍDA' || m.tipo === 'SAIDA' || m.tipo === 'PAGAMENTO') {
+      const tipo = String(m.tipo || '').toUpperCase();
+      if (tipo === 'SANGRIA') totalSangrias += v;
+      else if (tipo === 'SUPRIMENTO') totalSuprimentos += v;
+      else if (tipo === 'SAÍDA' || tipo === 'SAIDA' || tipo === 'PAGAMENTO') {
         totalSaidas += v;
-      } else if (m.tipo === 'RECEBIMENTO') {
+      } else if (tipo === 'RECEBIMENTO') {
         if (fp.includes('DINHEIRO') || !fp) {
           totalRecebimentosDinheiro += v;
         }
-      } else if (m.tipo === 'VENDA') {
+      } else if (tipo === 'VENDA') {
         if (fp.includes('DINHEIRO')) vendasDinheiro += v;
         else if (fp.includes('PIX')) vendasPix += v;
         else if (fp.includes('DEBITO') || fp.includes('DÉBITO')) vendasDebito += v;

@@ -319,6 +319,14 @@ const ClientProfileModal = ({
     if (window.confirm(`Confirmar recebimento da parcela no valor de R$ ${formatMoney(val)} (${desc})?\nO valor entrará no Fluxo de Caixa e o saldo do cliente será atualizado.`)) {
       if (onRegisterPayment) {
         onRegisterPayment(val, osNum, inv);
+        const currentDebt = parseCurrency(currentClient?.['Valor Devido']);
+        const newDebt = Math.max(0, currentDebt - val);
+        const newStatus = newDebt === 0 ? 'Em dia' : currentClient?.['Status de Pagamento'];
+        setCurrentClient(prev => ({
+          ...prev,
+          'Valor Devido': newDebt.toFixed(2).replace('.', ','),
+          'Status de Pagamento': newStatus
+        }));
       } else {
         const todayIso = new Date().toISOString().split('T')[0];
         const todayStr = new Date().toLocaleDateString('pt-BR');

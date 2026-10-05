@@ -59,6 +59,7 @@ const POSRegister = ({
   onAddClient,
   onUpdateRow,
   onAddRow,
+  onAddBatch,
   onNavigateToNewClient,
   onNavigateToERP,
   onBack
@@ -204,12 +205,13 @@ const POSRegister = ({
     movements.forEach(m => {
       const v = cleanVal(m.valor);
       const fp = String(m.formaPagamento || '').toUpperCase();
-      if (m.tipo === 'SUPRIMENTO') saldo += v;
-      else if (m.tipo === 'SANGRIA') saldo -= v;
-      else if (m.tipo === 'SAÍDA' || m.tipo === 'SAIDA' || m.tipo === 'PAGAMENTO') saldo -= v;
-      else if (m.tipo === 'RECEBIMENTO' && (fp.includes('DINHEIRO') || !fp)) {
+      const tipo = String(m.tipo || '').toUpperCase();
+      if (tipo === 'SUPRIMENTO') saldo += v;
+      else if (tipo === 'SANGRIA') saldo -= v;
+      else if (tipo === 'SAÍDA' || tipo === 'SAIDA' || tipo === 'PAGAMENTO') saldo -= v;
+      else if (tipo === 'RECEBIMENTO' && (fp.includes('DINHEIRO') || !fp)) {
         saldo += v;
-      } else if (m.tipo === 'VENDA' && fp.includes('DINHEIRO')) {
+      } else if (tipo === 'VENDA' && fp.includes('DINHEIRO')) {
         saldo += v;
       }
     });

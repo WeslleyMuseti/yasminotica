@@ -3003,44 +3003,84 @@ async function runTests() {
   console.log('▶ Test 33: Desduplicação Estrita no Extrato de Caixa (CashHistoryModal)');
 
   const mockMovementsCashFlow = [
-    { id: 'mov_101', saleId: 'venda_999', osNumero: 'OS-5544', tipo: 'VENDA', valor: 250.00, formaPagamento: 'DINHEIRO' },
-    { id: 'mov_102', tipo: 'SUPRIMENTO', valor: 100.00, formaPagamento: 'DINHEIRO' }
+    { id: 'mov_101', saleId: 'venda_999', osNumero: '5544', tipo: 'VENDA', valor: 250.00, formaPagamento: 'DINHEIRO' },
+    { id: 'mov_102', tipo: 'SUPRIMENTO', valor: 100.00, formaPagamento: 'DINHEIRO' },
+    { id: 'mov_103', tipo: 'RECEBIMENTO', valor: 120.00, formaPagamento: 'DINHEIRO' },
+    { id: 'mov_104', tipo: 'SAÍDA', valor: 30.00, formaPagamento: 'DINHEIRO' }
   ];
 
   const mockSalesData = [
     { id: 'venda_999', 'OS DA VENDA': 'OS-5544', 'VALOR TOTAL': 250.00, 'FORMA DE PAGAMENTO': 'DINHEIRO', CLIENTE: 'João Silva' },
-    { id: 'venda_1000', 'OS DA VENDA': 'OS-7788', 'VALOR TOTAL': 350.00, 'FORMA DE PAGAMENTO': 'PIX', CLIENTE: 'Maria Santos' }
+    { id: 'venda_1000', 'OS DA VENDA': '#OS-7788', 'VALOR TOTAL': 350.00, 'FORMA DE PAGAMENTO': 'PIX', CLIENTE: 'Maria Santos' },
+    // Parcela de carnê paga que NÃO deve ser importada como venda duplicada no extrato
+    { id: 'venda_rec_1', 'PRODUTO': '💰 Recebimento de Mensalidade / Carnê', 'VALOR TOTAL': 120.00, 'FORMA DE PAGAMENTO': 'DINHEIRO', CLIENTE: 'Ana Lima' }
   ];
 
   const deduplicateHistoryMovements = (cashMovements, salesData) => {
     let list = Array.isArray(cashMovements) ? [...cashMovements] : [];
+    const cleanId = (id) => String(id || '').replace(/^#|^os[-_ ]?/i, '').trim().toLowerCase();
     const existingSalesIds = new Set();
     list.forEach(m => {
-      if ((m.tipo || '').toUpperCase() === 'VENDA') {
-        if (m.id) existingSalesIds.add(String(m.id).trim().toLowerCase());
-        if (m.saleId) existingSalesIds.add(String(m.saleId).trim().toLowerCase());
-        if (m.osNumero) existingSalesIds.add(String(m.osNumero).trim().toLowerCase());
-        if (m['OS']) existingSalesIds.add(String(m['OS']).trim().toLowerCase());
-        if (m['OS DA VENDA']) existingSalesIds.add(String(m['OS DA VENDA']).trim().toLowerCase());
+      const tipo = (m.tipo || '').toUpperCase();
+      if (tipo === 'VENDA' || tipo === 'RECEBIMENTO') {
+        if (m.id) {
+          existingSalesIds.add(String(m.id).trim().toLowerCase());
+          existingSalesIds.add(cleanId(m.id));
+        }
+        if (m.saleId) {
+          existingSalesIds.add(String(m.saleId).trim().toLowerCase());
+          existingSalesIds.add(cleanId(m.saleId));
+        }
+        if (m.osNumero) {
+          existingSalesIds.add(String(m.osNumero).trim().toLowerCase());
+          existingSalesIds.add(cleanId(m.osNumero));
+        }
+        if (m['OS']) {
+          existingSalesIds.add(String(m['OS']).trim().toLowerCase());
+          existingSalesIds.add(cleanId(m['OS']));
+        }
+        if (m['OS DA VENDA']) {
+          existingSalesIds.add(String(m['OS DA VENDA']).trim().toLowerCase());
+          existingSalesIds.add(cleanId(m['OS DA VENDA']));
+        }
       }
     });
 
     if (Array.isArray(salesData) && salesData.length > 0) {
       salesData.forEach((s, idx) => {
-        const rawId = String(s.id || s._id || s['ID'] || '').trim().toLowerCase();
+        const prod = String(s['PRODUTO'] || s['SERVIÇO'] || s['Produto'] || '').toLowerCase();
+        const sTipo = String(s.tipo || s.TIPO || '').toUpperCase();
+        if (prod.includes('recebimento') || prod.includes('mensalidade') || prod.includes('carnê') || prod.includes('carne') || sTipo === 'RECEBIMENTO') {
+          return;
+        }
+
+        const rawId = String(s.id || s._id || s['ID'] || s.saleId || s.sale_id || '').trim().toLowerCase();
+        const cleanRawId = cleanId(rawId);
         const osNum = String(s['OS DA VENDA'] || s['Nº DA OS'] || s['OS'] || s['Num OS'] || '').trim().toLowerCase();
+        const cleanOsNum = cleanId(osNum);
         const sId = rawId || (osNum ? `os_${osNum}` : `venda_${idx}`);
+        const cleanSId = cleanId(sId);
 
         const isDuplicate = (rawId && existingSalesIds.has(rawId)) ||
+                            (cleanRawId && existingSalesIds.has(cleanRawId)) ||
                             (osNum && existingSalesIds.has(osNum)) ||
-                            existingSalesIds.has(sId);
+                            (cleanOsNum && existingSalesIds.has(cleanOsNum)) ||
+                            existingSalesIds.has(sId) ||
+                            (cleanSId && existingSalesIds.has(cleanSId));
 
         if (!isDuplicate) {
           const valor = parseFloat(s['VALOR TOTAL'] || 0);
           if (valor > 0) {
-            if (rawId) existingSalesIds.add(rawId);
-            if (osNum) existingSalesIds.add(osNum);
+            if (rawId) {
+              existingSalesIds.add(rawId);
+              if (cleanRawId) existingSalesIds.add(cleanRawId);
+            }
+            if (osNum) {
+              existingSalesIds.add(osNum);
+              if (cleanOsNum) existingSalesIds.add(cleanOsNum);
+            }
             existingSalesIds.add(sId);
+            if (cleanSId) existingSalesIds.add(cleanSId);
 
             list.push({
               id: sId,
@@ -3058,10 +3098,27 @@ async function runTests() {
   };
 
   const deduplicatedList = deduplicateHistoryMovements(mockMovementsCashFlow, mockSalesData);
-  console.assert(deduplicatedList.length === 3, `Deve conter exatamente 3 movimentos após desduplicação, retornou ${deduplicatedList.length}`);
+  // Deve conter 5 itens: mov_101, mov_102, mov_103, mov_104 e venda_1000 (venda_999 é duplicada da mov_101 e venda_rec_1 é ignorada)
+  console.assert(deduplicatedList.length === 5, `Deve conter exatamente 5 movimentos após desduplicação, retornou ${deduplicatedList.length}`);
   const salesCount = deduplicatedList.filter(m => m.tipo === 'VENDA').length;
   console.assert(salesCount === 2, `Devem ser exatamente 2 vendas (1 já registrada + 1 importada sem duplicar), retornou ${salesCount}`);
-  console.log('  ✅ Test 33 Passed: Desduplicação por saleId, osNumero e id validada com sucesso!\n');
+  console.assert(!deduplicatedList.some(m => m.id === 'venda_rec_1'), 'Recebimento de mensalidade em salesData não deve ser importado como venda');
+  
+  // Teste de cálculo de métricas com RECEBIMENTO e SAÍDA
+  let totalAberturas = 0, totalSangrias = 0, totalSuprimentos = 0, totalRecebimentosDinheiro = 0, totalSaidas = 0, totalVendasDinheiro = 0;
+  deduplicatedList.forEach(m => {
+    const v = m.valor;
+    const tipo = m.tipo.toUpperCase();
+    const fp = (m.formaPagamento || '').toUpperCase();
+    if (tipo === 'SUPRIMENTO') totalSuprimentos += v;
+    else if (tipo === 'SAÍDA') totalSaidas += v;
+    else if (tipo === 'RECEBIMENTO' && fp.includes('DINHEIRO')) totalRecebimentosDinheiro += v;
+    else if (tipo === 'VENDA' && fp.includes('DINHEIRO')) totalVendasDinheiro += v;
+  });
+  const saldoEstimado = (totalAberturas + totalSuprimentos + totalVendasDinheiro + totalRecebimentosDinheiro) - totalSangrias - totalSaidas;
+  // 0 + 100 + 250 + 120 - 0 - 30 = 440
+  console.assert(saldoEstimado === 440, `Saldo estimado da gaveta deve ser 440, calculado ${saldoEstimado}`);
+  console.log('  ✅ Test 33 Passed: Desduplicação por saleId, osNumero e id com suporte a RECEBIMENTO e SAÍDA validada com sucesso!\n');
 
   // ─── TEST 34: Quitação de Parcela no Perfil do Cliente e Baixa no ERP ───
   console.log('▶ Test 34: Quitação de Parcela no Perfil do Cliente e Baixa no ERP');
@@ -3151,8 +3208,8 @@ async function runTests() {
     { tipo: 'SUPRIMENTO', valor: 50.00, formaPagamento: 'DINHEIRO', dataHora: '2026-10-05T08:30:00' },
     { tipo: 'VENDA', valor: 100.00, formaPagamento: 'DINHEIRO', dataHora: '2026-10-05T09:00:00' },
     { tipo: 'VENDA', valor: 300.00, formaPagamento: 'PIX', dataHora: '2026-10-05T09:30:00' },
-    { tipo: 'RECEBIMENTO', valor: 120.00, formaPagamento: 'DINHEIRO', dataHora: '2026-10-05T10:00:00' },
-    { tipo: 'SAÍDA', valor: 40.00, formaPagamento: 'DINHEIRO', dataHora: '2026-10-05T10:30:00' },
+    { tipo: 'recebimento', valor: 120.00, formaPagamento: 'dinheiro', dataHora: '2026-10-05T10:00:00' }, // minúsculo testado
+    { tipo: 'saída', valor: 40.00, formaPagamento: 'dinheiro', dataHora: '2026-10-05T10:30:00' }, // minúsculo testado
     { tipo: 'SANGRIA', valor: 50.00, formaPagamento: 'DINHEIRO', dataHora: '2026-10-05T11:00:00' }
   ];
 
@@ -3161,11 +3218,12 @@ async function runTests() {
     movements.forEach(m => {
       const v = parseCurrency(m.valor);
       const fp = String(m.formaPagamento || '').toUpperCase();
-      if (m.tipo === 'SUPRIMENTO') saldo += v;
-      else if (m.tipo === 'SANGRIA') saldo -= v;
-      else if (m.tipo === 'SAÍDA' || m.tipo === 'SAIDA' || m.tipo === 'PAGAMENTO') saldo -= v;
-      else if (m.tipo === 'RECEBIMENTO' && (fp.includes('DINHEIRO') || !fp)) saldo += v;
-      else if (m.tipo === 'VENDA' && fp.includes('DINHEIRO')) saldo += v;
+      const tipo = String(m.tipo || '').toUpperCase();
+      if (tipo === 'SUPRIMENTO') saldo += v;
+      else if (tipo === 'SANGRIA') saldo -= v;
+      else if (tipo === 'SAÍDA' || tipo === 'SAIDA' || tipo === 'PAGAMENTO') saldo -= v;
+      else if (tipo === 'RECEBIMENTO' && (fp.includes('DINHEIRO') || !fp)) saldo += v;
+      else if (tipo === 'VENDA' && fp.includes('DINHEIRO')) saldo += v;
     });
     return Math.max(0, saldo);
   };

@@ -106,28 +106,58 @@ export const CashHistoryContent = ({
   const allMovements = useMemo(() => {
     let list = Array.isArray(cashMovements) ? [...cashMovements] : [];
     
-    // Identificar vendas já presentes no fluxo de caixa para evitar duplicar
+    // Identificar vendas e recebimentos já presentes no fluxo de caixa para evitar duplicar
+    const cleanId = (id) => String(id || '').replace(/^#|^os[-_ ]?/i, '').trim().toLowerCase();
     const existingSalesIds = new Set();
     list.forEach(m => {
-      if ((m.tipo || '').toUpperCase() === 'VENDA') {
-        if (m.id) existingSalesIds.add(String(m.id).trim().toLowerCase());
-        if (m.saleId) existingSalesIds.add(String(m.saleId).trim().toLowerCase());
-        if (m.osNumero) existingSalesIds.add(String(m.osNumero).trim().toLowerCase());
-        if (m['OS']) existingSalesIds.add(String(m['OS']).trim().toLowerCase());
-        if (m['OS DA VENDA']) existingSalesIds.add(String(m['OS DA VENDA']).trim().toLowerCase());
+      const tipo = (m.tipo || '').toUpperCase();
+      if (tipo === 'VENDA' || tipo === 'RECEBIMENTO') {
+        if (m.id) {
+          existingSalesIds.add(String(m.id).trim().toLowerCase());
+          existingSalesIds.add(cleanId(m.id));
+        }
+        if (m.saleId) {
+          existingSalesIds.add(String(m.saleId).trim().toLowerCase());
+          existingSalesIds.add(cleanId(m.saleId));
+        }
+        if (m.osNumero) {
+          existingSalesIds.add(String(m.osNumero).trim().toLowerCase());
+          existingSalesIds.add(cleanId(m.osNumero));
+        }
+        if (m['OS']) {
+          existingSalesIds.add(String(m['OS']).trim().toLowerCase());
+          existingSalesIds.add(cleanId(m['OS']));
+        }
+        if (m['OS DA VENDA']) {
+          existingSalesIds.add(String(m['OS DA VENDA']).trim().toLowerCase());
+          existingSalesIds.add(cleanId(m['OS DA VENDA']));
+        }
       }
     });
 
     // Integrar vendas de salesData se existirem
     if (Array.isArray(salesData) && salesData.length > 0) {
       salesData.forEach((s, idx) => {
-        const rawId = String(s.id || s._id || s['ID'] || '').trim().toLowerCase();
+        // Ignora se for quitação de parcela ou recebimento de carnê/mensalidade (já registrado em FLUXO_CAIXA como RECEBIMENTO)
+        const prod = String(s['PRODUTO'] || s['SERVIÇO'] || s['Produto'] || '').toLowerCase();
+        const sTipo = String(s.tipo || s.TIPO || '').toUpperCase();
+        if (prod.includes('recebimento') || prod.includes('mensalidade') || prod.includes('carnê') || prod.includes('carne') || sTipo === 'RECEBIMENTO') {
+          return;
+        }
+
+        const rawId = String(s.id || s._id || s['ID'] || s.saleId || s.sale_id || '').trim().toLowerCase();
+        const cleanRawId = cleanId(rawId);
         const osNum = String(s['OS DA VENDA'] || s['Nº DA OS'] || s['OS'] || s['Num OS'] || '').trim().toLowerCase();
+        const cleanOsNum = cleanId(osNum);
         const sId = rawId || (osNum ? `os_${osNum}` : `venda_${idx}`);
+        const cleanSId = cleanId(sId);
 
         const isDuplicate = (rawId && existingSalesIds.has(rawId)) ||
+                            (cleanRawId && existingSalesIds.has(cleanRawId)) ||
                             (osNum && existingSalesIds.has(osNum)) ||
-                            existingSalesIds.has(sId);
+                            (cleanOsNum && existingSalesIds.has(cleanOsNum)) ||
+                            existingSalesIds.has(sId) ||
+                            (cleanSId && existingSalesIds.has(cleanSId));
 
         if (!isDuplicate) {
           const valor = s['VALOR TOTAL'] || s['VALOR DA VENDA'] || s['VALOR'] || s['VALOR_TOTAL'] || s['Valor'] || 0;
@@ -141,9 +171,16 @@ export const CashHistoryContent = ({
             const produto = s['PRODUTO'] || s['SERVIÇO'] || s['Produto'] || 'Venda Balcão';
             const cliente = s['CLIENTE'] || s['NOME DO CLIENTE'] || s['Cliente'] || 'Consumidor Final';
 
-            if (rawId) existingSalesIds.add(rawId);
-            if (osNum) existingSalesIds.add(osNum);
+            if (rawId) {
+              existingSalesIds.add(rawId);
+              if (cleanRawId) existingSalesIds.add(cleanRawId);
+            }
+            if (osNum) {
+              existingSalesIds.add(osNum);
+              if (cleanOsNum) existingSalesIds.add(cleanOsNum);
+            }
             existingSalesIds.add(sId);
+            if (cleanSId) existingSalesIds.add(cleanSId);
 
             list.push({
               id: sId,
@@ -251,6 +288,8 @@ export const CashHistoryContent = ({
     let totalAberturas = 0;
     let totalSangrias = 0;
     let totalSuprimentos = 0;
+    let totalRecebimentosDinheiro = 0;
+    let totalSaidas = 0;
     let totalVendasDinheiro = 0;
     let totalVendasGeral = 0;
     let totalFechamentos = 0;
@@ -258,6 +297,7 @@ export const CashHistoryContent = ({
     filteredMovements.forEach(item => {
       const v = parseCurrency(item.valor);
       const tipo = (item.tipo || item.TIPO || '').toUpperCase();
+      const forma = String(item.formaPagamento || '').toUpperCase();
 
       if (tipo === 'ABERTURA') {
         totalAberturas += v;
@@ -265,9 +305,14 @@ export const CashHistoryContent = ({
         totalSangrias += v;
       } else if (tipo === 'SUPRIMENTO') {
         totalSuprimentos += v;
+      } else if (tipo === 'SAÍDA' || tipo === 'SAIDA' || tipo === 'PAGAMENTO') {
+        totalSaidas += v;
+      } else if (tipo === 'RECEBIMENTO') {
+        if (forma.includes('DINHEIRO') || !forma) {
+          totalRecebimentosDinheiro += v;
+        }
       } else if (tipo === 'VENDA') {
         totalVendasGeral += v;
-        const forma = String(item.formaPagamento || '').toUpperCase();
         if (forma.includes('DINHEIRO') || !forma) {
           totalVendasDinheiro += v;
         }
@@ -276,13 +321,15 @@ export const CashHistoryContent = ({
       }
     });
 
-    const saldoEstimadoGaveta = (totalAberturas + totalSuprimentos + totalVendasDinheiro) - totalSangrias;
+    const saldoEstimadoGaveta = Math.max(0, (totalAberturas + totalSuprimentos + totalVendasDinheiro + totalRecebimentosDinheiro) - totalSangrias - totalSaidas);
 
     return {
       count: filteredMovements.length,
       totalAberturas,
       totalSangrias,
       totalSuprimentos,
+      totalRecebimentosDinheiro,
+      totalSaidas,
       totalVendasDinheiro,
       totalVendasGeral,
       saldoEstimadoGaveta,
@@ -495,6 +542,8 @@ export const CashHistoryContent = ({
                   <option value="SANGRIA" className="bg-slate-900 text-white">💸 Sangria (Cofre/Despesa)</option>
                   <option value="SUPRIMENTO" className="bg-slate-900 text-white">📥 Suprimento de Troco</option>
                   <option value="VENDA" className="bg-slate-900 text-white">🛒 Vendas no PDV</option>
+                  <option value="RECEBIMENTO" className="bg-slate-900 text-white">💰 Recebimento (Carnê/Boleto)</option>
+                  <option value="SAÍDA" className="bg-slate-900 text-white">📤 Saída / Pagamento ERP</option>
                   <option value="FECHAMENTO" className="bg-slate-900 text-white">🔒 Fechamento (Relatório Z)</option>
                 </select>
               </div>
@@ -627,6 +676,14 @@ export const CashHistoryContent = ({
                     badgeColor = 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
                     icon = <ShoppingCart size={13} className="text-emerald-400" />;
                     valorClass = 'text-emerald-400 font-black';
+                  } else if (tipo === 'RECEBIMENTO') {
+                    badgeColor = 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
+                    icon = <DollarSign size={13} className="text-emerald-400" />;
+                    valorClass = 'text-emerald-400 font-black';
+                  } else if (tipo === 'SAÍDA' || tipo === 'SAIDA' || tipo === 'PAGAMENTO') {
+                    badgeColor = 'bg-rose-500/15 text-rose-300 border-rose-500/30';
+                    icon = <ArrowDownRight size={13} className="text-rose-400" />;
+                    valorClass = 'text-rose-400 font-black';
                   } else if (tipo === 'FECHAMENTO') {
                     badgeColor = 'bg-amber-500/15 text-amber-300 border-amber-500/30';
                     icon = <Lock size={13} className="text-amber-400" />;

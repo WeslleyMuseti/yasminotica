@@ -6,9 +6,20 @@ import {
 } from 'lucide-react';
 
 const cleanVal = (v) => {
-  if (!v) return 0;
-  if (typeof v === 'number') return v;
-  return parseFloat(String(v).replace(/R\$\s?/g, '').replace(/\./g, '').replace(',', '.').trim()) || 0;
+  if (v === null || v === undefined || v === '') return 0;
+  if (typeof v === 'number') return isNaN(v) ? 0 : v;
+  let str = String(v).replace(/R\$\s?/g, '').trim();
+  if (!str) return 0;
+  if (str.includes(',')) {
+    str = str.replace(/\./g, '').replace(',', '.');
+  } else {
+    const dotCount = (str.match(/\./g) || []).length;
+    if (dotCount > 1) {
+      str = str.replace(/\./g, '');
+    }
+  }
+  const parsed = parseFloat(str);
+  return isNaN(parsed) ? 0 : parsed;
 };
 
 const fmtMoeda = (v) => `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

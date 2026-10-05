@@ -102,6 +102,7 @@ const ErpOptica = ({
   clientsData = [],
   currentUser = null,
   onAddRow,
+  onAddBatch,
   onUpdateRow,
   onDeleteRow,
   onClearFinancialAndOS,
@@ -681,11 +682,27 @@ const ErpOptica = ({
       });
       setSuccessMsg('Brinde / Cortesia cadastrado com sucesso no estoque!');
     } else if (activeTab === 'pagar') {
+      const valPagar = parseCurrency(pagarForm.VALOR);
+      const pagarStatus = (pagarForm.STATUS || 'Pendente').trim().toLowerCase();
       onAddRow('CONTAS_PAGAR', {
         ...pagarForm,
-        VALOR: parseCurrency(pagarForm.VALOR).toFixed(2).replace('.', ','),
+        VALOR: valPagar.toFixed(2).replace('.', ','),
         DATA_CADASTRO: new Date().toLocaleDateString('pt-BR')
       });
+      if (['pago', 'liquidado', 'recebido'].includes(pagarStatus) && onAddRow) {
+        onAddRow('FLUXO_CAIXA', {
+          id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+          tipo: 'SAÍDA',
+          dataHora: new Date().toISOString(),
+          data: new Date().toLocaleDateString('pt-BR'),
+          unidade: defaultFormCity || 'Cajati',
+          operador: currentUser?.username || 'ERP',
+          valor: valPagar,
+          formaPagamento: 'DINHEIRO',
+          motivo: `Pagamento Despesa - ${pagarForm.FORNECEDOR || 'Fornecedor'}`,
+          detalhes: pagarForm.DESCRICAO || 'Pagamento de Despesa'
+        });
+      }
       setPagarForm({
         DESCRICAO: '', CATEGORIA: 'Fornecedores', VALOR: '',
         DATA_VENCIMENTO: new Date().toISOString().split('T')[0],
@@ -721,9 +738,30 @@ const ErpOptica = ({
         DATA_CADASTRO: new Date().toLocaleDateString('pt-BR')
       });
 
+      const statusConta = (receberForm.STATUS || 'Pendente').trim();
+      const statusContaNorm = statusConta.toLowerCase();
+
+      // Se cadastrada já como Recebido/Pago, registrar no FLUXO_CAIXA
+      if (['recebido', 'pago', 'liquidado'].includes(statusContaNorm) && onAddRow) {
+        onAddRow('FLUXO_CAIXA', {
+          id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+          tipo: 'RECEBIMENTO',
+          dataHora: new Date().toISOString(),
+          data: new Date().toLocaleDateString('pt-BR'),
+          unidade: defaultFormCity || 'Cajati',
+          operador: currentUser?.username || 'ERP',
+          valor: valorNum,
+          formaPagamento: receberForm.MEIO_PAGAMENTO || 'DINHEIRO',
+          motivo: `Recebimento ERP - ${receivingName || 'Cliente'}`,
+          detalhes: receberForm.DESCRICAO || 'Recebimento de Conta',
+          CLIENTE_ID: clientId,
+          CLIENTE_CPF: clientCpf,
+          CPF: clientCpf
+        });
+      }
+
       // Sincronização Automática com a tabela de Clientes (CLIENTES_CADASTRADOS)
       if (matchedClient && onUpdateRow) {
-        const statusConta = (receberForm.STATUS || 'Pendente').trim();
         if (statusConta === 'Pendente' || statusConta === 'Inadimplente' || statusConta === 'Atrasado') {
           const currentDebt = parseCurrency(matchedClient['Valor Devido'] || 0);
           const newDebt = currentDebt + valorNum;
@@ -809,9 +847,11 @@ const ErpOptica = ({
     if (sheetName === 'CONTAS_RECEBER') {
       const oldStatus = (oldRow.STATUS || oldRow.status || '').trim();
       const newStatus = (newRow.STATUS || newRow.status || '').trim();
+      const oldStatusNorm = oldStatus.toLowerCase();
+      const newStatusNorm = newStatus.toLowerCase();
       const valorRow = parseCurrency(newRow.VALOR || newRow.valor || oldRow.VALOR || oldRow.valor);
-      const isPaidNow = (oldStatus !== 'Recebido' && oldStatus !== 'Pago' && oldStatus !== 'Liquidado') &&
-                        (newStatus === 'Recebido' || newStatus === 'Pago' || newStatus === 'Liquidado');
+      const isPaidNow = (!['recebido', 'pago', 'liquidado'].includes(oldStatusNorm)) &&
+                        (['recebido', 'pago', 'liquidado'].includes(newStatusNorm));
 
       // 🛡️ Fix 5: Ao marcar como Recebido/Pago, registrar entrada no FLUXO_CAIXA
       if (isPaidNow && onAddRow) {
@@ -868,7 +908,7 @@ const ErpOptica = ({
             });
           }
           // Se reabriu a conta (antes era Recebido/Pago e agora virou Pendente/Atrasado)
-          else if ((oldStatus === 'Recebido' || oldStatus === 'Pago' || oldStatus === 'Liquidado') && (newStatus === 'Pendente' || newStatus === 'Atrasado' || newStatus === 'Inadimplente')) {
+          else if (['recebido', 'pago', 'liquidado'].includes(oldStatusNorm) && ['pendente', 'atrasado', 'inadimplente'].includes(newStatusNorm)) {
             const currentDebt = parseCurrency(matchedClient['Valor Devido'] || 0);
             const newDebt = currentDebt + valorRow;
             onUpdateRow('CLIENTES_CADASTRADOS', matchedClient, {
@@ -882,9 +922,11 @@ const ErpOptica = ({
     } else if (sheetName === 'CONTAS_PAGAR') {
       const oldStatus = (oldRow.STATUS || oldRow.status || '').trim();
       const newStatus = (newRow.STATUS || newRow.status || '').trim();
+      const oldStatusNorm = oldStatus.toLowerCase();
+      const newStatusNorm = newStatus.toLowerCase();
       const valorRow = parseCurrency(newRow.VALOR || newRow.valor || oldRow.VALOR || oldRow.valor);
-      const isPaidNow = (oldStatus !== 'Pago' && oldStatus !== 'Liquidado' && oldStatus !== 'Recebido') &&
-                        (newStatus === 'Pago' || newStatus === 'Liquidado' || newStatus === 'Recebido');
+      const isPaidNow = (!['pago', 'liquidado', 'recebido'].includes(oldStatusNorm)) &&
+                        (['pago', 'liquidado', 'recebido'].includes(newStatusNorm));
 
       // 🛡️ Fix 5: Ao marcar Conta a Pagar como Pago, registrar saída no FLUXO_CAIXA
       if (isPaidNow && onAddRow) {
