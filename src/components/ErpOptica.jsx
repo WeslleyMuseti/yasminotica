@@ -806,46 +806,106 @@ const ErpOptica = ({
     onUpdateRow(sheetName, oldRow, newRow);
 
     // Se editarmos/baixarmos uma Conta a Receber no ERP, sincroniza o saldo com a tabela de Clientes por ID/CPF único!
-    if (sheetName === 'CONTAS_RECEBER' && clientsData && clientsData.length > 0) {
-      const rowClientId = newRow.CLIENTE_ID || newRow.cliente_id || oldRow.CLIENTE_ID || oldRow.cliente_id;
-      const rowCpf = newRow.CLIENTE_CPF || newRow.CPF || newRow.cpf || oldRow.CLIENTE_CPF || oldRow.CPF || oldRow.cpf || '';
-      const clienteNome = (newRow.CLIENTE || newRow.cliente || oldRow.CLIENTE || oldRow.cliente || '').trim();
+    if (sheetName === 'CONTAS_RECEBER') {
+      const oldStatus = (oldRow.STATUS || oldRow.status || '').trim();
+      const newStatus = (newRow.STATUS || newRow.status || '').trim();
+      const valorRow = parseCurrency(newRow.VALOR || newRow.valor || oldRow.VALOR || oldRow.valor);
+      const isPaidNow = (oldStatus !== 'Recebido' && oldStatus !== 'Pago' && oldStatus !== 'Liquidado') &&
+                        (newStatus === 'Recebido' || newStatus === 'Pago' || newStatus === 'Liquidado');
 
-      const matchedClient = clientsData.find(c => isSameClient(c, {
-        id: rowClientId,
-        CLIENTE_ID: rowClientId,
-        'CPF / CNPJ': rowCpf,
-        CPF: rowCpf,
-        'Nome Completo': clienteNome,
-        NOME: clienteNome,
-        CLIENTE: clienteNome
-      }));
+      // 🛡️ Fix 5: Ao marcar como Recebido/Pago, registrar entrada no FLUXO_CAIXA
+      if (isPaidNow && onAddRow) {
+        const todayStr = new Date().toLocaleDateString('pt-BR');
+        const rowClientId = newRow.CLIENTE_ID || newRow.cliente_id || oldRow.CLIENTE_ID || oldRow.cliente_id || '';
+        const rowCpf = newRow.CLIENTE_CPF || newRow.CPF || newRow.cpf || oldRow.CLIENTE_CPF || oldRow.CPF || oldRow.cpf || '';
+        const clienteNome = (newRow.CLIENTE || newRow.cliente || oldRow.CLIENTE || oldRow.cliente || 'Cliente').trim();
+        const doc = newRow.DOCUMENTO || newRow.documento || oldRow.DOCUMENTO || oldRow.documento || '';
+        const desc = newRow.DESCRICAO || newRow.descricao || oldRow.DESCRICAO || oldRow.descricao || 'Recebimento de Conta';
+        const osNum = newRow.VENDA_OS || newRow.OS || oldRow.VENDA_OS || oldRow.OS || '';
+        const unidade = newRow.CIDADE || newRow.cidade || oldRow.CIDADE || oldRow.cidade || defaultFormCity || 'Cajati';
 
-      if (matchedClient) {
-        const oldStatus = (oldRow.STATUS || oldRow.status || '').trim();
-        const newStatus = (newRow.STATUS || newRow.status || '').trim();
-        const valorRow = parseCurrency(newRow.VALOR || newRow.valor || oldRow.VALOR || oldRow.valor);
+        onAddRow('FLUXO_CAIXA', {
+          id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+          tipo: 'RECEBIMENTO',
+          dataHora: new Date().toISOString(),
+          data: todayStr,
+          unidade: unidade,
+          operador: currentUser?.username || 'ERP',
+          valor: valorRow,
+          formaPagamento: newRow.MEIO_PAGAMENTO || newRow.FORMA_PAGAMENTO || 'DINHEIRO',
+          motivo: `Recebimento ERP - ${clienteNome}`,
+          detalhes: osNum ? `OS #${osNum} - ${doc || desc}` : (doc || desc),
+          CLIENTE_ID: rowClientId,
+          CLIENTE_CPF: rowCpf,
+          CPF: rowCpf
+        });
+      }
 
-        // Se baixou/recebeu a conta agora (antes era pendente/atrasado e agora virou Recebido/Pago)
-        if ((oldStatus === 'Pendente' || oldStatus === 'Atrasado' || oldStatus === 'Inadimplente') && (newStatus === 'Recebido' || newStatus === 'Pago' || newStatus === 'Liquidado')) {
-          const currentDebt = parseCurrency(matchedClient['Valor Devido'] || 0);
-          const newDebt = Math.max(0, currentDebt - valorRow);
-          onUpdateRow('CLIENTES_CADASTRADOS', matchedClient, {
-            ...matchedClient,
-            'Valor Devido': newDebt > 0 ? newDebt.toFixed(2).replace('.', ',') : '0,00',
-            'Status de Pagamento': newDebt > 0 ? 'Inadimplente' : 'Em dia'
-          });
+      if (clientsData && clientsData.length > 0) {
+        const rowClientId = newRow.CLIENTE_ID || newRow.cliente_id || oldRow.CLIENTE_ID || oldRow.cliente_id;
+        const rowCpf = newRow.CLIENTE_CPF || newRow.CPF || newRow.cpf || oldRow.CLIENTE_CPF || oldRow.CPF || oldRow.cpf || '';
+        const clienteNome = (newRow.CLIENTE || newRow.cliente || oldRow.CLIENTE || oldRow.cliente || '').trim();
+
+        const matchedClient = clientsData.find(c => isSameClient(c, {
+          id: rowClientId,
+          CLIENTE_ID: rowClientId,
+          'CPF / CNPJ': rowCpf,
+          CPF: rowCpf,
+          'Nome Completo': clienteNome,
+          NOME: clienteNome,
+          CLIENTE: clienteNome
+        }));
+
+        if (matchedClient) {
+          // Se baixou/recebeu a conta agora (antes era pendente/atrasado e agora virou Recebido/Pago)
+          if (isPaidNow) {
+            const currentDebt = parseCurrency(matchedClient['Valor Devido'] || 0);
+            const newDebt = Math.max(0, currentDebt - valorRow);
+            onUpdateRow('CLIENTES_CADASTRADOS', matchedClient, {
+              ...matchedClient,
+              'Valor Devido': newDebt > 0 ? newDebt.toFixed(2).replace('.', ',') : '0,00',
+              'Status de Pagamento': newDebt > 0 ? 'Inadimplente' : 'Em dia'
+            });
+          }
+          // Se reabriu a conta (antes era Recebido/Pago e agora virou Pendente/Atrasado)
+          else if ((oldStatus === 'Recebido' || oldStatus === 'Pago' || oldStatus === 'Liquidado') && (newStatus === 'Pendente' || newStatus === 'Atrasado' || newStatus === 'Inadimplente')) {
+            const currentDebt = parseCurrency(matchedClient['Valor Devido'] || 0);
+            const newDebt = currentDebt + valorRow;
+            onUpdateRow('CLIENTES_CADASTRADOS', matchedClient, {
+              ...matchedClient,
+              'Valor Devido': newDebt.toFixed(2).replace('.', ','),
+              'Status de Pagamento': 'Inadimplente'
+            });
+          }
         }
-        // Se reabriu a conta (antes era Recebido/Pago e agora virou Pendente/Atrasado)
-        else if ((oldStatus === 'Recebido' || oldStatus === 'Pago' || oldStatus === 'Liquidado') && (newStatus === 'Pendente' || newStatus === 'Atrasado' || newStatus === 'Inadimplente')) {
-          const currentDebt = parseCurrency(matchedClient['Valor Devido'] || 0);
-          const newDebt = currentDebt + valorRow;
-          onUpdateRow('CLIENTES_CADASTRADOS', matchedClient, {
-            ...matchedClient,
-            'Valor Devido': newDebt.toFixed(2).replace('.', ','),
-            'Status de Pagamento': 'Inadimplente'
-          });
-        }
+      }
+    } else if (sheetName === 'CONTAS_PAGAR') {
+      const oldStatus = (oldRow.STATUS || oldRow.status || '').trim();
+      const newStatus = (newRow.STATUS || newRow.status || '').trim();
+      const valorRow = parseCurrency(newRow.VALOR || newRow.valor || oldRow.VALOR || oldRow.valor);
+      const isPaidNow = (oldStatus !== 'Pago' && oldStatus !== 'Liquidado' && oldStatus !== 'Recebido') &&
+                        (newStatus === 'Pago' || newStatus === 'Liquidado' || newStatus === 'Recebido');
+
+      // 🛡️ Fix 5: Ao marcar Conta a Pagar como Pago, registrar saída no FLUXO_CAIXA
+      if (isPaidNow && onAddRow) {
+        const todayStr = new Date().toLocaleDateString('pt-BR');
+        const favorecido = newRow.FORNECEDOR || newRow.fornecedor || newRow.BENEFICIARIO || newRow.beneficiario || oldRow.FORNECEDOR || oldRow.fornecedor || 'Fornecedor';
+        const doc = newRow.DOCUMENTO || newRow.documento || oldRow.DOCUMENTO || oldRow.documento || '';
+        const desc = newRow.DESCRICAO || newRow.descricao || oldRow.DESCRICAO || oldRow.descricao || 'Pagamento de Despesa';
+        const unidade = newRow.CIDADE || newRow.cidade || oldRow.CIDADE || oldRow.cidade || defaultFormCity || 'Cajati';
+
+        onAddRow('FLUXO_CAIXA', {
+          id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+          tipo: 'SAÍDA',
+          dataHora: new Date().toISOString(),
+          data: todayStr,
+          unidade: unidade,
+          operador: currentUser?.username || 'ERP',
+          valor: valorRow,
+          formaPagamento: newRow.MEIO_PAGAMENTO || newRow.FORMA_PAGAMENTO || 'DINHEIRO',
+          motivo: `Pagamento Despesa - ${favorecido}`,
+          detalhes: doc ? `${doc} - ${desc}` : desc
+        });
       }
     }
   };

@@ -29,6 +29,39 @@ const parseCurrency = (val) => {
   return isNaN(parsed) ? 0 : parsed;
 };
 
+const parseItemDate = (item) => {
+  if (!item) return null;
+  const raw = item.dataHora || item.timestamp || item.DATA || item['DATA  DA VENDA'] || item['DATA DA VENDA'] || item.data;
+  if (!raw) return null;
+  if (raw instanceof Date) return isNaN(raw.getTime()) ? null : raw;
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (trimmed.includes('/')) {
+      const parts = trimmed.split(' ')[0].split('/');
+      if (parts.length === 3) {
+        const d = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        const y = parseInt(parts[2], 10);
+        const dateObj = new Date(y, m, d);
+        if (trimmed.includes(':')) {
+          const timeParts = trimmed.split(' ')[1]?.split(':') || [];
+          if (timeParts.length >= 2) {
+            dateObj.setHours(parseInt(timeParts[0], 10) || 0, parseInt(timeParts[1], 10) || 0, parseInt(timeParts[2], 10) || 0);
+          }
+        }
+        return isNaN(dateObj.getTime()) ? null : dateObj;
+      }
+    }
+    const d = new Date(trimmed);
+    if (!isNaN(d.getTime())) return d;
+  }
+  if (typeof raw === 'number') {
+    const d = new Date(raw);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return null;
+};
+
 // ─── COMPROVANTE IMPRESSO PROFISSIONAL COM LOGO YASMIN ÓTICA (1 PÁGINA PERFEITA) ───
 export const PrintableCashVoucher = ({ type, data, unit, operator }) => {
   if (!data) return null;
@@ -422,16 +455,20 @@ const CashManagementModal = ({
       return mDate >= sessionStart;
     });
 
-    // Vendas deste turno
+    // Vendas deste turno (com filtro de data >= início do turno)
     const sessionSales = salesData.filter(s => {
       const sUnit = s["UNIDADE"] || s["CIDADE"] || s["LOJA"] || "Central";
       if (sUnit !== unit && unit !== "ALL") return false;
+      const sDate = parseItemDate(s);
+      if (sDate && sDate < sessionStart) return false;
       return true;
     });
 
     let fundoInicial = activeSession.fundoInicial || 0;
     let totalSangrias = 0;
     let totalSuprimentos = 0;
+    let totalRecebimentosDinheiro = 0;
+    let totalSaidas = 0;
     let vendasDinheiro = 0;
     let vendasPix = 0;
     let vendasDebito = 0;
@@ -440,10 +477,16 @@ const CashManagementModal = ({
 
     sessionMovements.forEach(m => {
       const v = parseCurrency(m.valor);
+      const fp = String(m.formaPagamento || '').toUpperCase();
       if (m.tipo === 'SANGRIA') totalSangrias += v;
-      if (m.tipo === 'SUPRIMENTO') totalSuprimentos += v;
-      if (m.tipo === 'VENDA') {
-        const fp = String(m.formaPagamento || '').toUpperCase();
+      else if (m.tipo === 'SUPRIMENTO') totalSuprimentos += v;
+      else if (m.tipo === 'SAÍDA' || m.tipo === 'SAIDA' || m.tipo === 'PAGAMENTO') {
+        totalSaidas += v;
+      } else if (m.tipo === 'RECEBIMENTO') {
+        if (fp.includes('DINHEIRO') || !fp) {
+          totalRecebimentosDinheiro += v;
+        }
+      } else if (m.tipo === 'VENDA') {
         if (fp.includes('DINHEIRO')) vendasDinheiro += v;
         else if (fp.includes('PIX')) vendasPix += v;
         else if (fp.includes('DEBITO') || fp.includes('DÉBITO')) vendasDebito += v;
@@ -453,7 +496,7 @@ const CashManagementModal = ({
     });
 
     const totalVendas = vendasDinheiro + vendasPix + vendasDebito + vendasCredito + vendasBoleto;
-    const dinheiroEsperado = Math.max(0, fundoInicial + vendasDinheiro + totalSuprimentos - totalSangrias);
+    const dinheiroEsperado = Math.max(0, fundoInicial + vendasDinheiro + totalSuprimentos + totalRecebimentosDinheiro - totalSangrias - totalSaidas);
 
     return {
       fundoInicial,
@@ -465,6 +508,8 @@ const CashManagementModal = ({
       totalVendas,
       totalSangrias,
       totalSuprimentos,
+      totalRecebimentosDinheiro,
+      totalSaidas,
       dinheiroEsperado,
       listaMovimentos: sessionMovements,
       vendasDoTurno: sessionSales

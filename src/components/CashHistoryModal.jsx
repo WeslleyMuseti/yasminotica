@@ -107,16 +107,29 @@ export const CashHistoryContent = ({
     let list = Array.isArray(cashMovements) ? [...cashMovements] : [];
     
     // Identificar vendas já presentes no fluxo de caixa para evitar duplicar
-    const existingSalesIds = new Set(
-      list.filter(m => (m.tipo || '').toUpperCase() === 'VENDA' && (m.id || m.saleId || m.osNumero))
-          .map(m => String(m.id || m.saleId || m.osNumero))
-    );
+    const existingSalesIds = new Set();
+    list.forEach(m => {
+      if ((m.tipo || '').toUpperCase() === 'VENDA') {
+        if (m.id) existingSalesIds.add(String(m.id).trim().toLowerCase());
+        if (m.saleId) existingSalesIds.add(String(m.saleId).trim().toLowerCase());
+        if (m.osNumero) existingSalesIds.add(String(m.osNumero).trim().toLowerCase());
+        if (m['OS']) existingSalesIds.add(String(m['OS']).trim().toLowerCase());
+        if (m['OS DA VENDA']) existingSalesIds.add(String(m['OS DA VENDA']).trim().toLowerCase());
+      }
+    });
 
     // Integrar vendas de salesData se existirem
     if (Array.isArray(salesData) && salesData.length > 0) {
       salesData.forEach((s, idx) => {
-        const sId = String(s['Nº DA OS'] || s['OS'] || s['ID'] || `venda_${idx}`);
-        if (!existingSalesIds.has(sId)) {
+        const rawId = String(s.id || s._id || s['ID'] || '').trim().toLowerCase();
+        const osNum = String(s['OS DA VENDA'] || s['Nº DA OS'] || s['OS'] || s['Num OS'] || '').trim().toLowerCase();
+        const sId = rawId || (osNum ? `os_${osNum}` : `venda_${idx}`);
+
+        const isDuplicate = (rawId && existingSalesIds.has(rawId)) ||
+                            (osNum && existingSalesIds.has(osNum)) ||
+                            existingSalesIds.has(sId);
+
+        if (!isDuplicate) {
           const valor = s['VALOR TOTAL'] || s['VALOR DA VENDA'] || s['VALOR'] || s['VALOR_TOTAL'] || s['Valor'] || 0;
           const parsedVal = parseCurrency(valor);
           if (parsedVal > 0) {
@@ -124,18 +137,24 @@ export const CashHistoryContent = ({
             const loja = s['CIDADE'] || s['Loja'] || s['UNIDADE'] || s['loja'] || s['Cidade'] || 'Cajati';
             const vendedor = s['VENDEDOR'] || s['OPERADOR'] || s['Vendedor'] || 'Vendedor';
             const forma = s['FORMA DE PAGAMENTO'] || s['FORMA'] || s['PAGAMENTO'] || s['Forma de Pagamento'] || 'Dinheiro';
-            const osNum = s['Nº DA OS'] || s['OS'] || s['Num OS'] || (idx + 1);
+            const osDisplay = s['OS DA VENDA'] || s['Nº DA OS'] || s['OS'] || s['Num OS'] || (idx + 1);
             const produto = s['PRODUTO'] || s['SERVIÇO'] || s['Produto'] || 'Venda Balcão';
             const cliente = s['CLIENTE'] || s['NOME DO CLIENTE'] || s['Cliente'] || 'Consumidor Final';
 
+            if (rawId) existingSalesIds.add(rawId);
+            if (osNum) existingSalesIds.add(osNum);
+            existingSalesIds.add(sId);
+
             list.push({
               id: sId,
+              saleId: rawId || sId,
+              osNumero: osNum,
               tipo: 'VENDA',
               unidade: loja,
               operador: vendedor,
               valor: parsedVal,
               formaPagamento: forma,
-              motivo: `Venda OS #${osNum} - ${produto}`,
+              motivo: `Venda OS #${osDisplay} - ${produto}`,
               detalhes: `Cliente: ${cliente} | Pagamento: ${forma}`,
               dataHora: rawDate,
               DATA: rawDate

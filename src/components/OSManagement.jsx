@@ -252,6 +252,7 @@ const OSManagement = ({
   clientsData = [], 
   currentUser, 
   onAddRow,
+  onAddBatch,
   onUpdateRow, 
   onDeleteRow, 
   onClearFinancialAndOS,
@@ -582,7 +583,9 @@ const OSManagement = ({
 
       let newlyCreatedPendingSum = 0;
 
-      if (onAddRow && !alreadyHasPendingDuplicatas) {
+      const itemsToCreate = [];
+
+      if ((onAddBatch || onAddRow) && !alreadyHasPendingDuplicatas) {
         if (parcelas && parcelas.length > 0) {
           // GERA EXCLUSIVAMENTE AS PARCELAS DO CARNÊ/BOLETO QUE AINDA NÃO FORAM PAGAS
           for (const p of parcelas) {
@@ -599,7 +602,7 @@ const OSManagement = ({
               const valP = typeof p.valor === 'number' ? formatMoney(p.valor) : String(p.valor || '0,00');
               const isoVenc = toIsoDate(p.vencimento) || todayIso;
               newlyCreatedPendingSum += parseCurrency(valP);
-              await onAddRow('CONTAS_RECEBER', {
+              itemsToCreate.push({
                 CLIENTE_ID: clientId,
                 CLIENTE_CPF: clientCpf,
                 CPF: clientCpf,
@@ -631,7 +634,7 @@ const OSManagement = ({
           if (effectiveRest > 0) {
             newlyCreatedPendingSum = effectiveRest;
             const isoVenc = toIsoDate(order.dtEntrega) || todayIso;
-            await onAddRow('CONTAS_RECEBER', {
+            itemsToCreate.push({
               CLIENTE_ID: clientId,
               CLIENTE_CPF: clientCpf,
               CPF: clientCpf,
@@ -654,6 +657,16 @@ const OSManagement = ({
               OBSERVACOES: `Duplicata gerada após aprovação financeira da OS #${order.osNumber}. Total: R$ ${order.valorTotal}, Sinal: R$ ${order.valorEntrada}`,
               DATA_CADASTRO: todayStr
             });
+          }
+        }
+
+        if (itemsToCreate.length > 0) {
+          if (onAddBatch) {
+            await onAddBatch('CONTAS_RECEBER', itemsToCreate);
+          } else if (onAddRow) {
+            for (const item of itemsToCreate) {
+              await onAddRow('CONTAS_RECEBER', item);
+            }
           }
         }
       }

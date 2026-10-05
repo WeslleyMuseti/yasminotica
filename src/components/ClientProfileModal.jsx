@@ -319,14 +319,58 @@ const ClientProfileModal = ({
     if (window.confirm(`Confirmar recebimento da parcela no valor de R$ ${formatMoney(val)} (${desc})?\nO valor entrará no Fluxo de Caixa e o saldo do cliente será atualizado.`)) {
       if (onRegisterPayment) {
         onRegisterPayment(val, osNum, inv);
-      } else if (onUpdateRow) {
+      } else {
         const todayIso = new Date().toISOString().split('T')[0];
-        onUpdateRow('CONTAS_RECEBER', inv, {
-          ...inv,
-          STATUS: 'Recebido',
-          status: 'Recebido',
-          DATA_RECEBIMENTO: todayIso
-        });
+        const todayStr = new Date().toLocaleDateString('pt-BR');
+        const clientId = currentClient?.id || currentClient?._id || '';
+        const clientCpf = String(currentClient?.['CPF / CNPJ'] || currentClient?.['CPF'] || '').trim();
+        const clientName = currentClient?.['Nome Completo'] || currentClient?.['NOME'] || 'Cliente';
+        const clientCity = currentClient?.['Cidade'] || (currentUser?.role === 'vendedor' ? (currentUser.city || currentUser.assignedStore) : null) || 'Cajati';
+
+        // (a) update installment in CONTAS_RECEBER to STATUS: 'Recebido'
+        if (onUpdateRow) {
+          onUpdateRow('CONTAS_RECEBER', inv, {
+            ...inv,
+            STATUS: 'Recebido',
+            status: 'Recebido',
+            DATA_RECEBIMENTO: todayIso
+          });
+        }
+
+        // (b) decrement client's 'Valor Devido' in CLIENTES_CADASTRADOS
+        const currentDebt = parseCurrency(currentClient?.['Valor Devido']);
+        const newDebt = Math.max(0, currentDebt - val);
+        const newStatus = newDebt === 0 ? 'Em dia' : currentClient?.['Status de Pagamento'];
+        const updatedClient = {
+          ...currentClient,
+          'Valor Devido': newDebt.toFixed(2).replace('.', ','),
+          'Status de Pagamento': newStatus
+        };
+        if (onUpdateClient) {
+          onUpdateClient({ oldRow: currentClient, newRow: updatedClient });
+        } else if (onUpdateRow) {
+          onUpdateRow('CLIENTES_CADASTRADOS', currentClient, updatedClient);
+        }
+        setCurrentClient(updatedClient);
+
+        // (c) add entry in FLUXO_CAIXA with tipo: 'RECEBIMENTO'
+        if (onAddRow) {
+          onAddRow('FLUXO_CAIXA', {
+            id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+            tipo: 'RECEBIMENTO',
+            dataHora: new Date().toISOString(),
+            data: todayStr,
+            unidade: clientCity,
+            operador: currentUser?.username || 'Caixa',
+            valor: val,
+            formaPagamento: 'DINHEIRO / RECEBIMENTO',
+            motivo: `Recebimento Parcela - ${clientName}`,
+            detalhes: osNum ? `OS #${osNum} - ${desc}` : desc,
+            CLIENTE_ID: clientId,
+            CLIENTE_CPF: clientCpf,
+            CPF: clientCpf
+          });
+        }
       }
     }
   };

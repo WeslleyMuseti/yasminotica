@@ -30,8 +30,26 @@ import {
   saveOfflineSnapshot,
   loadOfflineSnapshot,
   syncUserPasswordToFirestore,
-  OFFLINE_QUEUE_KEY
+  OFFLINE_QUEUE_KEY,
+  saveBatch
 } from './firebaseSync';
+
+const parseSafeCurrency = (val) => {
+  if (val === null || val === undefined || val === '') return 0;
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  let str = String(val).replace(/R\$\s?/g, '').trim();
+  if (!str) return 0;
+  if (str.includes(',')) {
+    str = str.replace(/\./g, '').replace(',', '.');
+  } else {
+    const dotCount = (str.match(/\./g) || []).length;
+    if (dotCount > 1) {
+      str = str.replace(/\./g, '');
+    }
+  }
+  const parsed = parseFloat(str);
+  return isNaN(parsed) ? 0 : parsed;
+};
 
 // Hash seguro PBKDF2 padrão para primeiro acesso da conta master
 const DEFAULT_MASTER_HASH = "pbkdf2:b3bb279090a24beecaa987cfde1224a1:b473c3a43b120e5f624792b560dff6edc6b56d1865a8fb3d9a0433d7ab13804a";
@@ -104,11 +122,14 @@ function App() {
       setShowSyncSuccessToast(true);
       setTimeout(() => setShowSyncSuccessToast(false), 5000);
     };
+    let lastStorageSync = 0;
     const handleStorageChange = (e) => {
       if (!e || e.key === OFFLINE_QUEUE_KEY || e.key === null) {
         const count = getOfflineQueue().length;
         setOfflinePendingCount(count);
-        if (count > 0 && typeof navigator !== 'undefined' && navigator.onLine) {
+        const now = Date.now();
+        if (count > 0 && typeof navigator !== 'undefined' && navigator.onLine && (now - lastStorageSync > 10000)) {
+          lastStorageSync = now;
           processOfflineQueue();
         }
       }
@@ -220,11 +241,11 @@ function App() {
 
       if (installmentRows.length > 1) {
         // Calcula soma das parcelas
-        const installmentsSum = installmentRows.reduce((acc, r) => acc + (parseFloat(String(r.VALOR || r.valor || '0').replace('.', '').replace(',', '.')) || 0), 0);
+        const installmentsSum = installmentRows.reduce((acc, r) => acc + parseSafeCurrency(r.VALOR || r.valor || 0), 0);
 
         rows.forEach(r => {
           const isInst = installmentRows.includes(r);
-          const rVal = parseFloat(String(r.VALOR || r.valor || '0').replace('.', '').replace(',', '.')) || 0;
+          const rVal = parseSafeCurrency(r.VALOR || r.valor || 0);
           const isDuplicateLumpSum = !isInst && 
             Math.abs(rVal - installmentsSum) < 2.0 && 
             (String(r.DOCUMENTO || '').toUpperCase().includes('SALDO') || String(r.DESCRICAO || '').toUpperCase().includes('VENDA OS') || String(r.MEIO_PAGAMENTO || '').toUpperCase().includes('BOLETO'));
@@ -609,6 +630,33 @@ function App() {
         await saveDocument(sheetName, rowWithId, rowWithId.id);
       } catch (err) {
         console.warn("Aviso ao salvar no Firestore (mantido localmente):", err);
+      }
+    }
+  };
+
+  const handleAddBatch = async (sheetName, newRows = []) => {
+    if (!Array.isArray(newRows) || newRows.length === 0) return;
+    const rowsWithId = newRows.map(r => ({
+      ...r,
+      id: r.id || `row_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`
+    }));
+
+    // 1. Atualização Imediata em Memória Local (Zero Delay / Reativo)
+    setData(prev => ({
+      ...prev,
+      [sheetName]: [...(prev[sheetName] || []), ...rowsWithId]
+    }));
+
+    // 2. Persistência em Lote na Nuvem (Firebase)
+    if (isConfigured) {
+      try {
+        await saveBatch(rowsWithId.map(r => ({
+          collectionName: sheetName,
+          dataObj: r,
+          customId: r.id
+        })));
+      } catch (err) {
+        console.warn("Aviso ao salvar lote no Firestore (mantido localmente):", err);
       }
     }
   };
@@ -1182,6 +1230,7 @@ function App() {
             clientsData={data?.['CLIENTES_CADASTRADOS'] || []}
             currentUser={currentUser}
             onAddRow={handleAddRow}
+            onAddBatch={handleAddBatch}
             onUpdateRow={handleRowUpdate}
             onDeleteRow={handleDeleteRow}
             onClearFinancialAndOS={handleClearFinancialAndOSHistory}

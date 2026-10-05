@@ -8,7 +8,8 @@ import {
   runTransaction, 
   increment, 
   updateDoc, 
-  getDoc 
+  getDoc,
+  writeBatch
 } from "firebase/firestore";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
 import { db, auth } from "./firebase.js";
@@ -66,6 +67,7 @@ export const subscribeToCollections = (onDataUpdate) => {
 // ══════════════════════════════════════════════════════════════════
 export const OFFLINE_QUEUE_KEY = 'YASMIN_OFFLINE_SYNC_QUEUE';
 export const OFFLINE_BACKUP_KEY = 'YASMIN_OFFLINE_DATA_BACKUP';
+export const DEAD_LETTER_QUEUE_KEY = 'YASMIN_DEAD_LETTER_QUEUE';
 
 // Limpeza preventiva de emergência no carregamento:
 // Se houver backup com mais de 1.5MB no localStorage, remove-o para liberar espaço para o Firestore
@@ -214,7 +216,28 @@ export const processOfflineQueue = async (options = {}) => {
         }
       } catch (err) {
         console.warn(`[Sync Offline] Falha ao sincronizar item pendente ${op.collectionName}/${op.docId}:`, err?.message || err);
-        remaining.push(op);
+        const retryCount = (op.retryCount || 0) + 1;
+        if (retryCount >= 3) {
+          console.error(`[Sync Offline] Limite de 3 tentativas atingido para ${op.collectionName}/${op.docId}. Movendo para ${DEAD_LETTER_QUEUE_KEY}.`);
+          try {
+            const dlRaw = localStorage.getItem(DEAD_LETTER_QUEUE_KEY);
+            const dlList = dlRaw ? JSON.parse(dlRaw) : [];
+            dlList.push({
+              ...op,
+              retryCount,
+              failedAt: new Date().toISOString(),
+              error: err?.message || String(err)
+            });
+            localStorage.setItem(DEAD_LETTER_QUEUE_KEY, JSON.stringify(dlList));
+          } catch (dlErr) {
+            console.warn('Erro ao salvar item na fila morta:', dlErr);
+          }
+        } else {
+          remaining.push({
+            ...op,
+            retryCount
+          });
+        }
       }
     }
 
@@ -318,6 +341,53 @@ export const saveDocument = async (collectionName, dataObj, customId = null) => 
     enqueueOfflineOp('save', collectionName, id, cleanData);
   }
   return id;
+};
+
+/**
+ * Salva múltiplos documentos em lote no Firestore usando writeBatch
+ * Caso offline ou com falha, enfileira os itens na fila offline.
+ * @param {Array<{collectionName: string, dataObj: object, customId?: string}>} items
+ */
+export const saveBatch = async (items = []) => {
+  if (!Array.isArray(items) || items.length === 0) return [];
+
+  const preparedItems = items.map(item => {
+    const { collectionName, dataObj, customId } = item;
+    const id = String(customId || dataObj?.id || dataObj?.['_id'] || (Date.now().toString() + Math.random().toString(36).substring(2, 9)));
+    const cleanData = { ...dataObj };
+    delete cleanData._id;
+    Object.keys(cleanData).forEach(key => {
+      if (cleanData[key] === undefined) cleanData[key] = null;
+    });
+    return { collectionName, id, cleanData };
+  });
+
+  if (db && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
+    try {
+      const BATCH_SIZE = 450;
+      for (let i = 0; i < preparedItems.length; i += BATCH_SIZE) {
+        const chunk = preparedItems.slice(i, i + BATCH_SIZE);
+        const batch = writeBatch(db);
+        chunk.forEach(({ collectionName, id, cleanData }) => {
+          const docRef = doc(db, collectionName, id);
+          batch.set(docRef, cleanData, { merge: true });
+        });
+        await withTimeout(batch.commit(), 5000, 'Timeout ao executar batch no Firestore');
+      }
+      return preparedItems.map(p => p.id);
+    } catch (err) {
+      console.warn(`[Batch Firestore] Falha ao gravar em lote, enfileirando offline:`, err);
+      preparedItems.forEach(({ collectionName, id, cleanData }) => {
+        enqueueOfflineOp('save', collectionName, id, cleanData);
+      });
+      return preparedItems.map(p => p.id);
+    }
+  } else {
+    preparedItems.forEach(({ collectionName, id, cleanData }) => {
+      enqueueOfflineOp('save', collectionName, id, cleanData);
+    });
+    return preparedItems.map(p => p.id);
+  }
 };
 
 /**

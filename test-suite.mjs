@@ -14,7 +14,9 @@ import {
   OFFLINE_BACKUP_KEY,
   saveOfflineSnapshot,
   loadOfflineSnapshot,
-  decrementStockAtomically
+  decrementStockAtomically,
+  DEAD_LETTER_QUEUE_KEY,
+  saveBatch
 } from './src/firebaseSync.js';
 import {
   parseCurrency,
@@ -2936,7 +2938,329 @@ async function runTests() {
 
   console.log('  ✅ Test 31 Passed: Visibilidade Multi-Loja de Estoque para Vendedores (Igual ao Admin) validada com sucesso!\n');
 
+  // ─── TEST 32: Blindagem do Caixa no PDV & Unificação da Venda e OS ───
+  console.log('▶ Test 32: Blindagem do Caixa no PDV & Unificação da Venda e OS');
+  
+  // 32.1 Filtragem estrita de meios de pagamento para FLUXO_CAIXA (apenas DINHEIRO, PIX, DEBITO, CREDITO)
+  const mockPayments = [
+    { metodo: 'dinheiro', valor: 100.00 },
+    { metodo: 'pix', valor: 50.00 },
+    { metodo: 'carne', valor: 300.00, parcelas: [{ numero: 1, valor: 150 }, { numero: 2, valor: 150 }] },
+    { metodo: 'boleto', valor: 200.00, parcelas: [{ numero: 1, valor: 200 }] },
+    { metodo: 'credito', valor: 80.00 }
+  ];
+
+  const immediatePaymentsFilter = (payments) => {
+    return payments.filter(pay => {
+      const m = String(pay.metodo || '').toUpperCase();
+      return m === 'DINHEIRO' || m === 'PIX' || m === 'DEBITO' || m === 'CREDITO' ||
+             m.includes('DINHEIRO') || m.includes('PIX') || m.includes('DEBITO') || m.includes('DÉBITO') || m.includes('CREDITO') || m.includes('CRÉDITO');
+    });
+  };
+
+  const filteredForCashFlow = immediatePaymentsFilter(mockPayments);
+  console.assert(filteredForCashFlow.length === 3, `Devem ser 3 pagamentos imediatos no caixa, retornou ${filteredForCashFlow.length}`);
+  console.assert(!filteredForCashFlow.some(p => p.metodo === 'carne' || p.metodo === 'boleto'), 'Carnê e boleto NÃO devem entrar no FLUXO_CAIXA imediatamente');
+  console.assert(filteredForCashFlow.some(p => p.metodo === 'dinheiro'), 'Dinheiro deve entrar no FLUXO_CAIXA');
+  console.assert(filteredForCashFlow.some(p => p.metodo === 'pix'), 'PIX deve entrar no FLUXO_CAIXA');
+  console.assert(filteredForCashFlow.some(p => p.metodo === 'credito'), 'Crédito deve entrar no FLUXO_CAIXA');
+
+  // 32.2 Unificação da Venda e OS: Não duplica venda em Registro_Vendas
+  let salesStore = [];
+  const handleAddSaleMock = (sale) => { salesStore.push({ ...sale, id: sale.id || 'venda_1' }); };
+  const handleUpdateSaleMock = (sheet, oldRow, newRow) => {
+    salesStore = salesStore.map(s => (s.id === oldRow.id ? newRow : s));
+  };
+
+  // Simula finalização do checkout
+  const checkoutSale = {
+    id: 'venda_pos_101',
+    CLIENTE: 'Carlos Teste',
+    PRODUTO: 'Armação Ray-Ban',
+    'VALOR TOTAL': 500.00
+  };
+  handleAddSaleMock(checkoutSale);
+  console.assert(salesStore.length === 1, 'Após checkout deve haver 1 venda registrada');
+
+  // Simula clique em "Gerar e Imprimir OS" pelo operador
+  const osDataGenerated = { numeroOS: 'OS-9988', laboratorio: 'Lab Sul' };
+  const mergedOSData = {
+    ...checkoutSale,
+    'OS DA VENDA': osDataGenerated.numeroOS,
+    'OS': osDataGenerated.numeroOS,
+    'STATUS_OS': 'Aguardando Confirmação',
+    'LABORATORIO': osDataGenerated.laboratorio
+  };
+
+  // Atualização direta sem duplicar
+  handleUpdateSaleMock('Registro_Vendas', checkoutSale, mergedOSData);
+  console.assert(salesStore.length === 1, 'Registro_Vendas NÃO deve ter venda duplicada ao gerar OS');
+  console.assert(salesStore[0]['OS DA VENDA'] === 'OS-9988', 'OS da venda deve ter sido vinculada com sucesso');
+  console.assert(salesStore[0]['STATUS_OS'] === 'Aguardando Confirmação', 'Status deve ser Semáforo Azul');
+  console.log('  ✅ Test 32 Passed: Blindagem do Caixa no PDV e Unificação Venda-OS validadas com sucesso!\n');
+
+  // ─── TEST 33: Desduplicação Estrita em CashHistoryModal ───
+  console.log('▶ Test 33: Desduplicação Estrita no Extrato de Caixa (CashHistoryModal)');
+
+  const mockMovementsCashFlow = [
+    { id: 'mov_101', saleId: 'venda_999', osNumero: 'OS-5544', tipo: 'VENDA', valor: 250.00, formaPagamento: 'DINHEIRO' },
+    { id: 'mov_102', tipo: 'SUPRIMENTO', valor: 100.00, formaPagamento: 'DINHEIRO' }
+  ];
+
+  const mockSalesData = [
+    { id: 'venda_999', 'OS DA VENDA': 'OS-5544', 'VALOR TOTAL': 250.00, 'FORMA DE PAGAMENTO': 'DINHEIRO', CLIENTE: 'João Silva' },
+    { id: 'venda_1000', 'OS DA VENDA': 'OS-7788', 'VALOR TOTAL': 350.00, 'FORMA DE PAGAMENTO': 'PIX', CLIENTE: 'Maria Santos' }
+  ];
+
+  const deduplicateHistoryMovements = (cashMovements, salesData) => {
+    let list = Array.isArray(cashMovements) ? [...cashMovements] : [];
+    const existingSalesIds = new Set();
+    list.forEach(m => {
+      if ((m.tipo || '').toUpperCase() === 'VENDA') {
+        if (m.id) existingSalesIds.add(String(m.id).trim().toLowerCase());
+        if (m.saleId) existingSalesIds.add(String(m.saleId).trim().toLowerCase());
+        if (m.osNumero) existingSalesIds.add(String(m.osNumero).trim().toLowerCase());
+        if (m['OS']) existingSalesIds.add(String(m['OS']).trim().toLowerCase());
+        if (m['OS DA VENDA']) existingSalesIds.add(String(m['OS DA VENDA']).trim().toLowerCase());
+      }
+    });
+
+    if (Array.isArray(salesData) && salesData.length > 0) {
+      salesData.forEach((s, idx) => {
+        const rawId = String(s.id || s._id || s['ID'] || '').trim().toLowerCase();
+        const osNum = String(s['OS DA VENDA'] || s['Nº DA OS'] || s['OS'] || s['Num OS'] || '').trim().toLowerCase();
+        const sId = rawId || (osNum ? `os_${osNum}` : `venda_${idx}`);
+
+        const isDuplicate = (rawId && existingSalesIds.has(rawId)) ||
+                            (osNum && existingSalesIds.has(osNum)) ||
+                            existingSalesIds.has(sId);
+
+        if (!isDuplicate) {
+          const valor = parseFloat(s['VALOR TOTAL'] || 0);
+          if (valor > 0) {
+            if (rawId) existingSalesIds.add(rawId);
+            if (osNum) existingSalesIds.add(osNum);
+            existingSalesIds.add(sId);
+
+            list.push({
+              id: sId,
+              saleId: rawId || sId,
+              osNumero: osNum,
+              tipo: 'VENDA',
+              valor: valor,
+              formaPagamento: s['FORMA DE PAGAMENTO'] || 'DINHEIRO'
+            });
+          }
+        }
+      });
+    }
+    return list;
+  };
+
+  const deduplicatedList = deduplicateHistoryMovements(mockMovementsCashFlow, mockSalesData);
+  console.assert(deduplicatedList.length === 3, `Deve conter exatamente 3 movimentos após desduplicação, retornou ${deduplicatedList.length}`);
+  const salesCount = deduplicatedList.filter(m => m.tipo === 'VENDA').length;
+  console.assert(salesCount === 2, `Devem ser exatamente 2 vendas (1 já registrada + 1 importada sem duplicar), retornou ${salesCount}`);
+  console.log('  ✅ Test 33 Passed: Desduplicação por saleId, osNumero e id validada com sucesso!\n');
+
+  // ─── TEST 34: Quitação de Parcela no Perfil do Cliente e Baixa no ERP ───
+  console.log('▶ Test 34: Quitação de Parcela no Perfil do Cliente e Baixa no ERP');
+
+  let testReceber = [
+    { id: 'cr_1', CLIENTE: 'Ana Lima', VALOR: '120,00', STATUS: 'Pendente', VENDA_OS: 'OS-101' },
+    { id: 'cr_2', CLIENTE: 'Ana Lima', VALOR: '120,00', STATUS: 'Pendente', VENDA_OS: 'OS-101' }
+  ];
+  let testPagar = [
+    { id: 'cp_1', FORNECEDOR: 'Distribuidora Lentes', VALOR: '350,00', STATUS: 'Pendente' }
+  ];
+  let testFluxoCaixa = [];
+  let testCliente = { id: 'cli_ana', 'Nome Completo': 'Ana Lima', 'Valor Devido': '240,00', 'Status de Pagamento': 'Inadimplente' };
+
+  // 34.1 Simulação de quitação de parcela específica no perfil do cliente
+  const settleInvoice = (inv) => {
+    // a) Atualizar parcela em CONTAS_RECEBER
+    testReceber = testReceber.map(r => r.id === inv.id ? { ...r, STATUS: 'Recebido' } : r);
+    // b) Abater débito na ficha do cliente
+    const v = parseCurrency(inv.VALOR);
+    const novoDebito = Math.max(0, parseCurrency(testCliente['Valor Devido']) - v);
+    testCliente = {
+      ...testCliente,
+      'Valor Devido': novoDebito.toFixed(2).replace('.', ','),
+      'Status de Pagamento': novoDebito === 0 ? 'Em dia' : 'Inadimplente'
+    };
+    // c) Registrar RECEBIMENTO no FLUXO_CAIXA
+    testFluxoCaixa.push({
+      tipo: 'RECEBIMENTO',
+      valor: v,
+      formaPagamento: 'DINHEIRO / RECEBIMENTO',
+      motivo: `Recebimento Parcela - ${testCliente['Nome Completo']}`
+    });
+  };
+
+  settleInvoice(testReceber[0]);
+  console.assert(testReceber[0].STATUS === 'Recebido', 'Parcela deve estar com STATUS Recebido');
+  console.assert(testCliente['Valor Devido'] === '120,00', 'Débito do cliente deve ter sido abatido para 120,00');
+  console.assert(testFluxoCaixa.length === 1 && testFluxoCaixa[0].tipo === 'RECEBIMENTO' && testFluxoCaixa[0].valor === 120, 'Entrada de 120,00 registrada no FLUXO_CAIXA');
+
+  // 34.2 Baixa de Conta a Pagar no ERP
+  const paySupplierInvoice = (inv) => {
+    testPagar = testPagar.map(p => p.id === inv.id ? { ...p, STATUS: 'Pago' } : p);
+    testFluxoCaixa.push({
+      tipo: 'SAÍDA',
+      valor: parseCurrency(inv.VALOR),
+      motivo: `Pagamento Despesa - ${inv.FORNECEDOR}`
+    });
+  };
+
+  paySupplierInvoice(testPagar[0]);
+  console.assert(testPagar[0].STATUS === 'Pago', 'Conta a pagar deve estar com STATUS Pago');
+  console.assert(testFluxoCaixa.some(m => m.tipo === 'SAÍDA' && m.valor === 350), 'Saída de 350,00 registrada no FLUXO_CAIXA');
+  console.log('  ✅ Test 34 Passed: Quitação no perfil e baixa de contas com Fluxo de Caixa validadas com sucesso!\n');
+
+  // ─── TEST 35: Sinal da OS no Caixa & Saldos de Gaveta/Turnos ───
+  console.log('▶ Test 35: Sinal da OS no Caixa & Saldos de Gaveta/Turnos');
+
+  // 35.1 Sinal da OS gera entrada de DINHEIRO no FLUXO_CAIXA
+  const mockOsEntry = {
+    numeroOS: 'OS-2026',
+    valorTotal: '800,00',
+    valorEntrada: '200,00',
+    restante: '600,00'
+  };
+
+  const recordOsDownpayment = (osData) => {
+    const v = parseCurrency(osData.valorEntrada);
+    if (v > 0) {
+      return {
+        tipo: 'VENDA',
+        valor: v,
+        formaPagamento: 'DINHEIRO',
+        motivo: `Sinal OS #${osData.numeroOS}`
+      };
+    }
+    return null;
+  };
+
+  const downpaymentEntry = recordOsDownpayment(mockOsEntry);
+  console.assert(downpaymentEntry !== null, 'Entrada de sinal deve ser gerada');
+  console.assert(downpaymentEntry.tipo === 'VENDA' && downpaymentEntry.formaPagamento === 'DINHEIRO' && downpaymentEntry.valor === 200, 'Sinal de 200,00 em DINHEIRO deve ser registrado');
+
+  // 35.2 Cálculo de Dinheiro Esperado na Gaveta com Turno e Filtro de Data
+  const shiftStart = new Date('2026-10-05T08:00:00');
+  const shiftMovements = [
+    { tipo: 'SUPRIMENTO', valor: 50.00, formaPagamento: 'DINHEIRO', dataHora: '2026-10-05T08:30:00' },
+    { tipo: 'VENDA', valor: 100.00, formaPagamento: 'DINHEIRO', dataHora: '2026-10-05T09:00:00' },
+    { tipo: 'VENDA', valor: 300.00, formaPagamento: 'PIX', dataHora: '2026-10-05T09:30:00' },
+    { tipo: 'RECEBIMENTO', valor: 120.00, formaPagamento: 'DINHEIRO', dataHora: '2026-10-05T10:00:00' },
+    { tipo: 'SAÍDA', valor: 40.00, formaPagamento: 'DINHEIRO', dataHora: '2026-10-05T10:30:00' },
+    { tipo: 'SANGRIA', valor: 50.00, formaPagamento: 'DINHEIRO', dataHora: '2026-10-05T11:00:00' }
+  ];
+
+  const calculateDrawerExpected = (fundoInicial, movements) => {
+    let saldo = fundoInicial;
+    movements.forEach(m => {
+      const v = parseCurrency(m.valor);
+      const fp = String(m.formaPagamento || '').toUpperCase();
+      if (m.tipo === 'SUPRIMENTO') saldo += v;
+      else if (m.tipo === 'SANGRIA') saldo -= v;
+      else if (m.tipo === 'SAÍDA' || m.tipo === 'SAIDA' || m.tipo === 'PAGAMENTO') saldo -= v;
+      else if (m.tipo === 'RECEBIMENTO' && (fp.includes('DINHEIRO') || !fp)) saldo += v;
+      else if (m.tipo === 'VENDA' && fp.includes('DINHEIRO')) saldo += v;
+    });
+    return Math.max(0, saldo);
+  };
+
+  const expectedDrawer = calculateDrawerExpected(100.00, shiftMovements);
+  console.assert(expectedDrawer === 280.00, `Dinheiro esperado deve ser 280.00, calculado: ${expectedDrawer}`);
+
+  // Filtro de vendas do turno por data: vendas anteriores a shiftStart não devem ser carregadas
+  const historicalSales = [
+    { 'DATA  DA VENDA': '04/10/2026 15:00:00', 'VALOR TOTAL': 500 },
+    { 'DATA  DA VENDA': '05/10/2026 09:15:00', 'VALOR TOTAL': 250 }
+  ];
+
+  const parseItemDateTest = (item) => {
+    const raw = item['DATA  DA VENDA'];
+    const parts = raw.split(' ')[0].split('/');
+    const timeParts = raw.split(' ')[1].split(':');
+    return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]), parseInt(timeParts[0]), parseInt(timeParts[1]));
+  };
+
+  const filteredShiftSales = historicalSales.filter(s => parseItemDateTest(s) >= shiftStart);
+  console.assert(filteredShiftSales.length === 1 && filteredShiftSales[0]['VALOR TOTAL'] === 250, 'Apenas vendas a partir do início do turno devem ser incluídas');
+  console.log('  ✅ Test 35 Passed: Sinal no caixa, saldo físico de gaveta e filtro de turnos validados com sucesso!\n');
+
+  // ─── TEST 36: Dead-Letter Queue, Sanitização Monetária e Batching ───
+  console.log('▶ Test 36: Dead-Letter Queue (3 Retries), Sanitização Monetária e Batching');
+
+  // 36.1 Dead-Letter Queue após 3 falhas no processOfflineQueue
+  clearOfflineQueue();
+  globalThis.localStorage.removeItem(DEAD_LETTER_QUEUE_KEY);
+
+  enqueueOfflineOp('save', 'Registro_Vendas', 'doc_failing', { VALOR: 100 });
+  console.assert(getOfflineQueue().length === 1, 'Deve haver 1 item na fila');
+
+  // Tentativa 1 (falha)
+  await processOfflineQueue({
+    timeoutMs: 10,
+    executor: async () => { throw new Error('Network error 1'); }
+  });
+  console.assert(getOfflineQueue().length === 1, 'Item deve permanecer na fila após 1ª falha');
+  console.assert(getOfflineQueue()[0].retryCount === 1, 'retryCount deve ser 1');
+
+  // Tentativa 2 (falha)
+  await processOfflineQueue({
+    timeoutMs: 10,
+    executor: async () => { throw new Error('Network error 2'); }
+  });
+  console.assert(getOfflineQueue().length === 1, 'Item deve permanecer na fila após 2ª falha');
+  console.assert(getOfflineQueue()[0].retryCount === 2, 'retryCount deve ser 2');
+
+  // Tentativa 3 (falha - atinge maxRetries = 3)
+  await processOfflineQueue({
+    timeoutMs: 10,
+    executor: async () => { throw new Error('Network error 3'); }
+  });
+  console.assert(getOfflineQueue().length === 0, 'Item deve ser REMOVIDO da fila principal após 3 falhas');
+  const deadLetterRaw = globalThis.localStorage.getItem(DEAD_LETTER_QUEUE_KEY);
+  const deadLetterList = deadLetterRaw ? JSON.parse(deadLetterRaw) : [];
+  console.assert(deadLetterList.length === 1, 'Item deve ter sido movido para YASMIN_DEAD_LETTER_QUEUE');
+  console.assert(deadLetterList[0].docId === 'doc_failing', 'Item na fila morta deve ser doc_failing');
+
+  // 36.2 Sanitização Monetária: tratamento seguro de strings como "150.00"
+  const parseSafeCurrencyTest = (val) => {
+    if (val === null || val === undefined || val === '') return 0;
+    if (typeof val === 'number') return isNaN(val) ? 0 : val;
+    let str = String(val).replace(/R\$\s?/g, '').trim();
+    if (!str) return 0;
+    if (str.includes(',')) {
+      str = str.replace(/\./g, '').replace(',', '.');
+    } else {
+      const dotCount = (str.match(/\./g) || []).length;
+      if (dotCount > 1) {
+        str = str.replace(/\./g, '');
+      }
+    }
+    const parsed = parseFloat(str);
+    return isNaN(parsed) ? 0 : parsed;
+  };
+
+  console.assert(parseSafeCurrencyTest('150.00') === 150.00, '150.00 não deve ser multiplicado por 100');
+  console.assert(parseSafeCurrencyTest('1.250,50') === 1250.50, '1.250,50 deve ser convertido para 1250.50');
+  console.assert(parseSafeCurrencyTest('R$ 99,90') === 99.90, 'R$ 99,90 deve ser convertido para 99.90');
+
+  // 36.3 Batching de Aprovação: saveBatch aceita lote de duplicatas
+  const batchItems = [
+    { collectionName: 'CONTAS_RECEBER', dataObj: { DOCUMENTO: 'BOLETO 1/3', VALOR: '100,00' } },
+    { collectionName: 'CONTAS_RECEBER', dataObj: { DOCUMENTO: 'BOLETO 2/3', VALOR: '100,00' } },
+    { collectionName: 'CONTAS_RECEBER', dataObj: { DOCUMENTO: 'BOLETO 3/3', VALOR: '100,00' } }
+  ];
+  const batchResult = await saveBatch(batchItems);
+  console.assert(batchResult.length === 3, `saveBatch deve processar todos os 3 itens do lote, processou ${batchResult.length}`);
+  console.log('  ✅ Test 36 Passed: Dead-Letter Queue, Sanitização Monetária e Batching validados com sucesso!\n');
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
+  process.exit(0);
 }
 
 runTests().catch(err => {

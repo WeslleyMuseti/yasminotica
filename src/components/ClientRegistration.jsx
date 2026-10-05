@@ -707,6 +707,29 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
         'MEDICO': osData.medico || '',
         'OBSERVACOES': osData.observacoes || ''
       });
+
+      // 🛡️ Fix 6: Se houver sinal / valor de entrada na OS, registrar no FLUXO_CAIXA como VENDA em DINHEIRO
+      const valorEntradaNum = parseCurrency(osData.valorEntrada);
+      if (valorEntradaNum > 0 && onAddRow) {
+        const numeroOS = osData.numeroOS || 'OS';
+        onAddRow('FLUXO_CAIXA', {
+          id: `mov_sinal_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+          saleId: `os_${numeroOS}`,
+          osNumero: String(numeroOS),
+          tipo: 'VENDA',
+          dataHora: new Date().toISOString(),
+          data: todayStr,
+          unidade: saleCity,
+          operador: currentUser?.username || 'Caixa',
+          valor: valorEntradaNum,
+          formaPagamento: 'DINHEIRO',
+          motivo: `Sinal OS #${numeroOS}`,
+          detalhes: `Sinal/Entrada OS #${numeroOS} - ${clientName}`,
+          CLIENTE_ID: clientId,
+          CLIENTE_CPF: clientCpf,
+          CPF: clientCpf
+        });
+      }
     }
     
     // Pequeno delay para garantir que o componente PrintableOS renderize antes de chamar o print
@@ -715,6 +738,142 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
       setOsClientData(null);
       setTimeout(() => setOsDataForPrint(null), 1000);
     }, 300);
+  };
+
+  // 🛡️ Fix 4: Quitação de Parcela no Perfil do Cliente
+  const handleConfirmPayment = (paymentString, paymentOS, specificInvoice = null) => {
+    if (!profileClientData) return;
+    
+    const amountPaid = parseCurrency(paymentString);
+    if (amountPaid <= 0) return;
+
+    const clientId = profileClientData.id || profileClientData['_id'] || '';
+    const clientCpf = String(profileClientData['CPF / CNPJ'] || profileClientData['CPF'] || '').trim();
+    const clientName = profileClientData['Nome Completo'] || profileClientData['NOME'] || 'Cliente';
+    const todayStr = new Date().toLocaleDateString('pt-BR');
+    const todayIso = new Date().toISOString().split('T')[0];
+    const clientCity = profileClientData['Cidade'] || (currentUser?.role === 'vendedor' ? (currentUser.city || currentUser.assignedStore) : null) || 'Cajati';
+
+    // 1. Quitação no ERP (CONTAS_RECEBER)
+    if (specificInvoice && onUpdateRow) {
+      // Quitação direta de parcela específica
+      onUpdateRow('CONTAS_RECEBER', specificInvoice, {
+        ...specificInvoice,
+        STATUS: 'Recebido',
+        status: 'Recebido',
+        DATA_RECEBIMENTO: todayIso
+      });
+    } else if (receberData && receberData.length > 0 && onUpdateRow) {
+      // Quitação sequencial inteligente: busca duplicatas em aberto do cliente
+      const clientInvoices = receberData.filter(conta => {
+        const st = (conta.STATUS || conta.status || '').trim();
+        return isSameClient(profileClientData, conta) && st !== 'Recebido' && st !== 'Pago';
+      });
+
+      // Se o usuário selecionou uma OS, prioriza parcelas vinculadas a essa OS
+      if (paymentOS && paymentOS.trim() && paymentOS.trim() !== '—') {
+        const osClean = paymentOS.trim().toLowerCase();
+        clientInvoices.sort((a, b) => {
+          const osA = String(a.VENDA_OS || a.OS || '').toLowerCase();
+          const osB = String(b.VENDA_OS || b.OS || '').toLowerCase();
+          if (osA === osClean && osB !== osClean) return -1;
+          if (osB === osClean && osA !== osClean) return 1;
+          const dA = new Date(a.DATA_VENCIMENTO || 0);
+          const dB = new Date(b.DATA_VENCIMENTO || 0);
+          return dA - dB;
+        });
+      } else {
+        // Ordena pelas parcelas com vencimento mais antigo primeiro
+        clientInvoices.sort((a, b) => {
+          const dA = new Date(a.DATA_VENCIMENTO || 0);
+          const dB = new Date(b.DATA_VENCIMENTO || 0);
+          return dA - dB;
+        });
+      }
+
+      let remainingToSettle = amountPaid;
+      for (const conta of clientInvoices) {
+        if (remainingToSettle <= 0) break;
+        const contaVal = parseCurrency(conta.VALOR || conta.valor);
+        if (remainingToSettle >= contaVal) {
+          onUpdateRow('CONTAS_RECEBER', conta, {
+            ...conta,
+            STATUS: 'Recebido',
+            status: 'Recebido',
+            DATA_RECEBIMENTO: todayIso
+          });
+          remainingToSettle -= contaVal;
+        } else {
+          // Pagamento parcial: abate o saldo da parcela
+          const novoSaldo = Math.max(0, contaVal - remainingToSettle);
+          onUpdateRow('CONTAS_RECEBER', conta, {
+            ...conta,
+            VALOR: novoSaldo.toFixed(2).replace('.', ','),
+            OBSERVACOES: `${conta.OBSERVACOES || ''} (Abatido R$ ${remainingToSettle.toFixed(2).replace('.', ',')} em ${todayStr})`.trim()
+          });
+          remainingToSettle = 0;
+        }
+      }
+    }
+
+    // 2. Registrar Entrada de Dinheiro no FLUXO_CAIXA
+    if (onAddRow) {
+      onAddRow('FLUXO_CAIXA', {
+        id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+        tipo: 'RECEBIMENTO',
+        dataHora: new Date().toISOString(),
+        data: todayStr,
+        unidade: clientCity,
+        operador: currentUser?.username || 'Caixa',
+        valor: amountPaid,
+        formaPagamento: 'DINHEIRO / RECEBIMENTO',
+        motivo: `Recebimento Carnê/Boleto - ${clientName}`,
+        detalhes: paymentOS ? `OS #${paymentOS}` : (specificInvoice ? `Parcela ${specificInvoice.DOCUMENTO || specificInvoice.DESCRICAO || ''}` : 'Recebimento de Débito'),
+        CLIENTE_ID: clientId,
+        CLIENTE_CPF: clientCpf,
+        CPF: clientCpf
+      });
+    }
+
+    // 3. Atualizar Ficha do Cliente (CLIENTES_CADASTRADOS)
+    const currentDebt = parseCurrency(profileClientData['Valor Devido']);
+    const newDebt = Math.max(0, currentDebt - amountPaid);
+    const newStatus = newDebt === 0 ? 'Em dia' : profileClientData['Status de Pagamento'];
+
+    const updatedClient = {
+      ...profileClientData,
+      'Valor Devido': newDebt.toFixed(2).replace('.', ','),
+      'Status de Pagamento': newStatus
+    };
+
+    if (onUpdateClient) {
+      onUpdateClient({ oldRow: profileClientData, newRow: updatedClient });
+    } else if (onUpdateRow) {
+      onUpdateRow('CLIENTES_CADASTRADOS', profileClientData, updatedClient);
+    }
+    setProfileClientData(updatedClient);
+
+    // 4. Histórico de Vendas / Recebimentos
+    if (onAddSale) {
+      onAddSale({
+        'CLIENTE_ID': clientId,
+        'CLIENTE_CPF': clientCpf,
+        'CPF': clientCpf,
+        'DATA  DA VENDA': todayStr,
+        'DATA': todayStr,
+        'PRODUTO': '💰 Recebimento de Mensalidade / Carnê',
+        'VALOR TOTAL': amountPaid.toFixed(2).replace('.', ','),
+        'VALOR DA VENDA': amountPaid.toFixed(2).replace('.', ','),
+        'SITUAÇÃO': 'Pago',
+        'STATUS_OS': 'Pago',
+        'OS DA VENDA': paymentOS ? paymentOS.trim() : (specificInvoice?.VENDA_OS || '—'),
+        'NOME CLIENTE': clientName,
+        'CLIENTE': clientName,
+        'TELEFONE': profileClientData['WhatsApp'] || '',
+        'CIDADE': clientCity,
+        'LOJA': clientCity
+      });
+    }
   };
 
   return (
@@ -1824,140 +1983,7 @@ const ClientRegistration = ({ currentUser, clientsData, salesData = [], lentesDa
             }
           }
         }}
-        onRegisterPayment={(paymentString, paymentOS, specificInvoice = null) => {
-          if (!profileClientData) return;
-          
-          const amountPaid = parseCurrency(paymentString);
-          if (amountPaid <= 0) return;
-
-          const clientId = profileClientData.id || profileClientData['_id'] || '';
-          const clientCpf = String(profileClientData['CPF / CNPJ'] || profileClientData['CPF'] || '').trim();
-          const clientName = profileClientData['Nome Completo'] || profileClientData['NOME'] || 'Cliente';
-          const todayStr = new Date().toLocaleDateString('pt-BR');
-          const todayIso = new Date().toISOString().split('T')[0];
-          const clientCity = profileClientData['Cidade'] || (currentUser?.role === 'vendedor' ? (currentUser.city || currentUser.assignedStore) : null) || 'Cajati';
-
-          // 1. Quitação no ERP (CONTAS_RECEBER)
-          if (specificInvoice && onUpdateRow) {
-            // Quitação direta de parcela específica
-            onUpdateRow('CONTAS_RECEBER', specificInvoice, {
-              ...specificInvoice,
-              STATUS: 'Recebido',
-              status: 'Recebido',
-              DATA_RECEBIMENTO: todayIso
-            });
-          } else if (receberData && receberData.length > 0 && onUpdateRow) {
-            // Quitação sequencial inteligente: busca duplicatas em aberto do cliente
-            const clientInvoices = receberData.filter(conta => {
-              const st = (conta.STATUS || conta.status || '').trim();
-              return isSameClient(profileClientData, conta) && st !== 'Recebido' && st !== 'Pago';
-            });
-
-            // Se o usuário selecionou uma OS, prioriza parcelas vinculadas a essa OS
-            if (paymentOS && paymentOS.trim() && paymentOS.trim() !== '—') {
-              const osClean = paymentOS.trim().toLowerCase();
-              clientInvoices.sort((a, b) => {
-                const osA = String(a.VENDA_OS || a.OS || '').toLowerCase();
-                const osB = String(b.VENDA_OS || b.OS || '').toLowerCase();
-                if (osA === osClean && osB !== osClean) return -1;
-                if (osB === osClean && osA !== osClean) return 1;
-                const dA = new Date(a.DATA_VENCIMENTO || 0);
-                const dB = new Date(b.DATA_VENCIMENTO || 0);
-                return dA - dB;
-              });
-            } else {
-              // Ordena pelas parcelas com vencimento mais antigo primeiro
-              clientInvoices.sort((a, b) => {
-                const dA = new Date(a.DATA_VENCIMENTO || 0);
-                const dB = new Date(b.DATA_VENCIMENTO || 0);
-                return dA - dB;
-              });
-            }
-
-            let remainingToSettle = amountPaid;
-            for (const conta of clientInvoices) {
-              if (remainingToSettle <= 0) break;
-              const contaVal = parseCurrency(conta.VALOR || conta.valor);
-              if (remainingToSettle >= contaVal) {
-                onUpdateRow('CONTAS_RECEBER', conta, {
-                  ...conta,
-                  STATUS: 'Recebido',
-                  status: 'Recebido',
-                  DATA_RECEBIMENTO: todayIso
-                });
-                remainingToSettle -= contaVal;
-              } else {
-                // Pagamento parcial: abate o saldo da parcela
-                const novoSaldo = Math.max(0, contaVal - remainingToSettle);
-                onUpdateRow('CONTAS_RECEBER', conta, {
-                  ...conta,
-                  VALOR: novoSaldo.toFixed(2).replace('.', ','),
-                  OBSERVACOES: `${conta.OBSERVACOES || ''} (Abatido R$ ${remainingToSettle.toFixed(2).replace('.', ',')} em ${todayStr})`.trim()
-                });
-                remainingToSettle = 0;
-              }
-            }
-          }
-
-          // 2. Registrar Entrada de Dinheiro no FLUXO_CAIXA
-          if (onAddRow) {
-            onAddRow('FLUXO_CAIXA', {
-              id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-              tipo: 'RECEBIMENTO',
-              dataHora: new Date().toISOString(),
-              data: todayStr,
-              unidade: clientCity,
-              operador: currentUser?.username || 'Caixa',
-              valor: amountPaid,
-              formaPagamento: 'DINHEIRO / RECEBIMENTO',
-              motivo: `Recebimento Carnê/Boleto - ${clientName}`,
-              detalhes: paymentOS ? `OS #${paymentOS}` : (specificInvoice ? `Parcela ${specificInvoice.DOCUMENTO || specificInvoice.DESCRICAO || ''}` : 'Recebimento de Débito'),
-              CLIENTE_ID: clientId,
-              CLIENTE_CPF: clientCpf,
-              CPF: clientCpf
-            });
-          }
-
-          // 3. Atualizar Ficha do Cliente (CLIENTES_CADASTRADOS)
-          const currentDebt = parseCurrency(profileClientData['Valor Devido']);
-          const newDebt = Math.max(0, currentDebt - amountPaid);
-          const newStatus = newDebt === 0 ? 'Em dia' : profileClientData['Status de Pagamento'];
-
-          const updatedClient = {
-            ...profileClientData,
-            'Valor Devido': newDebt.toFixed(2).replace('.', ','),
-            'Status de Pagamento': newStatus
-          };
-
-          if (onUpdateClient) {
-            onUpdateClient({ oldRow: profileClientData, newRow: updatedClient });
-          } else if (onUpdateRow) {
-            onUpdateRow('CLIENTES_CADASTRADOS', profileClientData, updatedClient);
-          }
-          setProfileClientData(updatedClient);
-
-          // 4. Histórico de Vendas / Recebimentos
-          if (onAddSale) {
-            onAddSale({
-              'CLIENTE_ID': clientId,
-              'CLIENTE_CPF': clientCpf,
-              'CPF': clientCpf,
-              'DATA  DA VENDA': todayStr,
-              'DATA': todayStr,
-              'PRODUTO': '💰 Recebimento de Mensalidade / Carnê',
-              'VALOR TOTAL': amountPaid.toFixed(2).replace('.', ','),
-              'VALOR DA VENDA': amountPaid.toFixed(2).replace('.', ','),
-              'SITUAÇÃO': 'Pago',
-              'STATUS_OS': 'Pago',
-              'OS DA VENDA': paymentOS ? paymentOS.trim() : (specificInvoice?.VENDA_OS || '—'),
-              'NOME CLIENTE': clientName,
-              'CLIENTE': clientName,
-              'TELEFONE': profileClientData['WhatsApp'] || '',
-              'CIDADE': clientCity,
-              'LOJA': clientCity
-            });
-          }
-        }}
+        onRegisterPayment={handleConfirmPayment}
         receberData={receberData}
         onUpdateRow={onUpdateRow}
         onAddRow={onAddRow}

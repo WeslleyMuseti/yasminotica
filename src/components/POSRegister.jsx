@@ -203,9 +203,13 @@ const POSRegister = ({
     let saldo = activeSession.fundoInicial || 0;
     movements.forEach(m => {
       const v = cleanVal(m.valor);
+      const fp = String(m.formaPagamento || '').toUpperCase();
       if (m.tipo === 'SUPRIMENTO') saldo += v;
       else if (m.tipo === 'SANGRIA') saldo -= v;
-      else if (m.tipo === 'VENDA' && String(m.formaPagamento || '').toUpperCase().includes('DINHEIRO')) {
+      else if (m.tipo === 'SAÍDA' || m.tipo === 'SAIDA' || m.tipo === 'PAGAMENTO') saldo -= v;
+      else if (m.tipo === 'RECEBIMENTO' && (fp.includes('DINHEIRO') || !fp)) {
+        saldo += v;
+      } else if (m.tipo === 'VENDA' && fp.includes('DINHEIRO')) {
         saldo += v;
       }
     });
@@ -953,7 +957,9 @@ const POSRegister = ({
     const trocoTotal = effectivePayments.reduce((acc, p) => acc + (p.troco || 0), 0);
     const descricaoItens = cart.map(i => `${i.qtd}x ${i.nome}`).join(' + ');
 
+    const saleId = `venda_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     const newSale = {
+      id: saleId,
       'CLIENTE_ID': clientId,
       'CLIENTE_CPF': clientCpf,
       'CPF': clientCpf,
@@ -1148,11 +1154,20 @@ const POSRegister = ({
         }
 
         // 4. Registrar Movimentações no FLUXO_CAIXA em tempo real com rastreabilidade de cliente
+        // Filtra para que APENAS meios de pagamento imediatos (DINHEIRO, PIX, DEBITO, CREDITO) gerem entrada imediata no caixa
         if (onAddRow) {
-          for (const pay of effectivePayments) {
+          const immediatePayments = effectivePayments.filter(pay => {
+            const m = String(pay.metodo || '').toUpperCase();
+            return m === 'DINHEIRO' || m === 'PIX' || m === 'DEBITO' || m === 'CREDITO' ||
+                   m.includes('DINHEIRO') || m.includes('PIX') || m.includes('DEBITO') || m.includes('DÉBITO') || m.includes('CREDITO') || m.includes('CRÉDITO');
+          });
+
+          for (const pay of immediatePayments) {
             try {
               await withTimeout(onAddRow('FLUXO_CAIXA', {
                 id: `mov_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+                saleId: newSale.id,
+                osNumero: newSale['OS DA VENDA'] || '',
                 tipo: 'VENDA',
                 dataHora: new Date().toISOString(),
                 data: todayStr,
@@ -1187,55 +1202,65 @@ const POSRegister = ({
     const clientId = savedClientForOS.id || savedClientForOS._id || savedClientForOS.CLIENTE_ID || '';
     const clientCpf = String(savedClientForOS['CPF / CNPJ'] || savedClientForOS['CPF'] || '').trim();
 
-    if (onAddSale) {
-      await onAddSale({
-        'CLIENTE_ID': clientId,
-        'CLIENTE_CPF': clientCpf,
-        'CPF': clientCpf,
-        'DATA': todayStr,
-        'DATA  DA VENDA': todayStr,
-        'PRODUTO': (osGeneratedData.lente + (osGeneratedData.armacao ? ` + ${osGeneratedData.armacao}` : '')).trim() || 'Óculos com Grau',
-        'VALOR TOTAL': osGeneratedData.valorTotal,
-        'VALOR DA VENDA': osGeneratedData.valorTotal,
-        'VALOR ENTRADA': osGeneratedData.valorEntrada || '0,00',
-        'SINAL': osGeneratedData.valorEntrada || '0,00',
-        'RESTANTE': osGeneratedData.restante || (osRestante > 0 ? osRestante.toFixed(2).replace('.', ',') : '0,00'),
-        'FORMAS_PAGAMENTO': osGeneratedData.formasPagamento || '',
-        'SITUAÇÃO': 'Aguardando Confirmação',
-        'OS DA VENDA': osGeneratedData.numeroOS,
-        'OS': osGeneratedData.numeroOS,
-        'STATUS_OS': 'Aguardando Confirmação',
-        'PAGAMENTO_CONFERIDO': 'Não',
-        'DUPLICATAS_GERADAS': false,
-        'PARCELAS_JSON': JSON.stringify(
-          (osGeneratedData.parcelas && osGeneratedData.parcelas.length > 0)
-            ? osGeneratedData.parcelas
-            : (savedClientForOS?.parcelas || [])
-        ),
-        'PREVISAO_ENTREGA': osGeneratedData.dataEntrega || todayStr,
-        'LABORATORIO': osGeneratedData.laboratorio || '',
-        'NOME CLIENTE': clientName,
-        'CLIENTE': clientName,
-        'NOME': clientName,
-        'TELEFONE': savedClientForOS['WhatsApp'] || savedClientForOS['TELEFONE'] || '',
-        'CIDADE': userFixedCity || osGeneratedData.selectedCity || osGeneratedData.unidade || savedClientForOS['Cidade'] || savedClientForOS['CIDADE'] || 'Cajati',
-        'LOJA': userFixedCity || osGeneratedData.selectedCity || osGeneratedData.unidade || savedClientForOS['Cidade'] || savedClientForOS['CIDADE'] || 'Cajati',
-        'UNIDADE': userFixedCity || osGeneratedData.selectedCity || osGeneratedData.unidade || savedClientForOS['Cidade'] || savedClientForOS['CIDADE'] || 'Cajati',
-        'DIOPTRIA': `OD: ${osGeneratedData.odEsf || ''}/${osGeneratedData.odCil || ''} OE: ${osGeneratedData.oeEsf || ''}/${osGeneratedData.oeCil || ''} AD: ${osGeneratedData.adicao || ''}`,
-        'OD_ESF': osGeneratedData.odEsf || '',
-        'OD_CIL': osGeneratedData.odCil || '',
-        'OD_EIXO': osGeneratedData.odEixo || '',
-        'OD_DNP': osGeneratedData.odDnp || '',
-        'OD_ALT': osGeneratedData.odAlt || '',
-        'OE_ESF': osGeneratedData.oeEsf || '',
-        'OE_CIL': osGeneratedData.oeCil || '',
-        'OE_EIXO': osGeneratedData.oeEixo || '',
-        'OE_DNP': osGeneratedData.oeDnp || '',
-        'OE_ALT': osGeneratedData.oeAlt || '',
-        'ADICAO': osGeneratedData.adicao || '',
-        'MEDICO': osGeneratedData.medico || '',
-        'OBSERVACOES': osGeneratedData.observacoes || ''
-      });
+    const salesSheetName = (data && data['Registro_Vendas']) ? 'Registro_Vendas' : 'BD MARKETING';
+
+    const mergedSaleData = {
+      ...(completedSale || {}),
+      'CLIENTE_ID': clientId,
+      'CLIENTE_CPF': clientCpf,
+      'CPF': clientCpf,
+      'DATA': todayStr,
+      'DATA  DA VENDA': todayStr,
+      'PRODUTO': (osGeneratedData.lente + (osGeneratedData.armacao ? ` + ${osGeneratedData.armacao}` : '')).trim() || completedSale?.PRODUTO || 'Óculos com Grau',
+      'VALOR TOTAL': osGeneratedData.valorTotal || completedSale?.['VALOR TOTAL'],
+      'VALOR DA VENDA': osGeneratedData.valorTotal || completedSale?.['VALOR DA VENDA'],
+      'VALOR ENTRADA': osGeneratedData.valorEntrada || completedSale?.['VALOR ENTRADA'] || '0,00',
+      'SINAL': osGeneratedData.valorEntrada || completedSale?.['SINAL'] || '0,00',
+      'RESTANTE': osGeneratedData.restante || (osRestante > 0 ? osRestante.toFixed(2).replace('.', ',') : '0,00'),
+      'FORMAS_PAGAMENTO': osGeneratedData.formasPagamento || completedSale?.['FORMA_PAGTO'] || '',
+      'SITUAÇÃO': 'Aguardando Confirmação',
+      'OS DA VENDA': osGeneratedData.numeroOS,
+      'OS': osGeneratedData.numeroOS,
+      'STATUS_OS': 'Aguardando Confirmação',
+      'PAGAMENTO_CONFERIDO': 'Não',
+      'DUPLICATAS_GERADAS': false,
+      'PARCELAS_JSON': JSON.stringify(
+        (osGeneratedData.parcelas && osGeneratedData.parcelas.length > 0)
+          ? osGeneratedData.parcelas
+          : (savedClientForOS?.parcelas || completedSale?.parcelas || [])
+      ),
+      'PREVISAO_ENTREGA': osGeneratedData.dataEntrega || todayStr,
+      'LABORATORIO': osGeneratedData.laboratorio || '',
+      'NOME CLIENTE': clientName,
+      'CLIENTE': clientName,
+      'NOME': clientName,
+      'TELEFONE': savedClientForOS['WhatsApp'] || savedClientForOS['TELEFONE'] || completedSale?.TELEFONE || '',
+      'CIDADE': userFixedCity || osGeneratedData.selectedCity || osGeneratedData.unidade || savedClientForOS['Cidade'] || savedClientForOS['CIDADE'] || 'Cajati',
+      'LOJA': userFixedCity || osGeneratedData.selectedCity || osGeneratedData.unidade || savedClientForOS['Cidade'] || savedClientForOS['CIDADE'] || 'Cajati',
+      'UNIDADE': userFixedCity || osGeneratedData.selectedCity || osGeneratedData.unidade || savedClientForOS['Cidade'] || savedClientForOS['CIDADE'] || 'Cajati',
+      'DIOPTRIA': `OD: ${osGeneratedData.odEsf || ''}/${osGeneratedData.odCil || ''} OE: ${osGeneratedData.oeEsf || ''}/${osGeneratedData.oeCil || ''} AD: ${osGeneratedData.adicao || ''}`,
+      'OD_ESF': osGeneratedData.odEsf || '',
+      'OD_CIL': osGeneratedData.odCil || '',
+      'OD_EIXO': osGeneratedData.odEixo || '',
+      'OD_DNP': osGeneratedData.odDnp || '',
+      'OD_ALT': osGeneratedData.odAlt || '',
+      'OE_ESF': osGeneratedData.oeEsf || '',
+      'OE_CIL': osGeneratedData.oeCil || '',
+      'OE_EIXO': osGeneratedData.oeEixo || '',
+      'OE_DNP': osGeneratedData.oeDnp || '',
+      'OE_ALT': osGeneratedData.oeAlt || '',
+      'ADICAO': osGeneratedData.adicao || '',
+      'MEDICO': osGeneratedData.medico || '',
+      'OBSERVACOES': osGeneratedData.observacoes || completedSale?.OBSERVACOES || ''
+    };
+
+    if (completedSale && onUpdateRow) {
+      // 🛡️ Não duplica a venda: atualiza a venda que acabou de ser criada no checkout!
+      await onUpdateRow(salesSheetName, completedSale, mergedSaleData);
+      setCompletedSale(mergedSaleData);
+    } else if (onAddSale) {
+      await onAddSale(mergedSaleData);
+      setCompletedSale(mergedSaleData);
     }
 
     setCashVoucherPrintData(null);
