@@ -122,16 +122,10 @@ function App() {
       setShowSyncSuccessToast(true);
       setTimeout(() => setShowSyncSuccessToast(false), 5000);
     };
-    let lastStorageSync = 0;
     const handleStorageChange = (e) => {
       if (!e || e.key === OFFLINE_QUEUE_KEY || e.key === null) {
         const count = getOfflineQueue().length;
         setOfflinePendingCount(count);
-        const now = Date.now();
-        if (count > 0 && typeof navigator !== 'undefined' && navigator.onLine && (now - lastStorageSync > 10000)) {
-          lastStorageSync = now;
-          processOfflineQueue();
-        }
       }
     };
 
@@ -1118,10 +1112,21 @@ function App() {
                 </span>
               </div>
             </div>
-            <span className="font-mono font-bold bg-white text-sky-950 px-2.5 py-1 rounded-full text-[11px] shrink-0 shadow-sm flex items-center gap-1.5 self-start sm:self-auto">
-              <span className="w-2 h-2 rounded-full bg-sky-600 animate-ping" />
-              {offlinePendingCount} alteraç{offlinePendingCount > 1 ? 'ões pendentes' : 'ão pendente'}
-            </span>
+            <div className="flex items-center gap-2">
+              <button 
+                type="button"
+                onClick={() => processOfflineQueue()}
+                className="px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer"
+                title="Sincronizar agora"
+              >
+                <RefreshCw size={12} />
+                Sincronizar Agora
+              </button>
+              <span className="font-mono font-bold bg-white text-sky-950 px-2.5 py-1 rounded-full text-[11px] shrink-0 shadow-sm flex items-center gap-1.5 self-start sm:self-auto">
+                <span className="w-2 h-2 rounded-full bg-sky-600 animate-ping" />
+                {offlinePendingCount} alteraç{offlinePendingCount > 1 ? 'ões pendentes' : 'ão pendente'}
+              </span>
+            </div>
           </div>
         </div>
       ) : null}
@@ -1174,6 +1179,7 @@ function App() {
         {view === 'pos' ? (
           <POSRegister
             data={data}
+            setData={setData}
             clientsData={data?.['CLIENTES_CADASTRADOS'] || []}
             salesData={data?.['Registro_Vendas'] || data?.['BD MARKETING'] || []}
             armacoesData={data?.['CAD_ARMACOES'] || []}

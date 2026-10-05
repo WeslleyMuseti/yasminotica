@@ -3,7 +3,7 @@
 // Permite que o sistema abra, opere e finalize vendas mesmo sem internet!
 // ══════════════════════════════════════════════════════════════════
 
-const CACHE_NAME = 'yasmin-otica-offline-v3';
+const CACHE_NAME = 'yasmin-otica-offline-v4';
 
 // Recursos visuais estáticos para a casca do app (ícones e logotipos)
 const STATIC_ASSETS = [
@@ -26,6 +26,9 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
+  if (typeof self.skipWaiting === 'function') {
+    self.skipWaiting();
+  }
   event.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(

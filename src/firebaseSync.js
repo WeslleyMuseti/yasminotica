@@ -150,126 +150,150 @@ export let isSyncingQueue = false;
 export const getIsSyncingQueue = () => isSyncingQueue;
 
 export const processOfflineQueue = async (options = {}) => {
-  if (isSyncingQueue) return 0;
   if (!db || (typeof navigator !== 'undefined' && navigator.onLine === false)) return 0;
-  const queue = getOfflineQueue();
-  if (queue.length === 0) {
-    notifySyncStatus(0);
-    return 0;
-  }
 
-  isSyncingQueue = true;
-  const timeoutMs = options?.timeoutMs || 3500;
-  const remaining = [];
-  let processed = 0;
-
-  try {
-    for (const op of queue) {
-      try {
-        if (typeof options?.executor === 'function') {
-          await withTimeout(
-            options.executor(op),
-            timeoutMs,
-            `Timeout ao processar ${op.collectionName}/${op.docId}`
-          );
-          processed++;
-        } else if (op.type === 'save') {
-          const docRef = doc(db, op.collectionName, op.docId);
-          await withTimeout(
-            setDoc(docRef, op.data, { merge: true }),
-            timeoutMs,
-            `Timeout ao salvar ${op.collectionName}/${op.docId}`
-          );
-          processed++;
-        } else if (op.type === 'delete') {
-          const docRef = doc(db, op.collectionName, op.docId);
-          await withTimeout(
-            deleteDoc(docRef),
-            timeoutMs,
-            `Timeout ao excluir ${op.collectionName}/${op.docId}`
-          );
-          processed++;
-        } else if (op.type === 'decrement_stock') {
-          const docRef = doc(db, op.collectionName, op.docId);
-          await withTimeout(
-            updateDoc(docRef, {
-              ESTOQUE: increment(-op.data.quantity),
-              updatedAt: new Date().toISOString()
-            }),
-            timeoutMs,
-            `Timeout ao atualizar estoque ${op.collectionName}/${op.docId}`
-          );
-          processed++;
-        } else if (op.type === 'increment_stock') {
-          const docRef = doc(db, op.collectionName, op.docId);
-          await withTimeout(
-            updateDoc(docRef, {
-              ESTOQUE: increment(op.data.quantity),
-              updatedAt: new Date().toISOString()
-            }),
-            timeoutMs,
-            `Timeout ao incrementar estoque ${op.collectionName}/${op.docId}`
-          );
-          processed++;
-        } else {
-          console.warn(`[Sync Offline] Tipo de operação não reconhecido descartado com segurança:`, op.type);
-        }
-      } catch (err) {
-        console.warn(`[Sync Offline] Falha ao sincronizar item pendente ${op.collectionName}/${op.docId}:`, err?.message || err);
-        const retryCount = (op.retryCount || 0) + 1;
-        if (retryCount >= 3) {
-          console.error(`[Sync Offline] Limite de 3 tentativas atingido para ${op.collectionName}/${op.docId}. Movendo para ${DEAD_LETTER_QUEUE_KEY}.`);
-          try {
-            const dlRaw = localStorage.getItem(DEAD_LETTER_QUEUE_KEY);
-            const dlList = dlRaw ? JSON.parse(dlRaw) : [];
-            dlList.push({
-              ...op,
-              retryCount,
-              failedAt: new Date().toISOString(),
-              error: err?.message || String(err)
-            });
-            localStorage.setItem(DEAD_LETTER_QUEUE_KEY, JSON.stringify(dlList));
-          } catch (dlErr) {
-            console.warn('Erro ao salvar item na fila morta:', dlErr);
-          }
-        } else {
-          remaining.push({
-            ...op,
-            retryCount
-          });
-        }
-      }
-    }
-
-    // Preserva quaisquer operações adicionadas concorrentemente à fila enquanto a sincronização ocorria
-    const currentQueue = getOfflineQueue();
-    const processedIds = new Set(queue.map(q => q.id).filter(Boolean));
-    const concurrentlyAdded = currentQueue.filter(item => !item.id || !processedIds.has(item.id));
-    const finalQueue = [...remaining, ...concurrentlyAdded];
-
+  const executeDrain = async () => {
+    isSyncingQueue = true;
     try {
-      localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(finalQueue));
-    } catch (storageErr) {
-      console.warn('Erro ao atualizar fila offline no localStorage, liberando snapshot para garantir espaço:', storageErr);
-      try {
-        localStorage.removeItem(OFFLINE_BACKUP_KEY);
-        localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(finalQueue));
-      } catch (retryErr) {
-        console.error('Falha crítica ao persistir fila offline após limpeza de snapshot:', retryErr);
+      const rawQueue = getOfflineQueue();
+      const queue = rawQueue.filter(item => Boolean(item && item.id));
+      if (queue.length === 0) {
+        if (rawQueue.length > 0) {
+          clearOfflineQueue();
+        }
+        notifySyncStatus(0);
+        return 0;
       }
-    }
-    notifySyncStatus(finalQueue.length);
 
-    if (processed > 0 && typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('yasmin-sync-finished', {
-        detail: { processedCount: processed, remainingCount: finalQueue.length }
-      }));
+      const timeoutMs = options?.timeoutMs || 3500;
+      const remaining = [];
+      let processed = 0;
+
+      for (const op of queue) {
+        try {
+          if (typeof options?.executor === 'function') {
+            await withTimeout(
+              options.executor(op),
+              timeoutMs,
+              `Timeout ao processar ${op.collectionName}/${op.docId}`
+            );
+            processed++;
+          } else if (op.type === 'save') {
+            const docRef = doc(db, op.collectionName, op.docId);
+            await withTimeout(
+              setDoc(docRef, op.data, { merge: true }),
+              timeoutMs,
+              `Timeout ao salvar ${op.collectionName}/${op.docId}`
+            );
+            processed++;
+          } else if (op.type === 'delete') {
+            const docRef = doc(db, op.collectionName, op.docId);
+            await withTimeout(
+              deleteDoc(docRef),
+              timeoutMs,
+              `Timeout ao excluir ${op.collectionName}/${op.docId}`
+            );
+            processed++;
+          } else if (op.type === 'decrement_stock') {
+            const docRef = doc(db, op.collectionName, op.docId);
+            await withTimeout(
+              updateDoc(docRef, {
+                ESTOQUE: increment(-op.data.quantity),
+                updatedAt: new Date().toISOString()
+              }),
+              timeoutMs,
+              `Timeout ao atualizar estoque ${op.collectionName}/${op.docId}`
+            );
+            processed++;
+          } else if (op.type === 'increment_stock') {
+            const docRef = doc(db, op.collectionName, op.docId);
+            await withTimeout(
+              updateDoc(docRef, {
+                ESTOQUE: increment(op.data.quantity),
+                updatedAt: new Date().toISOString()
+              }),
+              timeoutMs,
+              `Timeout ao incrementar estoque ${op.collectionName}/${op.docId}`
+            );
+            processed++;
+          } else {
+            console.warn(`[Sync Offline] Tipo de operação não reconhecido descartado com segurança:`, op.type);
+          }
+        } catch (err) {
+          console.warn(`[Sync Offline] Falha ao sincronizar item pendente ${op.collectionName}/${op.docId}:`, err?.message || err);
+          const retryCount = (op.retryCount || 0) + 1;
+          if (retryCount >= 3) {
+            console.error(`[Sync Offline] Limite de 3 tentativas atingido para ${op.collectionName}/${op.docId}. Movendo para ${DEAD_LETTER_QUEUE_KEY}.`);
+            try {
+              const dlRaw = localStorage.getItem(DEAD_LETTER_QUEUE_KEY);
+              const dlList = dlRaw ? JSON.parse(dlRaw) : [];
+              dlList.push({
+                ...op,
+                retryCount,
+                failedAt: new Date().toISOString(),
+                error: err?.message || String(err)
+              });
+              localStorage.setItem(DEAD_LETTER_QUEUE_KEY, JSON.stringify(dlList));
+            } catch (dlErr) {
+              console.warn('Erro ao salvar item na fila morta:', dlErr);
+            }
+          } else {
+            remaining.push({
+              ...op,
+              retryCount
+            });
+          }
+        }
+      }
+
+      // Preserva quaisquer operações adicionadas concorrentemente à fila enquanto a sincronização ocorria
+      const currentQueue = getOfflineQueue();
+      const processedIds = new Set(queue.map(q => q.id).filter(Boolean));
+      const concurrentlyAdded = currentQueue.filter(item => item?.id && !processedIds.has(item.id));
+      const finalQueue = [...remaining.filter(item => Boolean(item && item.id)), ...concurrentlyAdded];
+
+      try {
+        localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(finalQueue));
+      } catch (storageErr) {
+        console.warn('Erro ao atualizar fila offline no localStorage, liberando snapshot para garantir espaço:', storageErr);
+        try {
+          localStorage.removeItem(OFFLINE_BACKUP_KEY);
+          localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(finalQueue));
+        } catch (retryErr) {
+          console.error('Falha crítica ao persistir fila offline após limpeza de snapshot:', retryErr);
+        }
+      }
+      notifySyncStatus(finalQueue.length);
+
+      if (processed > 0 && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('yasmin-sync-finished', {
+          detail: { processedCount: processed, remainingCount: finalQueue.length }
+        }));
+      }
+
+      return processed;
+    } finally {
+      isSyncingQueue = false;
     }
-  } finally {
-    isSyncingQueue = false;
+  };
+
+  // 🛡️ Web Locks API Mutex Multi-Aba: Garante que apenas 1 aba processe a fila por vez no navegador
+  if (typeof navigator !== 'undefined' && navigator.locks && typeof navigator.locks.request === 'function') {
+    try {
+      return await navigator.locks.request('yasmin_offline_sync_lock', { ifAvailable: true }, async (lock) => {
+        if (!lock) return 0;
+        return await executeDrain();
+      });
+    } catch (lockErr) {
+      console.warn('[Sync Offline] Falha ao solicitar Web Lock, usando fallback local:', lockErr);
+      if (isSyncingQueue) return 0;
+      return await executeDrain();
+    }
   }
 
-  return processed;
+  // Fallback para ambientes sem Web Locks (Node.js, navegadores legados)
+  if (isSyncingQueue) return 0;
+  return await executeDrain();
 };
 
 export const saveOfflineSnapshot = (dataObj) => {

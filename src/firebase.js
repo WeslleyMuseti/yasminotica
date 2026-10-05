@@ -2,7 +2,7 @@ import { initializeApp } from "firebase/app";
 import { 
   initializeFirestore, 
   persistentLocalCache, 
-  persistentSingleTabManager, 
+  persistentMultipleTabManager, 
   getFirestore 
 } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
@@ -35,14 +35,13 @@ if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
 if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "") {
   app = initializeApp(firebaseConfig);
   
-  // 🛡️ PERSISTÊNCIA EM INDEXEDDB VIA persistentSingleTabManager:
-  // Usa EXCLUSIVAMENTE o IndexedDB (com capacidade de Gigabytes), eliminando por completo
-  // o risco de QuotaExceededError (5MB) e ASSERTION FAILED do WebStorage.
-  // Permite sincronização instantânea em tempo real com o Firebase da Google.
+  // 🛡️ PERSISTÊNCIA EM INDEXEDDB VIA persistentMultipleTabManager:
+  // Usa IndexedDB com suporte nativo a múltiplas abas abertas simultaneamente,
+  // compartilhando cache local com segurança e sem FAILED_PRECONDITION em abas secundárias.
   try {
     db = initializeFirestore(app, {
       localCache: persistentLocalCache({
-        tabManager: persistentSingleTabManager()
+        tabManager: persistentMultipleTabManager()
       })
     });
   } catch (err) {

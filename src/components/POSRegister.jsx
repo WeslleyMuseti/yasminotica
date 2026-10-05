@@ -49,6 +49,7 @@ const withTimeout = (promise, ms = 2500) => {
 
 const POSRegister = ({
   data = {},
+  setData,
   clientsData = [],
   salesData = [],
   armacoesData = [],
@@ -1100,8 +1101,12 @@ const POSRegister = ({
             const updatedProduct = {
               ...item.rawProduct,
               'ESTOQUE': updatedStock,
-              ...(item.rawProduct['EM ESTOQUE'] !== undefined ? { 'EM ESTOQUE': updatedStock } : {})
+              ...(item.rawProduct['EM ESTOQUE'] !== undefined ? { 'EM ESTOQUE': updatedStock } : {}),
+              ...(item.rawProduct['estoque'] !== undefined ? { 'estoque': updatedStock } : {})
             };
+            item.rawProduct['ESTOQUE'] = updatedStock;
+            if (item.rawProduct['EM ESTOQUE'] !== undefined) item.rawProduct['EM ESTOQUE'] = updatedStock;
+            if (item.rawProduct['estoque'] !== undefined) item.rawProduct['estoque'] = updatedStock;
 
             // Baixa atômica no banco de dados em nuvem
             const targetDocId = item.rawProduct.id || item.rawProduct._id;
@@ -1113,12 +1118,19 @@ const POSRegister = ({
               }
             }
 
-            if (onUpdateRow) {
-              try {
-                await withTimeout(onUpdateRow(sheetName, item.rawProduct, updatedProduct), 3000);
-              } catch (rowErr) {
-                console.warn('Aviso ao atualizar saldo de estoque local:', rowErr);
-              }
+            // Atualização apenas do estado em memória local (evita gravação dupla no Firestore)
+            if (typeof setData === 'function') {
+              setData(prev => {
+                if (!prev || !prev[sheetName]) return prev;
+                return {
+                  ...prev,
+                  [sheetName]: prev[sheetName].map(r => {
+                    const isMatch = r === item.rawProduct ||
+                      (targetDocId && (r?.id === targetDocId || r?.['_id'] === targetDocId));
+                    return isMatch ? updatedProduct : r;
+                  })
+                };
+              });
             }
           }
         }

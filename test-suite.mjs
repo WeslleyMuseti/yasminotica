@@ -3317,6 +3317,137 @@ async function runTests() {
   console.assert(batchResult.length === 3, `saveBatch deve processar todos os 3 itens do lote, processou ${batchResult.length}`);
   console.log('  ✅ Test 36 Passed: Dead-Letter Queue, Sanitização Monetária e Batching validados com sucesso!\n');
 
+  // ─── TEST 37: Proteção Anti-Write-Storm, Web Locks Mutex Multi-Aba e Higienização de Fila ───
+  console.log('▶ Test 37: Proteção Anti-Write-Storm, Web Locks Mutex Multi-Aba e Higienização de Fila');
+
+  // 37.1 Simulação do Web Locks API Mutex Multi-Aba
+  let lockRequested = false;
+  let lockNameUsed = '';
+  let lockOptionsUsed = null;
+  const originalNavigator = globalThis.navigator;
+
+  // Mock de navigator.locks
+  let lockHolderActive = false;
+  const mockLocks = {
+    request: async (name, options, callback) => {
+      lockRequested = true;
+      lockNameUsed = name;
+      lockOptionsUsed = options;
+      if (options?.ifAvailable && lockHolderActive) {
+        // Simula outra aba segurando o lock: retorna callback com null
+        return await callback(null);
+      }
+      lockHolderActive = true;
+      try {
+        return await callback({ name });
+      } finally {
+        lockHolderActive = false;
+      }
+    }
+  };
+
+  Object.defineProperty(globalThis, 'navigator', {
+    value: {
+      ...originalNavigator,
+      locks: mockLocks,
+      onLine: true
+    },
+    configurable: true,
+    writable: true
+  });
+
+  // Limpa filas anteriores
+  clearOfflineQueue();
+
+  // Enfileira item para teste
+  enqueueOfflineOp('save', 'CAD_ARMACOES', 'arm_lock_test', { PRECO: 199.90 });
+  console.assert(getOfflineQueue().length === 1, 'Fila deve ter 1 item para teste de Web Lock');
+
+  // Dispara processamento com Web Lock ativo
+  let secondTabAborted = false;
+  const syncPromise = processOfflineQueue({
+    timeoutMs: 300,
+    executor: async (op) => {
+      // Simula a tentativa de uma segunda aba simultânea enquanto a primeira aba segura o lock
+      const secondTabResult = await processOfflineQueue();
+      if (secondTabResult === 0) {
+        secondTabAborted = true;
+      }
+      await new Promise(r => setTimeout(r, 20));
+    }
+  });
+
+  const resLockSync = await syncPromise;
+  console.assert(lockRequested === true, 'navigator.locks.request deve ter sido invocado');
+  console.assert(lockNameUsed === 'yasmin_offline_sync_lock', 'Nome do lock deve ser yasmin_offline_sync_lock');
+  console.assert(lockOptionsUsed?.ifAvailable === true, 'Lock deve usar { ifAvailable: true }');
+  console.assert(secondTabAborted === true, 'Segunda aba deve abortar imediatamente (retornar 0) quando lock estiver ocupado');
+  console.assert(resLockSync === 1, 'Primeira aba deve processar 1 item');
+  console.assert(getOfflineQueue().length === 0, 'Fila deve estar vazia após processamento bem-sucedido');
+
+  // 37.2 Higienização do Filtro de Fila Offline (descarte de itens sem id / corrompidos)
+  clearOfflineQueue();
+  // Insere itens válidos e inválidos diretamente
+  const corruptQueue = [
+    { id: 'valid_1', type: 'save', collectionName: 'Registro_Vendas', docId: 'v1', data: {} },
+    { id: null, type: 'save', collectionName: 'Registro_Vendas', docId: 'corrupt_1', data: {} },
+    { type: 'save', collectionName: 'Registro_Vendas', docId: 'corrupt_2', data: {} },
+    { id: undefined, type: 'save', collectionName: 'Registro_Vendas', docId: 'corrupt_3', data: {} }
+  ];
+  globalThis.localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(corruptQueue));
+
+  // Processa a fila: o filtro concurrentlyAdded deve descartar itens sem id
+  await processOfflineQueue({
+    timeoutMs: 150,
+    executor: async (op) => {
+      // Adiciona mais um item inválido e um válido concorrentemente
+      const current = JSON.parse(globalThis.localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]');
+      current.push({ id: null, type: 'save', docId: 'corrupt_concurrent' });
+      current.push({ id: 'valid_concurrent', type: 'save', docId: 'v_concurrent' });
+      globalThis.localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(current));
+    }
+  });
+
+  const queueAfterSanitize = getOfflineQueue();
+  console.assert(queueAfterSanitize.every(item => item?.id), 'Todos os itens retidos na fila devem possuir id válido (itens nulos/sem id descartados)');
+  console.assert(queueAfterSanitize.some(item => item.id === 'valid_concurrent'), 'Item válido concorrente deve ser preservado');
+
+  // 37.3 Fallback Gracioso em Caso de Falha/Exceção na Web Locks API (ex: iframe com sandbox restritivo)
+  const throwingLocks = {
+    request: async () => {
+      throw new Error('SecurityError: Web Locks are disabled in this context');
+    }
+  };
+  Object.defineProperty(globalThis, 'navigator', {
+    value: {
+      ...originalNavigator,
+      locks: throwingLocks,
+      onLine: true
+    },
+    configurable: true,
+    writable: true
+  });
+  clearOfflineQueue();
+  enqueueOfflineOp('save', 'CAD_ARMACOES', 'arm_fallback_test', { PRECO: 250.00 });
+  const fallbackResult = await processOfflineQueue({
+    timeoutMs: 150,
+    executor: async (op) => {
+      // executor bem-sucedido via fallback local
+    }
+  });
+  console.assert(fallbackResult === 1, 'processOfflineQueue deve degradar para execução local segura se navigator.locks.request lançar exceção');
+  console.assert(getOfflineQueue().length === 0, 'Fila deve ser processada com sucesso no fallback');
+
+  // Restaura navigator original
+  Object.defineProperty(globalThis, 'navigator', {
+    value: originalNavigator,
+    configurable: true,
+    writable: true
+  });
+
+  clearOfflineQueue();
+  console.log('  ✅ Test 37 Passed: Web Locks Mutex Multi-Aba, Higienização de Fila e Fallback Gracioso validados com sucesso!\n');
+
   console.log('🎉 ALL AUTOMATED TESTS PASSED SUCCESSFULLY!');
   process.exit(0);
 }
